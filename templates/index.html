@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>商品竞对分析平台</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #f3f4f6;
+            --sidebar-width: 120px;
+            --card-width: 320px;
+            --primary-color: #3b82f6;
+            --danger-color: #ef4444;
+            --success-color: #10b981;
+            --warning-color: #f59e0b;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background-color: #e5e7eb;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Header Styles */
+        header {
+            background-color: #fff;
+            padding: 10px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            z-index: 100;
+        }
+
+        .header-title {
+            font-size: 24px;
+            font-weight: 700;
+            color: #111827;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 12px;
+        }
+
+        .btn {
+            border: 1px solid #d1d5db;
+            background: #fff;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s;
+        }
+
+        .btn:hover { background: #f9fafb; }
+        .btn-primary { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+        .btn-primary:hover { background: #2563eb; }
+
+        /* Main Content Layout */
+        .main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Sidebar labels (Hidden) */
+        .sidebar {
+            display: none;
+        }
+
+        .label-row {
+            height: 300px; /* Total height of a product set */
+            display: flex;
+            flex-direction: column;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .label-item {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            font-size: 13px;
+            color: #6b7280;
+            border-bottom: 1px solid #f3f4f6;
+            background: #f9fafb;
+        }
+
+        /* Scrollable Area */
+        .product-scroller {
+            flex: 1;
+            overflow-x: auto;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header Row with Store Tabs */
+        .store-header-row {
+            display: flex;
+            position: sticky;
+            top: 0;
+            background: #e5e7eb;
+            z-index: 50;
+            padding: 10px 0;
+        }
+
+        .store-tab {
+            width: var(--card-width);
+            flex-shrink: 0;
+            margin: 0 10px;
+            text-align: center;
+            border-radius: 12px;
+            padding: 8px;
+            font-weight: 600;
+            color: #fff;
+        }
+
+        .tab-main { background: #60a5fa; } /* Light Blue */
+        .tab-comp { background: #fbbf24; } /* Warm Orange */
+
+        /* Row Layout */
+        .products-row {
+            display: flex;
+            padding: 10px 0; /* sync with store-header-row vertical padding */
+        }
+
+        /* Product Card */
+        .product-card {
+            width: var(--card-width);
+            flex-shrink: 0;
+            min-height: 280px;
+            background: #fff;
+            margin: 0 10px;
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            border: 1.5px solid #fff;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            overflow: hidden;
+            position: relative;
+        }
+
+        .main-card { background: #eff6ff; border-color: #bfdbfe; }
+        .comp-card { background: #fffbeb; border-color: #fef3c7; }
+        .empty-card { background: #f3f4f6; border: 2px dashed #d1d5db; justify-content: center; align-items: center; color: #9ca3af; }
+
+        .card-image {
+            height: 120px;
+            background: #fff;
+            display: flex;
+            justify-content: center;
+            padding: 8px;
+        }
+        .card-image img { max-width: 100%; max-height: 100%; object-fit: contain; }
+
+        .card-info { padding: 12px; flex: 1; display: flex; flex-direction: column; gap: 10px; }
+        .info-group { display: flex; align-items: flex-start; gap: 8px; border-bottom: 1px solid #f3f4f6; padding-bottom: 4px; }
+        .info-group:last-child { border-bottom: none; }
+        .info-label { width: 70px; flex-shrink: 0; font-size: 11px; color: #9ca3af; text-transform: uppercase; font-weight: 600; padding-top: 2px; }
+        .info-title { font-size: 12px; font-weight: 500; overflow: hidden; line-height: 1.4; color: #111827; }
+        .info-spec { font-size: 11px; color: #4b5563; font-weight: 500; }
+        .info-prices { display: flex; align-items: baseline; gap: 8px; }
+        .price-act { font-size: 16px; font-weight: 700; color: #3b82f6; }
+        .price-orig { font-size: 11px; color: #9ca3af; text-decoration: line-through; }
+        .info-stats { font-size: 11px; color: #4b5563; font-weight: 500; }
+
+        .card-actions {
+            padding: 8px;
+            display: flex;
+            gap: 4px;
+            flex-wrap: wrap;
+        }
+
+        .action-btn {
+            background: #3b82f6;
+            color: #fff;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            flex: 1;
+            text-align: center;
+        }
+        .price-orig {
+            color: #9ca3af;
+            font-size: 13px;
+            text-decoration: line-through;
+            margin-left: 8px;
+        }
+
+        /* Editable Input Styles */
+        .editable-price {
+            width: 70px;
+            padding: 4px 6px;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--primary-color);
+            background: #fff;
+            transition: all 0.2s;
+        }
+        .editable-price:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+        }
+        .editable-price-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            color: #4b5563;
+        }
+
+        /* Status Badge Styles */
+        .status-badge {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 14px;
+            font-weight: 700;
+            text-transform: uppercase;
+            z-index: 10;
+        }
+        .badge-eliminated {
+            background: #fef2f2;
+            color: #ef4444;
+            border: 1px solid #fee2e2;
+        }
+        .badge-new {
+            background: #ecfdf5;
+            color: #10b981;
+            border: 1px solid #d1fae5;
+        }
+
+        .btn-eliminate { background: #3b82f6; opacity: 0.8; }
+        .btn-link { background: #3b82f6; }
+        .btn-price { background: #3b82f6; }
+        .btn-new { background: #3b82f6; }
+
+        .eliminated { opacity: 0.5; filter: grayscale(0.5); }
+        .eliminated::after {
+            content: "已淘汰";
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-15deg);
+            background: rgba(239, 68, 68, 0.8);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-weight: 700;
+        }
+
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background: #fff;
+            width: 90%;
+            max-width: 1000px;
+            max-height: 85vh;
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .modal-header { padding: 16px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; }
+        .modal-body { flex: 1; overflow-y: auto; padding: 16px; }
+        .search-box { margin-bottom: 16px; width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px; }
+
+        .product-list-item {
+            display: flex;
+            gap: 16px;
+            padding: 12px;
+            border-bottom: 1px solid #f3f4f6;
+            cursor: pointer;
+            align-items: center;
+        }
+        .product-list-item:hover { background: #f0f7ff; border-left: 4px solid var(--primary-color); }
+        .product-list-img { width: 80px; height: 80px; flex-shrink: 0; background: #fff; padding: 4px; border-radius: 4px; border: 1px solid #eee; }
+        .product-list-img img { width: 100%; height: 100%; object-fit: contain; }
+        .product-list-details { flex: 1; display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; }
+        .modal-product-price { color: var(--primary-color); font-weight: 700; font-size: 16px; }
+        .modal-product-label { color: #9ca3af; font-size: 10px; text-transform: uppercase; }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 10px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="header-title">商品竞对分析平台</div>
+    <div class="header-actions">
+        <input type="text" class="btn" id="globalSearch" placeholder="搜索标题/条码..." oninput="handleSearch()" style="width: 200px; border-radius: 8px;">
+        <select class="btn" id="sortSelect" onchange="handleSort()" style="border-radius: 8px;">
+            <option value="none">默认排序</option>
+            <option value="price_asc">价格从低到高</option>
+            <option value="price_desc">价格从高到低</option>
+            <option value="sales_desc">销量从高到低</option>
+            <option value="similarity_desc">相似度从高到低</option>
+            <option value="match_mode">匹配方式排序</option>
+        </select>
+        <button class="btn"><img src="https://img.icons8.com/material-outlined/20/000000/filter.png"/> 展示筛选</button>
+        <button class="btn btn-primary" onclick="exportExcel()"><img src="https://img.icons8.com/material-outlined/20/ffffff/download.png"/> 下载</button>
+        <input type="file" id="uploadInput" accept=".xlsx, .xls" style="display:none;" onchange="handleUpload(event)" />
+        <button class="btn" onclick="document.getElementById('uploadInput').click()"><img src="https://img.icons8.com/material-outlined/20/000000/upload.png"/> 上传</button>
+    </div>
+</header>
+
+<div class="main-container">
+    <!-- We can keep it but ensure it doesn't affect flow -->
+    <div class="sidebar" id="sidebar" style="display:none"></div>
+
+    <div class="product-scroller" id="scroller">
+        <div class="store-header-row" id="storeHeader">
+            <!-- Store headers will be generated here -->
+        </div>
+        <div id="gridBody">
+            <div style="padding: 40px; text-align: center; color: #6b7280; font-size: 18px;" id="loadingMsg">
+                正在加载数据，请稍候...
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal" id="linkModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>选择对应商品</h3>
+            <button class="btn" onclick="closeModal()">关闭</button>
+        </div>
+        <div class="modal-body">
+            <input type="text" class="search-box" id="modalSearch" placeholder="搜索商品名/条码..." oninput="filterModalList()">
+            <div id="modalList"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+let gridData = [];
+let filteredData = [];
+let storeSources = [
+    { id: '0', name: '沃玛希' },
+    { id: '1', name: '犀牛' },
+    { id: '2', name: 'AA百货' }
+];
+let currentLinkAction = null; // { row_idx, store_id }
+let allStoreProducts = {}; // store_id -> list
+
+async function loadData() {
+    const loadingMsg = document.getElementById('loadingMsg');
+    console.log("Fetching grid data from /api/grid_data...");
+    try {
+        const response = await fetch('/api/grid_data');
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        gridData = await response.json();
+        console.log("Loaded grid data:", gridData.length, "rows");
+        
+        if (gridData.length === 0) {
+            loadingMsg.innerText = "数据为空，请先上传比对结果文件。";
+            return;
+        }
+        
+        filteredData = [...gridData];
+        renderGrid();
+    } catch (e) {
+        console.error("Failed to load data:", e);
+        loadingMsg.style.color = "red";
+        loadingMsg.innerText = `数据加载失败: ${e.message}\n请确保已在终端运行 python app.py 并访问 http://127.0.0.1:5001`;
+    }
+}
+
+function renderGrid() {
+    const gridBodyEl = document.getElementById('gridBody');
+    gridBodyEl.innerHTML = ''; // Clear loading message
+    console.log("Rendering grid with", filteredData.length, "rows");
+    const sidebar = document.getElementById('sidebar');
+    const storeHeader = document.getElementById('storeHeader');
+    // We already have gridBodyEl initialized above
+    
+    // Headers
+    storeHeader.innerHTML = `<div class="store-tab tab-main">优购哆 (主店)</div>`;
+    storeSources.forEach(s => {
+        storeHeader.innerHTML += `<div class="store-tab tab-comp">${s.name}</div>`;
+    });
+
+    // Rows
+    sidebar.innerHTML = '';
+    gridBodyEl.innerHTML = '';
+
+    const labels = ["图片", "商品名称", "规格", "SKUID", "活动价", "零售价", "销量", "三级类目"];
+    
+    filteredData.forEach((row, idx) => {
+        // Find actual index in original gridData for actions
+        const originalIdx = gridData.findIndex(r => r === row);
+        // Sidebar labels (Empty since we hidden it)
+        sidebar.innerHTML = '';
+
+        // Product row
+        const rowDiv = document.createElement('div');
+        rowDiv.className = 'products-row';
+
+        // Main Store Card
+        const mainCard = createProductCard(row, null, originalIdx);
+        rowDiv.appendChild(mainCard);
+
+        // Competitor Cards
+        storeSources.forEach(s => {
+            const compCard = createProductCard(row, s.id, originalIdx);
+            rowDiv.appendChild(compCard);
+        });
+
+        gridBodyEl.appendChild(rowDiv);
+    });
+}
+
+function createProductCard(row, storeId, rowIdx) {
+    const card = document.createElement('div');
+    const prefix = storeId === null ? "" : storeId;
+    
+    const isMain = storeId === null;
+    const isLinked = row[`${prefix}skuId`] !== undefined && row[`${prefix}skuId`] !== null;
+    
+    card.className = `product-card ${isMain ? 'main-card' : 'comp-card'}`;
+    card.style.position = 'relative'; // For status badge
+    if (!isMain && !isLinked) card.classList.add('empty-card');
+    if (isMain && row['淘汰标记'] === 1) card.classList.add('eliminated');
+
+    const isEliminated = isMain && (row['是否淘汰'] === '是');
+    const isNew = !isMain && (row[`${prefix}是否新增`] === '是');
+
+    if (!isMain && !isLinked) {
+        card.innerHTML = `<button class="btn" onclick="openModal(${rowIdx}, '${storeId}')">手动关联</button>`;
+        return card;
+    }
+
+    const priceAct = row[`${prefix}活动价`] || "-";
+    const priceOrig = row[`${prefix}原价`] || "-";
+    const newAct = isMain ? (row['新活动价'] || "-") : null;
+    const newOrig = isMain ? (row['新售价'] || "-") : null;
+    const title = row[`${prefix}菜单名`] || "-";
+    const spec = row[`${prefix}规格名`] || "-";
+    const img = row[`${prefix}主图链接`] || "";
+    const sku = row[`${prefix}skuId`] || "-";
+    const sales = row[`${prefix}销售`] || "0";
+    const cate = row[`${prefix}三级类目`] || "-";
+    const similarity = row[`${prefix}相似度`] !== undefined ? (parseFloat(row[`${prefix}相似度`]) * 100).toFixed(0) + '%' : "-";
+    const matchMode = row[`${prefix}匹配`] || "-";
+
+    card.innerHTML = `
+        ${isMain && row['淘汰标记'] === 1 ? `<div class="status-badge badge-eliminated">已淘汰</div>` : ''}
+        ${!isMain && row[`${prefix}是否新增`] === '是' ? `<div class="status-badge badge-new">新增</div>` : ''}
+        <div class="info-group" style="padding: 12px; align-items: center; border-bottom: 1px solid #e5e7eb;">
+            <div class="info-label">图片</div>
+            <div class="card-image"><img src="${img}" onerror="this.src='https://via.placeholder.com/100?text=No+Img'"></div>
+        </div>
+        <div class="card-info">
+            <div class="info-group">
+                <div class="info-label">商品名称</div>
+                <div class="info-title" title="${title}">${title}</div>
+            </div>
+            <div class="info-group">
+                <div class="info-label">规格</div>
+                <div class="info-spec">${spec}</div>
+            </div>
+            <div class="info-group">
+                <div class="info-label">SKUID</div>
+                <div class="info-stats">${sku}</div>
+            </div>
+            <div class="info-group">
+                <div class="info-label">活动/售价</div>
+                <div class="info-prices">
+                    <div class="editable-price-label">
+                        <span style="font-size:12px; color:#9ca3af">¥</span>
+                        <input type="text" class="editable-price" value="${priceAct === '-' ? '' : priceAct}" 
+                               onchange="updateField(${rowIdx}, '${prefix}活动价', this.value)" placeholder="活动价">
+                    </div>
+                    <div class="editable-price-label">
+                        <span style="font-size:12px; color:#9ca3af">¥</span>
+                        <input type="text" class="editable-price" style="font-weight:400; color:#6b7280" value="${priceOrig === '-' ? '' : priceOrig}" 
+                               onchange="updateField(${rowIdx}, '${prefix}原价', this.value)" placeholder="原价">
+                    </div>
+                </div>
+            </div>
+            ${isMain ? `
+            <div class="info-group" style="background: #fdf2f2; border-radius: 4px; padding: 4px 0;">
+                <div class="info-label" style="color: #ef4444; font-weight: 700;">跟价建议</div>
+                <div class="info-prices">
+                    <div class="editable-price-label">
+                        <span style="font-size:12px; color:#fca5a5">¥</span>
+                        <input type="text" class="editable-price" style="border-color: #fecaca; background: #fff8f8;" value="${newAct === '-' ? '' : newAct}" 
+                               onchange="updateField(${rowIdx}, '新活动价', this.value)" placeholder="新活动价">
+                    </div>
+                    <div class="editable-price-label">
+                        <span style="font-size:12px; color:#fca5a5">¥</span>
+                        <input type="text" class="editable-price" style="border-color: #fecaca; background: #fff8f8; font-weight:400; color:#6b7280" value="${newOrig === '-' ? '' : newOrig}" 
+                               onchange="updateField(${rowIdx}, '新售价', this.value)" placeholder="新售价">
+                    </div>
+                </div>
+            </div>
+            ` : ''}
+            <div class="info-group">
+                <div class="info-label">销量</div>
+                <div class="info-stats">${sales}</div>
+            </div>
+            <div class="info-group">
+                <div class="info-label">三级类目</div>
+                <div class="info-stats">${cate}</div>
+            </div>
+            ${!isMain ? `
+            <div class="info-group">
+                <div class="info-label">匹配/相似度</div>
+                <div class="info-stats" style="color: #3b82f6; font-weight: 600;">${matchMode} / ${similarity}</div>
+            </div>
+            ` : ''}
+        </div>
+        <div class="card-actions" style="padding: 12px; border-top: 1px solid #e5e7eb; background: rgba(0,0,0,0.02);">
+            ${isMain ? `
+                <button class="action-btn btn-eliminate" onclick="eliminate(${rowIdx})">${row['淘汰标记'] === 1 ? '取消淘汰' : '淘汰'}</button>
+            ` : `
+                <button class="action-btn btn-link" onclick="openModal(${rowIdx}, '${storeId}')">手动关联</button>
+                <button class="action-btn btn-price" onclick="priceMatch(${rowIdx}, '${storeId}')">跟价</button>
+                <button class="action-btn btn-new" onclick="toggleAdd(${rowIdx}, '${storeId}')">${row[`${prefix}是否新增`] === '是' ? '取消新增' : '新增'}</button>
+            `}
+        </div>
+    `;
+    return card;
+}
+
+// Actions
+async function eliminate(idx) {
+    const current = gridData[idx]['淘汰标记'];
+    const next = current === 1 ? 0 : 1;
+    await fetch('/api/eliminate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ row_idx: idx, status: next })
+    });
+    gridData[idx]['淘汰标记'] = next;
+    gridData[idx]['是否淘汰'] = next === 1 ? "是" : "否";
+    renderGrid();
+}
+
+async function toggleAdd(idx, storeId) {
+    const col = `${storeId}是否新增`;
+    const next = gridData[idx][col] === '是' ? false : true;
+    await fetch('/api/toggle_add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ row_idx: idx, store_id: storeId, is_new: next })
+    });
+    gridData[idx][col] = next ? "是" : "否";
+    renderGrid();
+}
+
+async function priceMatch(idx, storeId) {
+    const response = await fetch('/api/price_match', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ row_idx: idx, store_id: storeId })
+    });
+    const result = await response.json();
+    if (result.status === 'success') {
+        gridData[idx]['新活动价'] = result.new_act;
+        gridData[idx]['新售价'] = result.new_orig;
+        renderGrid();
+    }
+}
+
+async function updateField(idx, column, value) {
+    console.log(`Updating row ${idx}, column ${column} to ${value}`);
+    try {
+        await fetch('/api/update_cell', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ row_idx: idx, column, value })
+        });
+        gridData[idx][column] = value;
+        // If updating 活动价, also update 新活动价/新售价 for consistency if requested later
+        // For now, just update the field itself.
+    } catch (e) {
+        console.error("Update failed:", e);
+    }
+}
+
+// Modal Logic
+async function openModal(rowIdx, storeId) {
+    console.log("Opening modal for storeId:", storeId, "rowIdx:", rowIdx);
+    currentLinkAction = { rowIdx, storeId };
+    document.getElementById('linkModal').style.display = 'flex';
+    document.getElementById('modalSearch').value = ''; // Reset search
+    
+    if (!allStoreProducts[storeId]) {
+        console.log("Fetching products for store:", storeId);
+        const res = await fetch(`/api/store_products/${storeId}`);
+        allStoreProducts[storeId] = await res.json();
+    }
+    console.log("Store products count:", allStoreProducts[storeId].length);
+    renderModalList();
+}
+
+function closeModal() {
+    document.getElementById('linkModal').style.display = 'none';
+}
+
+function renderModalList() {
+    console.log("Rendering modal list...");
+    const list = document.getElementById('modalList');
+    const searchTerm = document.getElementById('modalSearch').value.toLowerCase();
+    const products = allStoreProducts[currentLinkAction.storeId];
+    
+    list.innerHTML = ''; // MUST CLEAR BEFORE RENDERING
+    
+    if (!products) {
+        console.error("No products found for current action:", currentLinkAction);
+        list.innerHTML = '<div style="padding:20px; text-align:center">正在加载数据...</div>';
+        return;
+    }
+    products.filter(p => {
+        const name = (p['商品名称'] || "").toLowerCase();
+        const sku = String(p['skuid'] || p['SKUID'] || "").toLowerCase();
+        const barcode = String(p['商品条码'] || "").toLowerCase();
+        return name.includes(searchTerm) || sku.includes(searchTerm) || barcode.includes(searchTerm);
+    }).slice(0, 100).forEach(p => {
+        const item = document.createElement('div');
+        item.className = 'product-list-item';
+        
+        const price = p['单件折扣价'] || p['新活动价'] || p['活动价'] || "-";
+        const sales = p['月销量'] || p['销售'] || "0";
+        const cate = p['美团类目三级'] || p['三级类目'] || "-";
+        const spec = p['规格名称'] || p['规格'] || "-";
+
+        item.innerHTML = `
+            <div class="product-list-img"><img src="${p['图片']}" onerror="this.src='https://via.placeholder.com/80?text=No+Img'"></div>
+            <div class="product-list-details">
+                <div>
+                    <div style="font-weight:600; font-size:14px; margin-bottom:4px;">${p['商品名称']}</div>
+                    <div style="font-size:12px; color:#6b7280">条码: ${p['商品条码'] || "-"} | SKU: ${p['skuid'] || p['SKUID']}</div>
+                </div>
+                <div>
+                    <div class="modal-product-label">规格/类目</div>
+                    <div style="font-size:12px; color:#4b5563">${spec}</div>
+                    <div style="font-size:11px; color:#9ca3af">${cate}</div>
+                </div>
+                <div style="text-align:right">
+                    <div class="modal-product-label">价格/销量</div>
+                    <div class="modal-product-price">¥${price}</div>
+                    <div style="font-size:11px; color:#6b7280">月销: ${sales}</div>
+                </div>
+            </div>
+        `;
+        item.onclick = () => performLink(p);
+        list.appendChild(item);
+    });
+}
+
+function filterModalList() { renderModalList(); }
+
+async function performLink(productData) {
+    const { rowIdx, storeId } = currentLinkAction;
+    await fetch('/api/manual_link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ row_idx: rowIdx, store_id: storeId, product_data: productData })
+    });
+    
+    // Refresh local data
+    await loadData();
+    closeModal();
+}
+
+function exportExcel() {
+    window.location.href = '/api/export';
+}
+
+async function handleUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        const response = await fetch('/api/upload', {
+            method: 'POST',
+            body: formData
+        });
+        const result = await response.json();
+        if (result.status === 'success') {
+            alert('上传成功，正在刷新数据...');
+            loadData();
+        } else {
+            alert('上传失败: ' + result.message);
+        }
+    } catch (error) {
+        console.error('Upload error:', error);
+        alert('上传发生错误');
+    }
+    // Clear input so same file can be uploaded again
+    event.target.value = '';
+}
+
+function handleSearch() {
+    const term = document.getElementById('globalSearch').value.toLowerCase();
+    filteredData = gridData.filter(row => {
+        const title = (row['菜单名'] || "").toLowerCase();
+        const barcode = (row['条码'] || "").toLowerCase();
+        return title.includes(term) || barcode.includes(term);
+    });
+    renderGrid();
+}
+
+function handleSort() {
+    const sortVal = document.getElementById('sortSelect').value;
+    if (sortVal === 'none') {
+        filteredData = [...gridData];
+    } else if (sortVal === 'price_asc') {
+        filteredData.sort((a, b) => (parseFloat(a['活动价']) || 0) - (parseFloat(b['活动价']) || 0));
+    } else if (sortVal === 'price_desc') {
+        filteredData.sort((a, b) => (parseFloat(b['活动价']) || 0) - (parseFloat(a['活动价']) || 0));
+    } else if (sortVal === 'sales_desc') {
+        filteredData.sort((a, b) => (parseFloat(b['销售']) || 0) - (parseFloat(a['销售']) || 0));
+    } else if (sortVal === 'similarity_desc') {
+        filteredData.sort((a, b) => {
+            const getBestSim = (r) => {
+                let max = 0;
+                storeSources.forEach(s => {
+                    const sim = parseFloat(r[`${s.id}相似度`]) || 0;
+                    if (sim > max) max = sim;
+                });
+                return max;
+            };
+            return getBestSim(b) - getBestSim(a);
+        });
+    } else if (sortVal === 'match_mode') {
+        filteredData.sort((a, b) => {
+            const getMode = (r) => {
+                for (let s of storeSources) {
+                    if (r[`${s.id}匹配`]) return r[`${s.id}匹配`];
+                }
+                return "";
+            };
+            return getMode(a).localeCompare(getMode(b));
+        });
+    }
+    renderGrid();
+}
+
+window.addEventListener('DOMContentLoaded', loadData);
+</script>
+</body>
+</html>
