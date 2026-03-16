@@ -111,7 +111,8 @@ def price_match():
     return jsonify({
         "status": "success", 
         "new_act": safe_f(dm.grid_df.at[row_idx, '新活动价']),
-        "new_orig": safe_f(dm.grid_df.at[row_idx, '新售价'])
+        "new_orig": safe_f(dm.grid_df.at[row_idx, '新售价']),
+        "store_name": dm.grid_df.at[row_idx, '跟价店']
     })
 
 @app.route('/api/manual_link', methods=['POST'])
@@ -121,6 +122,14 @@ def manual_link():
     store_id = data.get('store_id')
     product_data = data.get('product_data')
     dm.manual_link(row_idx, store_id, product_data)
+    return jsonify({"status": "success"})
+
+@app.route('/api/unlink', methods=['POST'])
+def unlink():
+    data = request.json
+    row_idx = data.get('row_idx')
+    store_id = data.get('store_id')
+    dm.unlink_product(row_idx, store_id)
     return jsonify({"status": "success"})
 
 @app.route('/api/update_cell', methods=['POST'])

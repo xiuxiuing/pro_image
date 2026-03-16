@@ -26,6 +26,7 @@ class DataManager:
         # Load the main comparison output
         if os.path.exists(self.output_file):
             self.grid_df = pd.read_excel(self.output_file)
+            self.grid_df = self.grid_df.astype(object)
             # Add a 'status' column if not exists (for Eliminate/Eliminated)
             if '淘汰标记' not in self.grid_df.columns:
                 self.grid_df['淘汰标记'] = 0 # 0: Normal, 1: Eliminated
@@ -59,25 +60,28 @@ class DataManager:
             return self.store_dfs[store_id]["df"].fillna("").to_dict(orient='records')
         return []
 
+    def _safe_set(self, row_idx, col, val):
+        if col not in self.grid_df.columns:
+            self.grid_df[col] = pd.Series(dtype=object)
+        elif self.grid_df[col].dtype != object:
+            self.grid_df[col] = self.grid_df[col].astype(object)
+        self.grid_df.loc[row_idx, col] = val
+
     def update_cell(self, row_idx, update_data):
         """
         update_data: dict of column: value
         """
         for col, val in update_data.items():
-            if col in self.grid_df.columns:
-                self.grid_df.at[row_idx, col] = val
-            else:
-                self.grid_df[col] = None
-                self.grid_df.at[row_idx, col] = val
+            self._safe_set(row_idx, col, val)
 
     def eliminate_product(self, row_idx, status):
-        self.grid_df.at[row_idx, '淘汰标记'] = status
-        self.grid_df.at[row_idx, '是否淘汰'] = "是" if status == 1 else "否"
+        self._safe_set(row_idx, '淘汰标记', status)
+        self._safe_set(row_idx, '是否淘汰', "是" if status == 1 else "否")
         return True
 
     def mark_as_new(self, row_idx, store_id, is_new):
         col_name = f"{store_id}是否新增"
-        self.grid_df.at[row_idx, col_name] = "是" if is_new else "否"
+        self._safe_set(row_idx, col_name, "是" if is_new else "否")
         return True
 
     def price_match(self, row_idx, store_id):
@@ -88,12 +92,27 @@ class DataManager:
         
         updated = False
         if act_col in self.grid_df.columns:
-            self.grid_df.at[row_idx, '新活动价'] = self.grid_df.at[row_idx, act_col]
+            val = self.grid_df.loc[row_idx, act_col]
+            try:
+                # User logic: -0.1 if >= 0.3, else unchanged
+                num_val = float(val)
+                if num_val >= 0.3:
+                    new_val = round(num_val - 0.1, 2)
+                else:
+                    new_val = num_val
+                val = new_val
+            except:
+                pass
+            self._safe_set(row_idx, '新活动价', val)
             updated = True
         
         if orig_col in self.grid_df.columns:
-            self.grid_df.at[row_idx, '新售价'] = self.grid_df.at[row_idx, orig_col]
+            self._safe_set(row_idx, '新售价', self.grid_df.loc[row_idx, orig_col])
             updated = True
+        
+        if updated:
+            store_name = self.store_dfs[str(store_id)]["name"]
+            self._safe_set(row_idx, '跟价店', store_name)
             
         return updated
 
@@ -125,11 +144,24 @@ class DataManager:
         for out_key, src_keys in mapping.items():
             full_key = f"{prefix}{out_key}"
             val = get_val(product_data, src_keys)
-            self.grid_df.at[row_idx, full_key] = val
+            self._safe_set(row_idx, full_key, val)
         
         # Also update similarity and match description
-        self.grid_df.at[row_idx, f"{prefix}相似度"] = 1.0
-        self.grid_df.at[row_idx, f"{prefix}匹配"] = "手动关联"
+        self._safe_set(row_idx, f"{prefix}相似度", 1.0)
+        self._safe_set(row_idx, f"{prefix}匹配", "手动关联")
+        
+        return True
+
+    def unlink_product(self, row_idx, store_id):
+        prefix = str(store_id)
+        keys_to_clear = [
+            "skuId", "主图链接", "菜单名", "规格名", "活动价", "原价", "销售", "条码", "三级类目", 
+            "相似度", "匹配", "是否新增"
+        ]
+        for key in keys_to_clear:
+            full_key = f"{prefix}{key}"
+            if full_key in self.grid_df.columns:
+                self._safe_set(row_idx, full_key, "")
         
         return True
 
@@ -161,6 +193,11 @@ class DataManager:
                     continue
                 
                 comp_df = self.grid_df[comp_cols].copy()
+                
+                # Add main store SKU ID to competitor data
+                if 'skuId' in self.grid_df.columns:
+                    comp_df.insert(0, f"{prefix}主店SKU", self.grid_df['skuId'])
+                
                 # Remove prefix from column names
                 comp_df.columns = [c[len(prefix):] for c in comp_df.columns]
                 
