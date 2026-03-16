@@ -69,7 +69,7 @@ def get_美团类名3(item):
 
 
 def get_text(item):
-    return f"{get_规格(item)}, {get_美团类名3(item)}, {item['商品名称']}, {item['A品牌']}, {item['A商品名称']}, {item['A规格']}, {item['A材质口味']}, {item['A使用场景']}, {item['A功能标签']}"
+    return f"{get_规格(item)}, {get_美团类名3(item)}, {item['商品名称']}, {item['A品牌']}, {item['A商品名称']}, {item['A规格']}, {item['A材质口味']}"
 
 
 # -----------------------------
@@ -116,9 +116,9 @@ def download_img(url, sku_id, file_path):
 
 def download_worker(item, file_path="img"):
     sku_id = get_sku_id(item)
-    url = item["图片"].strip()
 
     try:
+        url = item["图片"].strip()
         download_img(url, sku_id, file_path)
         return f"成功 {sku_id}"
     except Exception as e:
@@ -138,18 +138,21 @@ def download_imgs(data, file_path="img", max_workers=30):
 # -----------------------------
 
 def image_to_embedding(image_path):
-    with Image.open(image_path) as img:
-        image = img.convert("RGB")
+    try:
+        with Image.open(image_path) as img:
+            image = img.convert("RGB")
 
-    inputs = img_processor(images=image, return_tensors="pt").to(device)
+        inputs = img_processor(images=image, return_tensors="pt").to(device)
 
-    with torch.no_grad():
-        outputs = img_model(**inputs)
-        emb = outputs.last_hidden_state[:, 0]
+        with torch.no_grad():
+            outputs = img_model(**inputs)
+            emb = outputs.last_hidden_state[:, 0]
 
-    emb = emb / emb.norm(dim=-1, keepdim=True)
+        emb = emb / emb.norm(dim=-1, keepdim=True)
 
-    return emb.cpu().numpy().astype("float32")
+        return emb.cpu().numpy().astype("float32")
+    except:
+        return None
 
 
 def text_to_embedding(text):
@@ -185,11 +188,12 @@ def build_img_index(data, image_dir, index_path):
         try:
 
             vec = image_to_embedding(f"{image_dir}/{sku_id}.webp")
-
-            vectors.append(vec)
-            ids.append(sku_id)
+            if vec is not None:
+                vectors.append(vec)
+                ids.append(sku_id)
 
         except Exception as e:
+            print(e)
             print("embedding失败", sku_id)
 
     vectors = np.vstack(vectors)
@@ -245,15 +249,16 @@ def build_text_index(data, index_path):
 # -----------------------------
 
 def search(index_img, index_text, img_vec, text_vec):
-    scores_img, ids_img = index_img.search(img_vec, 1)
+    s1 = 0
+    if img_vec is not None:
+        scores_img, ids_img = index_img.search(img_vec, 1)
+        s1 = float(scores_img[0][0])
+        if s1 >= 0.9:
+            return ids_img[0][0], s1, "图片匹配"
 
     scores_text, ids_text = index_text.search(text_vec, 1)
 
-    s1 = float(scores_img[0][0])
     s2 = float(scores_text[0][0])
-
-    if s1 >= 0.9:
-        return ids_img[0][0], s1, "图片匹配"
 
     if s2 >= 0.9:
         return ids_text[0][0], s2, "文本匹配"
@@ -270,9 +275,9 @@ def search(index_img, index_text, img_vec, text_vec):
 
 if __name__ == '__main__':
 
-    app_name = "030822"
-    target_xlsx = "乐购达.xlsx"
-    source_xlsxs = ["沃玛希.xlsx", "犀牛.xlsx", "AA百货.xlsx"]
+    app_name = "031511"
+    target_xlsx = "优购哆.xlsx"
+    source_xlsxs = ["乐购达.xlsx", "沃玛希.xlsx", "犀牛.xlsx", "AA百货.xlsx"]
 
     sources = []
 
