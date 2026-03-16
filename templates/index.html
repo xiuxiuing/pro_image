@@ -331,9 +331,8 @@
             <option value="match_mode">匹配方式排序</option>
         </select>
         <button class="btn"><img src="https://img.icons8.com/material-outlined/20/000000/filter.png"/> 展示筛选</button>
-        <button class="btn btn-primary" onclick="exportExcel()"><img src="https://img.icons8.com/material-outlined/20/ffffff/download.png"/> 下载</button>
-        <input type="file" id="uploadInput" accept=".xlsx, .xls" style="display:none;" onchange="handleUpload(event)" />
-        <button class="btn" onclick="document.getElementById('uploadInput').click()"><img src="https://img.icons8.com/material-outlined/20/000000/upload.png"/> 上传</button>
+        <button class="btn btn-primary" onclick="exportExcel()"><img src="https://img.icons8.com/material-outlined/20/ffffff/download.png"/> 下载成果</button>
+        <button class="btn btn-primary" style="background: #8b5cf6; border-color: #8b5cf6;" onclick="openAnalysisModal()"><img src="https://img.icons8.com/material-outlined/20/ffffff/search.png"/> 新建分析</button>
     </div>
 </header>
 
@@ -366,28 +365,57 @@
     </div>
 </div>
 
+<div class="modal" id="analysisModal">
+    <div class="modal-content" style="max-width: 500px;">
+        <div class="modal-header">
+            <h3>新建对比分析</h3>
+            <button class="btn" onclick="closeAnalysisModal()">关闭</button>
+        </div>
+        <div class="modal-body" style="padding: 24px; display: flex; flex-direction: column; gap: 20px;">
+            <div>
+                <label style="display: block; font-weight: 600; margin-bottom: 8px;">1. 选择主店文件 (乐购达/优购哆)</label>
+                <input type="file" id="mainFileInput" accept=".xlsx, .xls" style="width: 100%;">
+            </div>
+            <div>
+                <label style="display: block; font-weight: 600; margin-bottom: 8px;">2. 选择竞对店铺文件 (可多选)</label>
+                <input type="file" id="compFilesInput" accept=".xlsx, .xls" multiple style="width: 100%;">
+            </div>
+            <div style="margin-top: 10px;">
+                <button class="btn btn-primary" style="width: 100%; justify-content: center; height: 44px; font-size: 16px;" id="runBtn" onclick="runAnalysisPipeline()">开始 AI 分析与比对</button>
+            </div>
+            <div id="pipelineStatus" style="display: none; padding: 12px; background: #f3f4f6; border-radius: 8px; font-size: 14px; line-height: 1.6;">
+                <div style="font-weight: 700; margin-bottom: 4px;">进度日志：</div>
+                <div id="statusLog">准备中...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 let gridData = [];
 let filteredData = [];
-let storeSources = [
-    { id: '0', name: '沃玛希' },
-    { id: '1', name: '犀牛' },
-    { id: '2', name: 'AA百货' }
-];
+let storeSources = [];
+let mainStoreName = "主店";
 let currentLinkAction = null; // { row_idx, store_id }
 let allStoreProducts = {}; // store_id -> list
 
 async function loadData() {
     const loadingMsg = document.getElementById('loadingMsg');
-    console.log("Fetching grid data from /api/grid_data...");
+    console.log("Fetching config and grid data...");
     try {
+        // Fetch Store Configuration
+        const configRes = await fetch('/api/config');
+        const config = await configRes.json();
+        storeSources = config.stores;
+        mainStoreName = config.main_store;
+
         const response = await fetch('/api/grid_data');
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         gridData = await response.json();
         console.log("Loaded grid data:", gridData.length, "rows");
         
         if (gridData.length === 0) {
-            loadingMsg.innerText = "数据为空，请先上传比对结果文件。";
+            loadingMsg.innerText = "数据为空，请先点击右上角 [新建分析] 启动流程。";
             return;
         }
         
@@ -396,7 +424,7 @@ async function loadData() {
     } catch (e) {
         console.error("Failed to load data:", e);
         loadingMsg.style.color = "red";
-        loadingMsg.innerText = `数据加载失败: ${e.message}\n请确保已在终端运行 python app.py 并访问 http://127.0.0.1:5001`;
+        loadingMsg.innerText = `数据加载失败: ${e.message}`;
     }
 }
 
@@ -409,7 +437,7 @@ function renderGrid() {
     // We already have gridBodyEl initialized above
     
     // Headers
-    storeHeader.innerHTML = `<div class="store-tab tab-main">优购哆 (主店)</div>`;
+    storeHeader.innerHTML = `<div class="store-tab tab-main">${mainStoreName} (主店)</div>`;
     storeSources.forEach(s => {
         storeHeader.innerHTML += `<div class="store-tab tab-comp">${s.name}</div>`;
     });
@@ -703,31 +731,63 @@ function exportExcel() {
     window.location.href = '/api/export';
 }
 
-async function handleUpload(event) {
-    const file = event.target.files[0];
-    if (!file) return;
+// Analysis Pipeline Logic
+function openAnalysisModal() {
+    document.getElementById('analysisModal').style.display = 'flex';
+}
+
+function closeAnalysisModal() {
+    document.getElementById('analysisModal').style.display = 'none';
+}
+
+async function runAnalysisPipeline() {
+    const mainFile = document.getElementById('mainFileInput').files[0];
+    const compFiles = document.getElementById('compFilesInput').files;
+    
+    if (!mainFile || compFiles.length === 0) {
+        alert("请选择主店文件和至少一个竞对店铺文件");
+        return;
+    }
+
+    const runBtn = document.getElementById('runBtn');
+    const statusBox = document.getElementById('pipelineStatus');
+    const logEl = document.getElementById('statusLog');
+    
+    runBtn.disabled = true;
+    runBtn.innerText = "正在分析中 (请勿关闭窗口)...";
+    statusBox.style.display = 'block';
+    logEl.innerHTML = "1. 正在上传并启动 AI 提取流程 (大概需要几分钟)...<br>";
 
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append('main_file', mainFile);
+    for (let f of compFiles) {
+        formData.append('comp_files', f);
+    }
 
     try {
-        const response = await fetch('/api/upload', {
+        const response = await fetch('/api/run_pipeline', {
             method: 'POST',
             body: formData
         });
+        
         const result = await response.json();
         if (result.status === 'success') {
-            alert('上传成功，正在刷新数据...');
-            loadData();
+            logEl.innerHTML += "2. 比对分析完成！<br>3. 正在加载数据...<br>";
+            // Update storeSources dynamically if needed, but for now we expect fixed sources
+            // or we could reload the page/data
+            alert("分析完成！");
+            location.reload(); // Simplest way to refresh all logic and data
         } else {
-            alert('上传失败: ' + result.message);
+            logEl.innerHTML += `<span style="color:red">分析失败: ${result.message}</span>`;
+            runBtn.disabled = false;
+            runBtn.innerText = "重试分析";
         }
     } catch (error) {
-        console.error('Upload error:', error);
-        alert('上传发生错误');
+        console.error('Pipeline error:', error);
+        logEl.innerHTML += `<span style="color:red">发生系统错误: ${error.message}</span>`;
+        runBtn.disabled = false;
+        runBtn.innerText = "重试分析";
     }
-    // Clear input so same file can be uploaded again
-    event.target.value = '';
 }
 
 function handleSearch() {

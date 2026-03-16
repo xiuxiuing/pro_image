@@ -2,6 +2,11 @@ from flask import Flask, render_template, request, jsonify, send_file
 from data_mgr import DataManager
 import os
 import pandas as pd
+import time
+import traceback
+
+import extract_info_ai2
+import main_030822
 
 app = Flask(__name__)
 base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -10,6 +15,59 @@ dm = DataManager(base_dir)
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/api/run_pipeline', methods=['POST'])
+def run_pipeline():
+    if 'main_file' not in request.files or 'comp_files' not in request.files:
+        return jsonify({"status": "error", "message": "Missing files"}), 400
+    
+    main_file = request.files['main_file']
+    comp_files = request.files.getlist('comp_files')
+    
+    # 1. Save uploaded files
+    upload_dir = os.path.join(base_dir, "uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+    
+    main_path = os.path.join(upload_dir, main_file.filename)
+    main_file.save(main_path)
+    
+    comp_paths = []
+    for f in comp_files:
+        path = os.path.join(upload_dir, f.filename)
+        f.save(path)
+        comp_paths.append(path)
+    
+    try:
+        # 2. Extract Info AI
+        print("Step 1: AI Extraction...")
+        extract_info_ai2.process_file_ai(main_path, batch_size=110)
+        for path in comp_paths:
+            extract_info_ai2.process_file_ai(path, batch_size=110)
+        
+        # 3. Run Analysis
+        print("Step 2: Comparison Analysis...")
+        output_name = time.strftime("%Y%m%d_%H%M%S")
+        output_file = main_030822.run_analysis(main_path, comp_paths, output_name=output_name)
+        
+        # 4. Update DataManager
+        dm.output_file = os.path.join(base_dir, output_file)
+        dm.target_file = main_path
+        dm.main_store_name = os.path.basename(main_path).replace(".xlsx", "")
+        dm.source_files = comp_paths
+        dm.store_names = [os.path.basename(p).replace(".xlsx", "") for p in comp_paths]
+        dm.load_data()
+        
+        return jsonify({"status": "success", "output_file": output_file})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/config')
+def get_config():
+    return jsonify({
+        "main_store": dm.main_store_name,
+        "stores": [{"id": str(i), "name": name} for i, name in enumerate(dm.store_names)]
+    })
 
 @app.route('/api/grid_data')
 def get_grid_data():

@@ -1,5 +1,8 @@
 import utils
 import os
+
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+os.environ["OMP_NUM_THREADS"] = "1"
 import requests
 from PIL import Image
 import traceback
@@ -107,11 +110,14 @@ def download_img(url, sku_id, file_path):
     if os.path.exists(file_name):
         return
 
-    r = requests.get(url, timeout=20)
-    r.raise_for_status()
+    try:
+        r = requests.get(url, timeout=20)
+        r.raise_for_status()
 
-    with open(file_name, "wb") as f:
-        f.write(r.content)
+        with open(file_name, "wb") as f:
+            f.write(r.content)
+    except:
+        pass
 
 
 def download_worker(item, file_path="img"):
@@ -130,7 +136,7 @@ def download_imgs(data, file_path="img", max_workers=30):
         futures = [executor.submit(download_worker, item, file_path) for item in data]
 
         for future in as_completed(futures):
-            print(future.result())
+            future.result()
 
 
 # -----------------------------
@@ -193,8 +199,10 @@ def build_img_index(data, image_dir, index_path):
                 ids.append(sku_id)
 
         except Exception as e:
-            print(e)
-            print("embedding失败", sku_id)
+            print(f"embedding失败 {sku_id}: {e}")
+
+    if not vectors:
+        return
 
     vectors = np.vstack(vectors)
 
@@ -231,6 +239,9 @@ def build_text_index(data, index_path):
 
             print("text embedding失败", sku_id)
 
+    if not vectors:
+        return
+
     vectors = np.vstack(vectors)
 
     ids = np.array(ids, dtype="int64")
@@ -250,6 +261,7 @@ def build_text_index(data, index_path):
 
 def search(index_img, index_text, img_vec, text_vec):
     s1 = 0
+    ids_img = [[-1]]
     if img_vec is not None:
         scores_img, ids_img = index_img.search(img_vec, 1)
         s1 = float(scores_img[0][0])
@@ -257,7 +269,6 @@ def search(index_img, index_text, img_vec, text_vec):
             return ids_img[0][0], s1, "图片匹配"
 
     scores_text, ids_text = index_text.search(text_vec, 1)
-
     s2 = float(scores_text[0][0])
 
     if s2 >= 0.9:
@@ -270,29 +281,22 @@ def search(index_img, index_text, img_vec, text_vec):
 
 
 # -----------------------------
-# 主流程
+# Analysis Logic
 # -----------------------------
 
-if __name__ == '__main__':
-
-    app_name = "031511"
-    target_xlsx = "优购哆.xlsx"
-    source_xlsxs = ["乐购达.xlsx", "沃玛希.xlsx", "犀牛.xlsx", "AA百货.xlsx"]
-
+def run_analysis(target_xlsx, source_xlsxs, output_name="031511"):
     sources = []
 
     # -----------------------------
     # 初始化source
     # -----------------------------
-
     for idx, xlsx in enumerate(source_xlsxs):
-
+        print(f"Loading source: {xlsx}")
         data = utils.excel_to_list_dict(xlsx, "Sheet1")
-
         download_imgs(data)
 
-        img_index_path = f"sku_img_{app_name}{idx}.index"
-        text_index_path = f"sku_text_{app_name}{idx}.index"
+        img_index_path = f"sku_img_{output_name}{idx}.index"
+        text_index_path = f"sku_text_{output_name}{idx}.index"
 
         if not os.path.exists(img_index_path):
             build_img_index(data, "img", img_index_path)
@@ -304,7 +308,6 @@ if __name__ == '__main__':
         text_index = faiss.read_index(text_index_path)
 
         sku_dict = {get_sku_id(i): i for i in data}
-
         tiaoma_dict = {get_条码(i): i for i in data if get_条码(i)}
 
         sources.append({
@@ -318,34 +321,24 @@ if __name__ == '__main__':
     # -----------------------------
     # query
     # -----------------------------
-
+    print(f"Loading query: {target_xlsx}")
     query_data = utils.excel_to_list_dict(target_xlsx, "Sheet1")
-
     download_imgs(query_data, "query_img")
 
     res_data = []
-
     for item in query_data:
-
         try:
-
             sku_id = get_sku_id(item)
-
             img_path = f"query_img/{sku_id}.webp"
-
             img_vec = image_to_embedding(img_path)
-
             text_vec = text_to_embedding(get_text(item))
 
             res_item = build_match_item(item)
-
             for idx, source in enumerate(sources):
-
                 sear_item = source["tiaoma_dict"].get(get_条码(item))
 
                 if sear_item:
                     append_match_result(res_item, sear_item, 1, "条码匹配", str(idx))
-
                     continue
 
                 sid, score, match = search(
@@ -355,9 +348,7 @@ if __name__ == '__main__':
                     text_vec
                 )
                 sear_item = source["sku_dict"].get(int(sid))
-
                 desc = ""
-
                 if get_美团类名1(item) != get_美团类名1(sear_item) or \
                         get_美团类名2(item) != get_美团类名2(sear_item):
                     desc = "类目不同"
@@ -369,16 +360,19 @@ if __name__ == '__main__':
                     match + desc,
                     str(idx)
                 )
-
             res_data.append(res_item)
-
         except Exception as e:
-
             traceback.print_exc()
 
+    output_file = f"output_{output_name}.xlsx"
     utils.write_dict_list_to_excel(
         res_data,
-        file_path=f"output_{app_name}.xlsx"
+        file_path=output_file
     )
+    print(f"完成, 输出文件: {output_file}")
+    return output_file
 
-    print("完成")
+if __name__ == '__main__':
+    target_f = "优购哆.xlsx"
+    sources_f = ["乐购达.xlsx", "沃玛希.xlsx", "犀牛.xlsx", "AA百货.xlsx"]
+    run_analysis(target_f, sources_f)
