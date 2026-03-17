@@ -62,12 +62,39 @@ def run_pipeline():
         traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
 
-@app.route('/api/config')
+@app.route('/api/config', methods=['GET', 'POST'])
 def get_config():
+    if request.method == 'POST':
+        data = request.json
+        target = data.get('target')
+        sources = data.get('sources')
+        output = data.get('output')
+        
+        dm.update_config(target_file=target, source_files=sources, output_file=output)
+        return jsonify({"status": "success"})
+    
     return jsonify({
         "main_store": dm.main_store_name,
-        "stores": [{"id": str(i), "name": name} for i, name in enumerate(dm.store_names)]
+        "target_file": dm.target_file,
+        "output_file": dm.output_file,
+        "source_files": dm.source_files,
+        "stores": [{"id": str(i), "name": name, "path": dm.source_files[i]} for i, name in enumerate(dm.store_names)]
     })
+
+@app.route('/api/list_files')
+def list_files():
+    files = []
+    # Search in root and uploads
+    search_dirs = [base_dir, os.path.join(base_dir, "uploads")]
+    for d in search_dirs:
+        if not os.path.exists(d): continue
+        for f in os.listdir(d):
+            if f.endswith('.xlsx') or f.endswith('.xls'):
+                files.append({
+                    "name": f,
+                    "path": os.path.join(d, f)
+                })
+    return jsonify(files)
 
 @app.route('/api/grid_data')
 def get_grid_data():
@@ -149,13 +176,20 @@ def upload_file():
     if file.filename == '':
         return jsonify({"status": "error", "message": "No selected file"}), 400
     
-    # Save to the local output file path
-    save_path = dm.output_file
+    upload_type = request.form.get('type', 'output') # target, source, output
+    
+    upload_dir = os.path.join(base_dir, "uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+    save_path = os.path.join(upload_dir, file.filename)
     file.save(save_path)
     
-    # Force reload
-    dm.load_data()
-    return jsonify({"status": "success"})
+    if upload_type == 'target':
+        dm.update_config(target_file=save_path)
+    elif upload_type == 'output':
+        dm.update_config(output_file=save_path)
+    # Note: 'source' uploads just save the file, user should select it in config
+    
+    return jsonify({"status": "success", "path": save_path})
 
 @app.route('/api/export')
 def export_data():

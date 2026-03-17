@@ -52,7 +52,7 @@ def get_活动价(item):
 
 
 def get_原价(item):
-    return item.get("单件原价") or item.get("新售价") or item.get("采购价")
+    return item.get("单件原价") or item.get("新售价") or item.get("美团外卖渠道售价") or item.get("采购价")
 
 
 def get_销售(item):

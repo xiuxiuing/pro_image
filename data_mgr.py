@@ -22,6 +22,21 @@ class DataManager:
         self.store_dfs = {} # Store name -> DataFrame
         self.load_data()
 
+    def update_config(self, target_file=None, source_files=None, output_file=None):
+        """Updates the current file configuration and reloads data."""
+        if target_file:
+            self.target_file = os.path.abspath(target_file)
+            self.main_store_name = os.path.basename(self.target_file).replace(".xlsx", "").replace(".xls", "")
+        
+        if source_files:
+            self.source_files = [os.path.abspath(f) for f in source_files]
+            self.store_names = [os.path.basename(f).replace(".xlsx", "").replace(".xls", "") for f in self.source_files]
+        
+        if output_file:
+            self.output_file = os.path.abspath(output_file)
+        
+        self.load_data()
+
     def load_data(self):
         # Load the main comparison output
         if os.path.exists(self.output_file):

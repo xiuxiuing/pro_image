@@ -779,8 +779,9 @@
         </div>
         <button class="btn btn-primary" onclick="exportExcel()"><img src="https://img.icons8.com/material-outlined/20/ffffff/download.png"/> 下载成果</button>
         <button class="btn btn-primary" style="background: #8b5cf6; border-color: #8b5cf6;" onclick="openAnalysisModal()"><img src="https://img.icons8.com/material-outlined/20/ffffff/search.png"/> 新建分析</button>
+        <button class="btn" style="border-radius: 8px;" onclick="openConfigModal()"><img src="https://img.icons8.com/material-outlined/20/000000/settings.png"/> 配置管理</button>
         <input type="file" id="uploadInput" accept=".xlsx, .xls" style="display:none;" onchange="handleUpload(event)" />
-        <button class="btn" style="border-radius: 8px;" onclick="if(confirm('确定要手动上传比对结果文件吗？此操作将覆盖当前系统中的数据。')) document.getElementById('uploadInput').click()">上传文件</button>
+        <button class="btn" style="border-radius: 8px;" onclick="if(confirm('确定要手动上传比对结果文件吗？此操作将覆盖当前系统中的数据。')) { document.getElementById('uploadInput').dataset.type='output'; document.getElementById('uploadInput').click(); }">上传文件</button>
     </div>
 </header>
 
@@ -814,6 +815,43 @@
         <div class="modal-body">
             <input type="text" class="search-box" id="modalSearch" placeholder="搜索商品名/条码..." oninput="filterModalList()">
             <div id="modalList"></div>
+        </div>
+    </div>
+</div>
+
+<div class="modal" id="configModal">
+    <div class="modal-content" style="max-width: 600px;">
+        <div class="modal-header">
+            <h3>配置管理</h3>
+            <button class="btn" onclick="closeConfigModal()">关闭</button>
+        </div>
+        <div class="modal-body" style="padding: 24px; display: flex; flex-direction: column; gap: 20px;">
+            <div style="background: #f8fafc; padding: 16px; border-radius: 12px; border: 1px solid #e2e8f0;">
+                <h4 style="margin: 0 0 12px 0;">当前配置</h4>
+                <div style="display: flex; flex-direction: column; gap: 12px;">
+                    <div>
+                        <label style="display: block; font-size: 12px; color: var(--text-muted); font-weight: 600;">主店文件 (Target)</label>
+                        <select id="configTarget" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #e2e8f0;"></select>
+                    </div>
+                    <div>
+                        <label style="display: block; font-size: 12px; color: var(--text-muted); font-weight: 600;">比对输出文件 (Output)</label>
+                        <select id="configOutput" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #e2e8f0;"></select>
+                    </div>
+                    <div>
+                        <label style="display: block; font-size: 12px; color: var(--text-muted); font-weight: 600;">竞对店铺文件 (Sources - 可多选)</label>
+                        <select id="configSources" multiple style="width: 100%; height: 120px; padding: 8px; border-radius: 6px; border: 1px solid #e2e8f0;"></select>
+                    </div>
+                </div>
+                <button class="btn btn-primary" style="width: 100%; margin-top: 20px; justify-content: center;" onclick="saveConfig()">保存并更新配置</button>
+            </div>
+            
+            <div style="border-top: 1px solid #f1f5f9; padding-top: 20px;">
+                <h4 style="margin: 0 0 12px 0;">快速上传</h4>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <button class="btn" style="justify-content: center" onclick="document.getElementById('uploadInput').dataset.type='target'; document.getElementById('uploadInput').click()">上传并设为主店</button>
+                    <button class="btn" style="justify-content: center" onclick="document.getElementById('uploadInput').dataset.type='source'; document.getElementById('uploadInput').click()">上传竞店文件</button>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -1598,13 +1636,91 @@ async function runAnalysisPipeline() {
 async function handleUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
+    const type = event.target.dataset.type || 'output';
 
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('type', type);
+    
     const res = await fetch('/api/upload', { method: 'POST', body: formData });
     const result = await res.json();
-    if (result.status === 'success') loadData();
+    if (result.status === 'success') {
+        alert('上传并应用成功');
+        await loadData();
+        if (document.getElementById('configModal').style.display === 'flex') {
+            await openConfigModal(); // Refresh lists
+        }
+    } else {
+        alert('上传失败: ' + result.message);
+    }
     event.target.value = '';
+}
+
+// Config Modal Logic
+async function openConfigModal() {
+    document.getElementById('configModal').style.display = 'flex';
+    
+    // 1. Fetch available files
+    const filesRes = await fetch('/api/list_files');
+    const files = await filesRes.json();
+    
+    // 2. Fetch current config
+    const configRes = await fetch('/api/config');
+    const config = await configRes.json();
+    
+    // 3. Fill selects
+    const targetSelect = document.getElementById('configTarget');
+    const outputSelect = document.getElementById('configOutput');
+    const sourcesSelect = document.getElementById('configSources');
+    
+    targetSelect.innerHTML = '';
+    outputSelect.innerHTML = '';
+    sourcesSelect.innerHTML = '';
+    
+    files.forEach(f => {
+        const createOpt = (selected) => {
+            const opt = document.createElement('option');
+            opt.value = f.path;
+            opt.innerText = f.name + (f.path.includes('uploads') ? ' (已上传)' : '');
+            if (selected) opt.selected = true;
+            return opt;
+        };
+        
+        targetSelect.appendChild(createOpt(f.path === config.target_file));
+        outputSelect.appendChild(createOpt(f.path === config.output_file));
+        
+        const isSource = config.source_files.some(sf => sf === f.path);
+        sourcesSelect.appendChild(createOpt(isSource));
+    });
+}
+
+function closeConfigModal() {
+    document.getElementById('configModal').style.display = 'none';
+}
+
+async function saveConfig() {
+    const target = document.getElementById('configTarget').value;
+    const output = document.getElementById('configOutput').value;
+    const sources = Array.from(document.getElementById('configSources').selectedOptions).map(o => o.value);
+    
+    if (!target || !output || sources.length === 0) {
+        alert('请完整配置主店、输出及至少一个竞店文件');
+        return;
+    }
+    
+    const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target, output, sources })
+    });
+    
+    if (res.ok) {
+        alert('配置已更新');
+        closeConfigModal();
+        location.reload();
+    } else {
+        alert('配置更新失败');
+    }
 }
 
 function handleSearch() { filterData(); }
