@@ -48,11 +48,11 @@ def get_规格(item):
 
 
 def get_活动价(item):
-    return item.get("单件折扣价") or item.get("新活动价")
+    return item.get("单件折扣价") or item.get("新活动价") or item.get("活动价")
 
 
 def get_原价(item):
-    return item.get("单件原价") or item.get("新售价")
+    return item.get("单件原价") or item.get("新售价") or item.get("采购价")
 
 
 def get_销售(item):
