@@ -560,21 +560,25 @@
             border-radius: var(--radius-lg);
             box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);
             z-index: 200;
-            width: 320px;
-            padding: 12px;
+            width: 420px;
+            padding: 16px;
             animation: slideDown 0.2s ease-out;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
         }
 
         .filter-list-header {
             display: flex;
             justify-content: space-between;
-            padding: 0 12px 8px 12px;
+            padding: 0 4px 10px 4px;
             border-bottom: 1px solid #f1f5f9;
-            margin-bottom: 8px;
+            margin-bottom: 10px;
             font-size: 11px;
             font-weight: 700;
             color: var(--text-muted);
             text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
         @keyframes slideDown {
@@ -587,12 +591,15 @@
             grid-template-columns: 1fr auto;
             align-items: center;
             gap: 10px;
-            padding: 6px 8px;
+            padding: 8px 10px;
             border-radius: 8px;
             font-size: 13px;
             font-weight: 500;
             color: var(--text-main);
             transition: background 0.2s;
+            border-top: 1px solid transparent; /* Placeholder for drag visual */
+            margin-bottom: 2px;
+            background: #fff;
         }
         
         .sort-mini-btn {
@@ -933,6 +940,24 @@ async function loadData() {
     }
 }
 
+function saveColumnSettings() {
+    console.log("Saving column settings:", allBaseColumns, visibleColumns);
+    localStorage.setItem('pro_image_all_columns', JSON.stringify(allBaseColumns));
+    localStorage.setItem('pro_image_visible_columns', JSON.stringify(visibleColumns));
+}
+
+function loadColumnSettings() {
+    try {
+        const savedAll = JSON.parse(localStorage.getItem('pro_image_all_columns'));
+        const savedVisible = JSON.parse(localStorage.getItem('pro_image_visible_columns'));
+        console.log("Loaded column settings:", savedAll, savedVisible);
+        return { savedAll, savedVisible };
+    } catch (e) {
+        console.error("Failed to load column settings:", e);
+        return { savedAll: null, savedVisible: null };
+    }
+}
+
 function extractHeaders() {
     if (gridData.length === 0) return;
     const allKeys = new Set();
@@ -940,39 +965,56 @@ function extractHeaders() {
     
     gridData.forEach(row => {
         Object.keys(row).forEach(key => {
-            // Remove numerical prefix (like '0', '11') if it exists
             const baseKey = key.replace(/^\d+/, '');
-            // Only add if it's not an internal/technical field
             if (!internalKeys.includes(baseKey) && !internalKeys.includes(key)) {
                 allKeys.add(baseKey);
             }
         });
     });
     
-    allBaseColumns = Array.from(allKeys);
+    const currentKeys = Array.from(allKeys);
+    const { savedAll, savedVisible } = loadColumnSettings();
     
-    // Sort logic to keep consistent and logical order
-    const priority = ['条码', '商品名称', '规格', '品牌', '活动价', '原价', '销售', 'A品牌', 'A商品名称', 'A规格', 'A材质口味'];
-    allBaseColumns.sort((a, b) => {
-        const idxA = priority.indexOf(a);
-        const idxB = priority.indexOf(b);
-        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-        if (idxA !== -1) return -1;
-        if (idxB !== -1) return 1;
-        return a.localeCompare(b);
-    });
-
-    // If visibleColumns is empty (first load), initialize it
-    if (visibleColumns.length === 0) {
-        visibleColumns = ['主图链接', ...allBaseColumns];
+    // Determine the order of allBaseColumns
+    if (savedAll && Array.isArray(savedAll)) {
+        // Use saved order for existing keys, append new keys
+        const ordered = savedAll.filter(k => currentKeys.includes(k));
+        const newKeys = currentKeys.filter(k => !savedAll.includes(k));
+        allBaseColumns = [...ordered, ...newKeys];
     } else {
-        // Ensure new columns found in data are also added to visibleColumns
-        allBaseColumns.forEach(col => {
-            if (!visibleColumns.includes(col)) {
-                visibleColumns.push(col);
-            }
+        // Default priority sort
+        allBaseColumns = currentKeys;
+        const priority = ['条码', '商品名称', '规格', '品牌', '活动价', '原价', '销售', 'A品牌', 'A商品名称', 'A规格', 'A材质口味'];
+        allBaseColumns.sort((a, b) => {
+            const idxA = priority.indexOf(a);
+            const idxB = priority.indexOf(b);
+            if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+            if (idxA !== -1) return -1;
+            if (idxB !== -1) return 1;
+            return a.localeCompare(b);
         });
     }
+
+    // Determine visibleColumns
+    if (savedVisible && Array.isArray(savedVisible)) {
+        // Use saved visibility for existing keys, ignore obsolete ones
+        visibleColumns = savedVisible.filter(k => k === '主图链接' || currentKeys.includes(k));
+        // If it ended up EMPTY (and wasn't originally empty) we might have a problem, but if it's the user choice [] then respect it.
+        // The ONLY case to fallback is if it's NOT in localStorage at all.
+    } else {
+        // First time initialization
+        if (visibleColumns.length === 0) {
+            visibleColumns = ['主图链接', ...allBaseColumns];
+        } else {
+            // Merge in new fields but don't reset everything
+            allBaseColumns.forEach(col => {
+                if (!visibleColumns.includes(col)) {
+                    visibleColumns.push(col);
+                }
+            });
+        }
+    }
+    console.log("Effective columns after extractHeaders:", allBaseColumns, visibleColumns);
 }
 
 
@@ -1032,19 +1074,36 @@ function setSort(field, order) {
     filterData();
 }
 
+let fieldSearchTerm = "";
+
 function renderFilterPopup() {
     const popup = document.getElementById('filterPopup');
-    if (!popup) return;
+    if (!popup || popup.style.display === 'none') return;
+    
+    popup.style.display = 'flex'; // Ensure flex for the layout
+    
     popup.innerHTML = `
+        <div style="margin-bottom: 12px;">
+            <input type="text" class="search-box" id="fieldSearch" placeholder="搜索字段名称..." 
+                   style="margin-bottom: 12px;" value="${fieldSearchTerm}" oninput="handleFieldSearch(this.value)">
+            <div style="display: flex; gap: 8px;">
+                <button class="btn" style="flex: 1; font-size: 11px; padding: 4px;" onclick="toggleAllColumns(true)">全选</button>
+                <button class="btn" style="flex: 1; font-size: 11px; padding: 4px;" onclick="toggleAllColumns(false)">全不选</button>
+                <button class="btn" style="flex: 1; font-size: 11px; padding: 4px;" onclick="resetColumnOrder()">恢复默认顺序</button>
+            </div>
+        </div>
         <div class="filter-list-header">
-            <span>显示/排序内容</span>
+            <span>显示/排序内容 (可拖拽排序)</span>
             <span>筛选内容</span>
         </div>
-        <div id="filterList"></div>`;
+        <div id="filterList" style="flex: 1; overflow-y: auto; padding-right: 4px;"></div>`;
+        
     const list = document.getElementById('filterList');
 
     allBaseColumns.forEach((col, index) => {
         if (col === '主图链接') return;
+        if (fieldSearchTerm && !col.toLowerCase().includes(fieldSearchTerm.toLowerCase())) return;
+        
         const item = document.createElement('div');
         item.className = 'filter-item';
         item.draggable = true;
@@ -1058,7 +1117,7 @@ function renderFilterPopup() {
             <div style="display: flex; align-items: center; gap: 8px; flex: 1; cursor: move;">
                 <span style="color: #94a3b8; cursor: move;">⠿</span>
                 <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleColumn('${col}')">
-                <span style="flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${col}</span>
+                <span style="flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px;">${col}</span>
             </div>
             <div style="display: flex; align-items: center; gap: 4px;">
                 <button class="sort-mini-btn ${currentSort.field === col && currentSort.order === 'asc' ? 'active' : ''}" 
@@ -1079,6 +1138,31 @@ function renderFilterPopup() {
         
         list.appendChild(item);
     });
+}
+
+function handleFieldSearch(val) {
+    fieldSearchTerm = val;
+    renderFilterPopup();
+}
+
+function toggleAllColumns(show) {
+    if (show) {
+        visibleColumns = ['主图链接', ...allBaseColumns];
+    } else {
+        visibleColumns = ['主图链接'];
+    }
+    saveColumnSettings();
+    renderGrid();
+    renderFilterPopup();
+}
+
+function resetColumnOrder() {
+    localStorage.removeItem('pro_image_all_columns');
+    localStorage.removeItem('pro_image_visible_columns');
+    visibleColumns = [];
+    extractHeaders();
+    renderGrid();
+    renderFilterPopup();
 }
 
 let draggedIndex = null;
@@ -1115,6 +1199,7 @@ function handleDrop(e) {
     allBaseColumns.splice(targetIndex, 0, movingCol);
     visibleColumns.sort((a, b) => allBaseColumns.indexOf(a) - allBaseColumns.indexOf(b));
     
+    saveColumnSettings();
     renderFilterPopup();
     filterData();
 }
@@ -1131,6 +1216,7 @@ function toggleColumn(col) {
         visibleColumns.push(col);
         visibleColumns.sort((a, b) => allBaseColumns.indexOf(a) - allBaseColumns.indexOf(b));
     }
+    saveColumnSettings();
     renderGrid();
 }
 
@@ -1141,7 +1227,12 @@ function toggleNegativeSalesFilter() {
 
 function toggleFilter() {
     const popup = document.getElementById('filterPopup');
-    popup.style.display = (popup.style.display === 'block' ? 'none' : 'block');
+    if (popup.style.display === 'flex') {
+        popup.style.display = 'none';
+    } else {
+        popup.style.display = 'flex';
+        renderFilterPopup();
+    }
 }
 
 window.onclick = function(event) {
