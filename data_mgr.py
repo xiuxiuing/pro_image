@@ -4,6 +4,7 @@ import zipfile
 import shutil
 import tempfile
 import time
+import threading
 
 class DataManager:
     def __init__(self, base_dir):
@@ -21,6 +22,9 @@ class DataManager:
         
         self.grid_df = None
         self.store_dfs = {} # Store name -> DataFrame
+        
+        self._save_lock = threading.Lock()
+        
         self.load_data()
 
     def update_config(self, target_file=None, source_files=None, output_file=None):
@@ -84,13 +88,28 @@ class DataManager:
         self.grid_df.loc[row_idx, col] = val
 
     def _save_to_disk(self):
-        """Persists the current in-memory grid_df to the actual excel file on disk."""
+        """Persists the current in-memory grid_df to disk in a background thread without blocking the UI."""
         if self.output_file and self.grid_df is not None:
-            try:
-                self.grid_df.to_excel(self.output_file, index=False)
-                print(f"DEBUG: Data autosaved to {self.output_file}")
-            except Exception as e:
-                print(f"ERROR: Failed to autosave to {self.output_file}: {e}")
+            # Take a snapshot while holding the lock (very fast)
+            with self._save_lock:
+                snapshot = self.grid_df.copy()
+            
+            def save_task(df_to_save, target_path):
+                # This runs in background and DOES NOT hold self._save_lock during the slow to_excel()
+                try:
+                    temp_path = target_path + ".tmp"
+                    df_to_save.to_excel(temp_path, index=False)
+                    if os.path.exists(target_path):
+                        os.remove(target_path)
+                    os.rename(temp_path, target_path)
+                    print(f"DEBUG: Background autosave completed: {target_path}")
+                except Exception as e:
+                    print(f"ERROR: Background autosave failed: {e}")
+
+            # Start background thread
+            thread = threading.Thread(target=save_task, args=(snapshot, self.output_file))
+            thread.daemon = True
+            thread.start()
 
     def update_cell(self, row_idx, update_data):
         """

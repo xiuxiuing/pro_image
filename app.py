@@ -206,5 +206,5 @@ def export_data():
     return response
 
 if __name__ == '__main__':
-    # Using a dynamic port to avoid conflicts
-    app.run(debug=True, port=5001)
+    # Disable reloader to prevent app restart during background file saves
+    app.run(debug=True, port=5001, use_reloader=False)
