@@ -6,13 +6,12 @@ import time
 import json
 import shutil
 
-# User updated key
+
 API_KEY = "AIzaSyBfXahKdOe13OtMaR_nn5BPQYd-avn9XOs"
-# API_KEY = "AIzaSyBfXahKdOe13OtMaR_nn5BPQYd-avn9XOs"
+
 MODEL_NAME = "models/gemini-3.1-flash-lite-preview"  # Using requested model
 
 client = genai.Client(api_key=API_KEY)
-
 
 class ProductInfo(BaseModel):
     brand: str
@@ -22,10 +21,8 @@ class ProductInfo(BaseModel):
     usage_scenario: str
     functional_tags: str
 
-
 class BatchResponse(BaseModel):
     items: list[ProductInfo]
-
 
 def extract_batch_ai(names, max_retries=5):
     prompt = f"""
@@ -162,7 +159,7 @@ if __name__ == "__main__":
     base_dir = "/Users/admin/Documents/Antigravity_projects/pro_image/0307/0314"
     # Process the specific files requested by the user
     files = ["乐购达.xlsx", "沃玛希.xlsx", "优购哆0313.xlsx","犀牛.xlsx","AA百货.xlsx"]
-    # files = ["AA百货.xlsx"]
+    
     for filename in files:
         file_to_process = os.path.join(base_dir, filename)
 
