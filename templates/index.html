@@ -961,7 +961,7 @@ function loadColumnSettings() {
 function extractHeaders() {
     if (gridData.length === 0) return;
     const allKeys = new Set();
-    const internalKeys = ['淘汰标记', '是否淘汰', '__idx', '相似度', '匹配', '是否新增', '跟价店', 'skuId', 'SKUID', '图片', '主图链接'];
+    const internalKeys = ['淘汰标记', '是否淘汰', '__idx', '相似度', '匹配', '是否新增', '跟价店', '图片', '主图链接'];
     
     gridData.forEach(row => {
         Object.keys(row).forEach(key => {
