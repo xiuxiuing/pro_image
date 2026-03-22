@@ -80,16 +80,7 @@ def get_text(item):
 # -----------------------------
 
 def build_match_item(item, prefix=""):
-    return {
-        f"{prefix}skuId": get_sku_id(item),
-        f"{prefix}主图链接": item["图片"],
-        f"{prefix}菜单名": item["商品名称"],
-        f"{prefix}规格名": get_规格(item),
-        f"{prefix}活动价": get_活动价(item),
-        f"{prefix}原价": get_原价(item),
-        f"{prefix}销售": get_销售(item),
-        f"{prefix}条码": get_条码(item),
-    }
+    return {f"{prefix}{k}": v for k, v in item.items()}
 
 
 def append_match_result(res_item, sear_item, similarity, match, prefix=""):
