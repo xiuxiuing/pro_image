@@ -350,9 +350,8 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="031511"):
                 )
                 sear_item = source["sku_dict"].get(int(sid))
                 desc = ""
-                if get_美团类名1(item) != get_美团类名1(sear_item) or \
-                        get_美团类名2(item) != get_美团类名2(sear_item):
-                    desc = "类目不同"
+                if get_美团类名3(item) != get_美团类名3(sear_item):
+                    continue
 
                 append_match_result(
                     res_item,
