@@ -112,6 +112,7 @@ def process_file_ai(file_path, batch_size=50):  # Reduced batch size for more co
 
     # Initialize/Clear columns to ensure full re-extraction
     target_cols = ['A品牌', 'A商品名称', 'A规格', 'A材质口味', 'A使用场景', 'A功能标签']
+    
     for col in target_cols:
         df[col] = ""  # Clear old data
 
