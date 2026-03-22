@@ -871,6 +871,10 @@
                 <label style="display: block; font-weight: 600; margin-bottom: 8px;">2. 选择竞对店铺文件 (可多选)</label>
                 <input type="file" id="compFilesInput" accept=".xlsx, .xls" multiple style="width: 100%;">
             </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" id="skipExtractCheck" style="width: 18px; height: 18px; cursor: pointer;">
+                <label for="skipExtractCheck" style="font-size: 14px; font-weight: 600; cursor: pointer; color: var(--text-main);">跳过 AI 提取流程 (仅比对)</label>
+            </div>
             <div style="margin-top: 10px;">
                 <button class="btn btn-primary" style="width: 100%; justify-content: center; height: 44px; font-size: 16px;" id="runBtn" onclick="runAnalysisPipeline()">开始 AI 分析与比对</button>
             </div>
@@ -931,13 +935,43 @@ async function loadData() {
 
 function extractHeaders() {
     if (gridData.length === 0) return;
-    const firstRow = gridData[0];
-    const internalKeys = ['淘汰标记', '是否淘汰', '__idx'];
-    allBaseColumns = Object.keys(firstRow).filter(key => {
-        return !/^\d/.test(key) && !internalKeys.includes(key);
+    const allKeys = new Set();
+    const internalKeys = ['淘汰标记', '是否淘汰', '__idx', '相似度', '匹配', '是否新增', '跟价店', 'skuId', 'SKUID', '图片', '主图链接'];
+    
+    gridData.forEach(row => {
+        Object.keys(row).forEach(key => {
+            // Remove numerical prefix (like '0', '11') if it exists
+            const baseKey = key.replace(/^\d+/, '');
+            // Only add if it's not an internal/technical field
+            if (!internalKeys.includes(baseKey) && !internalKeys.includes(key)) {
+                allKeys.add(baseKey);
+            }
+        });
     });
+    
+    allBaseColumns = Array.from(allKeys);
+    
+    // Sort logic to keep consistent and logical order
+    const priority = ['条码', '商品名称', '规格', '品牌', '活动价', '原价', '销售', 'A品牌', 'A商品名称', 'A规格', 'A材质口味'];
+    allBaseColumns.sort((a, b) => {
+        const idxA = priority.indexOf(a);
+        const idxB = priority.indexOf(b);
+        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+        if (idxA !== -1) return -1;
+        if (idxB !== -1) return 1;
+        return a.localeCompare(b);
+    });
+
+    // If visibleColumns is empty (first load), initialize it
     if (visibleColumns.length === 0) {
-        visibleColumns = [...allBaseColumns];
+        visibleColumns = ['主图链接', ...allBaseColumns];
+    } else {
+        // Ensure new columns found in data are also added to visibleColumns
+        allBaseColumns.forEach(col => {
+            if (!visibleColumns.includes(col)) {
+                visibleColumns.push(col);
+            }
+        });
     }
 }
 
@@ -1597,17 +1631,23 @@ async function runAnalysisPipeline() {
     const runBtn = document.getElementById('runBtn');
     const statusBox = document.getElementById('pipelineStatus');
     const logEl = document.getElementById('statusLog');
+    const skipExtract = document.getElementById('skipExtractCheck').checked;
     
     runBtn.disabled = true;
     runBtn.innerText = "正在分析中 (请勿关闭窗口)...";
     statusBox.style.display = 'block';
-    logEl.innerHTML = "1. 正在上传并启动 AI 提取流程 (大概需要几分钟)...<br>";
+    if (!skipExtract) {
+        logEl.innerHTML = "1. 正在上传并启动 AI 提取流程 (大概需要几分钟)...<br>";
+    } else {
+        logEl.innerHTML = "1. 正在上传文件 (跳过 AI 流程)...<br>";
+    }
 
     const formData = new FormData();
     formData.append('main_file', mainFile);
     for (let f of compFiles) {
         formData.append('comp_files', f);
     }
+    formData.append('skip_extract', skipExtract ? 'true' : 'false');
 
     try {
         const response = await fetch('/api/run_pipeline', {

@@ -80,7 +80,17 @@ def get_text(item):
 # -----------------------------
 
 def build_match_item(item, prefix=""):
-    return {f"{prefix}{k}": v for k, v in item.items()}
+    res = {f"{prefix}{k}": v for k, v in item.items()}
+    # Restore standardized keys for UI compatibility
+    res[f"{prefix}skuId"] = get_sku_id(item)
+    res[f"{prefix}主图链接"] = item.get("图片") or item.get("主图链接") or ""
+    res[f"{prefix}菜单名"] = item.get("商品名称") or item.get("菜单名") or ""
+    res[f"{prefix}规格名"] = get_规格(item)
+    res[f"{prefix}活动价"] = get_活动价(item)
+    res[f"{prefix}原价"] = get_原价(item)
+    res[f"{prefix}销售"] = get_销售(item)
+    res[f"{prefix}条码"] = get_条码(item)
+    return res
 
 
 def append_match_result(res_item, sear_item, similarity, match, prefix=""):

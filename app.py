@@ -39,10 +39,15 @@ def run_pipeline():
     
     try:
         # 2. Extract Info AI
-        print("Step 1: AI Extraction...")
-        extract_info_ai2.process_file_ai(main_path, batch_size=110)
-        for path in comp_paths:
-            extract_info_ai2.process_file_ai(path, batch_size=110)
+        skip_extract = request.form.get('skip_extract') == 'true'
+        
+        if not skip_extract:
+            print("Step 1: AI Extraction...")
+            extract_info_ai2.process_file_ai(main_path, batch_size=110)
+            for path in comp_paths:
+                extract_info_ai2.process_file_ai(path, batch_size=110)
+        else:
+            print("Step 1: AI Extraction Skipped.")
         
         # 3. Run Analysis
         print("Step 2: Comparison Analysis...")
