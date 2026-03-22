@@ -72,7 +72,7 @@ def get_美团类名3(item):
 
 
 def get_text(item):
-    return f"{get_规格(item)}, {get_美团类名3(item)}, {item['商品名称']}, {item['A品牌']}, {item['A商品名称']}, {item['A规格']}, {item['A材质口味']}"
+    return f"{get_规格(item)}, {get_美团类名3(item)}, {item['商品名称']}, {item.get('A品牌', '')}, {item.get('A商品名称', '')}, {item.get('A规格', '')}, {item.get('A材质口味', '')}"
 
 
 # -----------------------------
