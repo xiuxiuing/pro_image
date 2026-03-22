@@ -125,8 +125,6 @@ def process_file_ai(file_path, batch_size=50):  # Reduced batch size for more co
     # Process in batches
     for i in range(0, total_to_process, batch_size):
 
-        if i < 62:
-            continue
         batch_indices = rows_to_process[i:i + batch_size]
 
         # Concatenate '商品名称' and '规格' as input for AI
