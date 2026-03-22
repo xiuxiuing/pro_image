@@ -564,7 +564,6 @@
             padding: 16px;
             animation: slideDown 0.2s ease-out;
             max-height: 80vh;
-            display: flex;
             flex-direction: column;
         }
 
@@ -908,7 +907,7 @@ let showNegativeSalesOnly = false;
 let currentPage = 1;
 let pageSize = 20;
 
-async function loadData() {
+async function loadData(resetPage = true) {
     const loadingMsg = document.getElementById('loadingMsg');
     console.log("Fetching config and grid data...");
     try {
@@ -931,7 +930,7 @@ async function loadData() {
         gridData.forEach((row, idx) => { row.__idx = idx; });
 
         extractHeaders();
-        filterData();
+        filterData(resetPage);
         renderFilterPopup();
     } catch (e) {
         console.error("Failed to load data:", e);
@@ -1018,7 +1017,7 @@ function extractHeaders() {
 }
 
 
-function filterData() {
+function filterData(resetPage = true) {
     const searchInput = document.getElementById('globalSearch');
     const searchVal = searchInput ? searchInput.value.toLowerCase().trim() : "";
     console.log("Filtering with searchVal:", searchVal);
@@ -1060,8 +1059,8 @@ function filterData() {
         });
     }
 
-    currentPage = 1;
-    renderGrid();
+    if (resetPage) currentPage = 1;
+    renderGrid(resetPage);
 }
 
 function setSort(field, order) {
@@ -1231,18 +1230,19 @@ function toggleFilter() {
         popup.style.display = 'none';
     } else {
         popup.style.display = 'flex';
+        popup.classList.add('filter-popup'); // Add class for window.onclick check
         renderFilterPopup();
     }
 }
 
 window.onclick = function(event) {
     const popup = document.getElementById('filterPopup');
-    if (popup && popup.style.display === 'block' && !event.target.closest('.header-actions')) {
+    if (popup && (popup.style.display === 'flex' || popup.style.display === 'block') && !event.target.closest('.header-actions') && !event.target.closest('.filter-popup')) {
         popup.style.display = 'none';
     }
 }
 
-function renderGrid() {
+function renderGrid(resetScroll = false) {
     const gridBodyEl = document.getElementById('gridBody');
     const storeHeaderEl = document.getElementById('storeHeader');
     if (!gridBodyEl || !storeHeaderEl) return;
@@ -1312,8 +1312,10 @@ function renderGrid() {
 
     renderPagination(totalItems, totalPages);
     
-    // Scroll scroller back to top when page changes
-    document.getElementById('scroller').scrollTop = 0;
+    // Scroll back to top ONLY if explicitly requested
+    if (resetScroll) {
+        document.getElementById('scroller').scrollTop = 0;
+    }
 }
 
 function renderPagination(totalItems, totalPages) {
@@ -1364,7 +1366,7 @@ function renderPagination(totalItems, totalPages) {
 
 function changePage(page) {
     currentPage = page;
-    renderGrid();
+    renderGrid(true); // Reset scroll to top when changing page
 }
 
 function changePageSize(size) {
@@ -1569,7 +1571,7 @@ async function eliminate(idx) {
     });
     gridData[idx]['淘汰标记'] = next;
     gridData[idx]['是否淘汰'] = (next === 1 ? "是" : "否");
-    filterData();
+    filterData(false); // Preserve page/scroll
 }
 
 async function toggleAdd(idx, storeId) {
@@ -1581,7 +1583,7 @@ async function toggleAdd(idx, storeId) {
         body: JSON.stringify({ row_idx: idx, store_id: storeId, is_new: next })
     });
     gridData[idx][col] = (next ? "是" : "否");
-    filterData();
+    filterData(false); // Preserve page/scroll
 }
 
 async function priceMatch(idx, storeId) {
@@ -1595,7 +1597,7 @@ async function priceMatch(idx, storeId) {
         gridData[idx]['新活动价'] = result.new_act;
         gridData[idx]['新售价'] = result.new_orig;
         gridData[idx]['跟价店'] = result.store_name;
-        filterData();
+        filterData(false); // Preserve page/scroll
     }
 }
 
@@ -1641,7 +1643,7 @@ async function unlinkProduct(rowIdx, storeId) {
             const keys = ["skuId", "主图链接", "菜单名", "规格名", "活动价", "原价", "销售", "条码", "三级类目", "相似度", "匹配", "是否新增"];
             keys.forEach(k => { gridData[rowIdx][prefix + k] = ""; });
             
-            filterData(); // This will call renderGrid
+            filterData(false); // Preserve page/scroll
         }
     } catch (e) {
         console.error("Unlink failed:", e);
@@ -1696,7 +1698,7 @@ async function performLink(productData) {
         body: JSON.stringify({ row_idx: rowIdx, store_id: storeId, product_data: productData })
     });
     closeModal();
-    loadData();
+    loadData(false);
 }
 
 function exportExcel() { window.location.href = '/api/export?t=' + new Date().getTime(); }
