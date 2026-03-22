@@ -1699,7 +1699,7 @@ async function performLink(productData) {
     loadData();
 }
 
-function exportExcel() { window.location.href = '/api/export'; }
+function exportExcel() { window.location.href = '/api/export?t=' + new Date().getTime(); }
 
 // Analysis Pipeline Logic
 function openAnalysisModal() {

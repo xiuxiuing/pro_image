@@ -199,7 +199,11 @@ def upload_file():
 @app.route('/api/export')
 def export_data():
     path = dm.save_separate_exports()
-    return send_file(path, as_attachment=True, mimetype='application/zip')
+    response = send_file(path, as_attachment=True)
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 if __name__ == '__main__':
     # Using a dynamic port to avoid conflicts

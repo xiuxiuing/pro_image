@@ -82,21 +82,33 @@ class DataManager:
             self.grid_df[col] = self.grid_df[col].astype(object)
         self.grid_df.loc[row_idx, col] = val
 
+    def _save_to_disk(self):
+        """Persists the current in-memory grid_df to the actual excel file on disk."""
+        if self.output_file and self.grid_df is not None:
+            try:
+                self.grid_df.to_excel(self.output_file, index=False)
+                print(f"DEBUG: Data autosaved to {self.output_file}")
+            except Exception as e:
+                print(f"ERROR: Failed to autosave to {self.output_file}: {e}")
+
     def update_cell(self, row_idx, update_data):
         """
         update_data: dict of column: value
         """
         for col, val in update_data.items():
             self._safe_set(row_idx, col, val)
+        self._save_to_disk()
 
     def eliminate_product(self, row_idx, status):
         self._safe_set(row_idx, '淘汰标记', status)
         self._safe_set(row_idx, '是否淘汰', "是" if status == 1 else "否")
+        self._save_to_disk()
         return True
 
     def mark_as_new(self, row_idx, store_id, is_new):
         col_name = f"{store_id}是否新增"
         self._safe_set(row_idx, col_name, "是" if is_new else "否")
+        self._save_to_disk()
         return True
 
     def price_match(self, row_idx, store_id):
@@ -128,6 +140,7 @@ class DataManager:
         if updated:
             store_name = self.store_dfs[str(store_id)]["name"]
             self._safe_set(row_idx, '跟价店', store_name)
+            self._save_to_disk()
             
         return updated
 
@@ -164,6 +177,7 @@ class DataManager:
         # Also update similarity and match description
         self._safe_set(row_idx, f"{prefix}相似度", 1.0)
         self._safe_set(row_idx, f"{prefix}匹配", "手动关联")
+        self._save_to_disk()
         
         return True
 
@@ -178,11 +192,24 @@ class DataManager:
             if full_key in self.grid_df.columns:
                 self._safe_set(row_idx, full_key, "")
         
+        self._save_to_disk()
         return True
 
-    def save_to_excel(self, filename="output_modified.xlsx"):
+    def save_to_excel(self):
+        """
+        Saves the current grid_df to a single merged Excel file.
+        """
+        filename = f"对比分析全量成果_{time.strftime('%Y%m%d_%H%M%S')}.xlsx"
         path = os.path.join(self.base_dir, filename)
-        self.grid_df.to_excel(path, index=False)
+        
+        # Clean up internal technical keys for the final export
+        export_df = self.grid_df.copy()
+        internal_to_drop = ['__idx', '淘汰标记']
+        cols_to_drop = [c for c in internal_to_drop if c in export_df.columns]
+        if cols_to_drop:
+            export_df.drop(columns=cols_to_drop, inplace=True)
+            
+        export_df.to_excel(path, index=False)
         return path
 
     def save_separate_exports(self):
@@ -191,10 +218,26 @@ class DataManager:
         """
         temp_dir = tempfile.mkdtemp()
         try:
+            internal_keys = ['淘汰标记', '__idx']
+            
             # 1. Export Main Store
-            main_cols = ['skuId', '条码', '菜单名', '规格名', '主图链接', '活动价', '原价', '新活动价', '新售价', '销售', '三级类目', '是否淘汰']
-            # Filter existing columns only
-            main_cols = [c for c in main_cols if c in self.grid_df.columns]
+            # Ensure standard editing columns exist
+            for col in ['新活动价', '新售价', '跟价店', '是否淘汰']:
+                if col not in self.grid_df.columns:
+                    self.grid_df[col] = ""
+            
+            # Add addition summaries for each competitor store
+            for i, store_name in enumerate(self.store_names):
+                prefix = str(i)
+                new_col = f"{prefix}是否新增"
+                summary_col = f"{store_name}新增"
+                if new_col in self.grid_df.columns:
+                    self.grid_df[summary_col] = self.grid_df[new_col]
+                else:
+                    self.grid_df[summary_col] = ""
+
+            # Get all columns that don't start with a digit and aren't internal
+            main_cols = [c for c in self.grid_df.columns if (not c or not c[0].isdigit()) and c not in internal_keys]
             main_df = self.grid_df[main_cols].copy()
             main_path = os.path.join(temp_dir, f"主店_{self.main_store_name}.xlsx")
             main_df.to_excel(main_path, index=False)
@@ -209,12 +252,30 @@ class DataManager:
                 
                 comp_df = self.grid_df[comp_cols].copy()
                 
-                # Add main store SKU ID to competitor data
+                # Add main store SKU ID to competitor data for reference
                 if 'skuId' in self.grid_df.columns:
-                    comp_df.insert(0, f"{prefix}主店SKU", self.grid_df['skuId'])
+                    comp_df.insert(0, "主店SKU", self.grid_df['skuId'])
                 
                 # Remove prefix from column names
-                comp_df.columns = [c[len(prefix):] for c in comp_df.columns]
+                raw_cols = []
+                standardized_to_remove = {'skuId', '主图链接', '菜单名', '规格名', '活动价', '原价', '销售', '条码', '三级类目'}
+                
+                new_col_names = []
+                for c in comp_df.columns:
+                    if c == "主店SKU":
+                        new_col_names.append(c)
+                        continue
+                        
+                    base_name = c[len(prefix):]
+                    # If this is a standardized key we added, and the original column name is already present, we might skip it or keep it.
+                    # As a general rule, if the original column exists without the standardized mapping, we keep the original.
+                    # But the simplest is to just strip prefixes and let duplicates happen (Excel handles them or we can deduplicate).
+                    new_col_names.append(base_name)
+                
+                comp_df.columns = new_col_names
+                
+                # Basic deduplication of columns if any (optional but good)
+                comp_df = comp_df.loc[:, ~comp_df.columns.duplicated()]
                 
                 comp_path = os.path.join(temp_dir, f"竞店_{store_name}.xlsx")
                 comp_df.to_excel(comp_path, index=False)
