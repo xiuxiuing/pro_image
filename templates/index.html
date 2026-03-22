@@ -1077,7 +1077,8 @@ let fieldSearchTerm = "";
 
 function renderFilterPopup() {
     const popup = document.getElementById('filterPopup');
-    if (!popup || popup.style.display === 'none') return;
+    const currentDisplay = popup.style.display || window.getComputedStyle(popup).display;
+    if (!popup || currentDisplay === 'none') return;
     
     popup.style.display = 'flex'; // Ensure flex for the layout
     
