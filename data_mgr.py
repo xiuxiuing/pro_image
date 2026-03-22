@@ -8,15 +8,16 @@ import time
 class DataManager:
     def __init__(self, base_dir):
         self.base_dir = base_dir
-        self.output_file = os.path.join(base_dir, "output_030822.xlsx")
-        self.target_file = os.path.join(base_dir, "乐购达.xlsx")
+        self.output_file = os.path.join(base_dir, "output_031511.xlsx")
+        self.target_file = os.path.join(base_dir, "优购哆.xlsx")
         self.source_files = [
+            os.path.join(base_dir, "乐购达.xlsx"),
             os.path.join(base_dir, "沃玛希.xlsx"),
             os.path.join(base_dir, "犀牛.xlsx"),
             os.path.join(base_dir, "AA百货.xlsx")
         ]
-        self.store_names = ["沃玛希", "犀牛", "AA百货"]
-        self.main_store_name = "乐购达"
+        self.store_names = ["乐购达", "沃玛希", "犀牛", "AA百货"]
+        self.main_store_name = "优购哆"
         
         self.grid_df = None
         self.store_dfs = {} # Store name -> DataFrame
