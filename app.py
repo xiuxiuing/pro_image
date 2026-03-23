@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, jsonify, send_file
 from data_mgr import DataManager
+from license_utils import LicenseManager
 import os
 import pandas as pd
 import time
@@ -12,8 +13,31 @@ app = Flask(__name__)
 base_dir = os.path.dirname(os.path.abspath(__file__))
 dm = DataManager(base_dir)
 
+# --- License Check Logic ---
+LICENSE_FILE = os.path.join(base_dir, "license.dat")
+CURRENT_HWID = LicenseManager.get_hwid()
+
+def check_license():
+    if not os.path.exists(LICENSE_FILE):
+        return False, "License file missing"
+    with open(LICENSE_FILE, "r") as f:
+        content = f.read().strip()
+    return LicenseManager.verify_license(content, CURRENT_HWID)
+
+@app.route('/api/license_info')
+def get_license_info():
+    is_valid, msg = check_license()
+    return jsonify({
+        "hwid": CURRENT_HWID,
+        "is_valid": is_valid,
+        "message": msg
+    })
+
 @app.route('/')
 def index():
+    is_valid, _ = check_license()
+    if not is_valid:
+        return render_template('activate.html', hwid=CURRENT_HWID)
     return render_template('index.html')
 
 @app.route('/api/run_pipeline', methods=['POST'])

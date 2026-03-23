@@ -6,3 +6,8 @@
 *.zip
 **.pyc
 
+build
+dist
+models
+
+

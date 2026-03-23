@@ -21,12 +21,28 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 # model
 # -----------------------------
 
-img_processor = AutoImageProcessor.from_pretrained("facebook/dinov2-base")
-img_model = AutoModel.from_pretrained("facebook/dinov2-base").to(device).eval()
+import sys
+# Define model base path
+if getattr(sys, 'frozen', False):
+    models_base = os.path.join(sys._MEIPASS, "models")
+else:
+    models_base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
 
-model_name = "BAAI/bge-base-zh-v1.5"
-text_tokenizer = AutoTokenizer.from_pretrained(model_name)
-text_model = AutoModel.from_pretrained(model_name).to(device).eval()
+# 1. Dinov2
+dinov2_path = os.path.join(models_base, "dinov2-base")
+if not os.path.exists(dinov2_path):
+    dinov2_path = "facebook/dinov2-base" # Fallback to online
+
+img_processor = AutoImageProcessor.from_pretrained(dinov2_path)
+img_model = AutoModel.from_pretrained(dinov2_path).to(device).eval()
+
+# 2. BGE
+bge_path = os.path.join(models_base, "bge-base-zh-v1.5")
+if not os.path.exists(bge_path):
+    bge_path = "BAAI/bge-base-zh-v1.5" # Fallback to online
+
+text_tokenizer = AutoTokenizer.from_pretrained(bge_path)
+text_model = AutoModel.from_pretrained(bge_path).to(device).eval()
 
 dim = 768
 
