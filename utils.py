@@ -79,3 +79,52 @@ def write_dict_list_to_excel(data, file_path="output_text.xlsx"):
     # 保存文件
     wb.save(file_path)
     print(f"Excel saved to {file_path}")
+
+def write_multisheet_dict_to_excel(sheet_data_dict, file_path="output_multisheet.xlsx"):
+    """
+    Writes a dictionary of { "Sheet Name": [dict, dict, ...] } to an Excel file with multiple sheets.
+    """
+    if not sheet_data_dict:
+        print("Empty sheet data, nothing to write")
+        return
+
+    # Create workbook
+    wb = Workbook()
+    
+    # Remove default sheet
+    if "Sheet" in wb.sheetnames:
+        wb.remove(wb["Sheet"])
+    if "Sheet1" in wb.sheetnames:
+        wb.remove(wb["Sheet1"])
+
+    for sheet_title, data in sheet_data_dict.items():
+        ws = wb.create_sheet(title=sheet_title)
+        
+        if not data:
+            continue
+            
+        # Write headers
+        headers = list(data[0].keys())
+        ws.append(headers)
+
+        # Write rows
+        for item in data:
+            row = []
+            for h in headers:
+                val = item.get(h, "")
+                # Global Numeric Optimization
+                if isinstance(val, (int, float)):
+                    abs_val = abs(val)
+                    if abs_val >= 10**12:
+                        val = str(int(val))
+                    elif isinstance(val, float):
+                        if val == int(val):
+                            val = int(val)
+                        else:
+                            val = round(val, 4)
+                row.append(val)
+            ws.append(row)
+
+    # Save file
+    wb.save(file_path)
+    print(f"Multi-sheet Excel saved to {file_path}")

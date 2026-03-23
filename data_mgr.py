@@ -315,3 +315,82 @@ class DataManager:
             return zip_path
         finally:
             shutil.rmtree(temp_dir)
+
+    def export_new_items(self):
+        """
+        Exports all competitor products marked as "新增" ("是") into Sheet 1,
+        and all main store products marked as "淘汰" ("是") into Sheet 2.
+        Records operation time in both.
+        """
+        all_new_items_dfs = []
+        op_time = time.strftime('%Y-%m-%d %H:%M:%S')
+
+        # --- 1. New Competitor Items (Sheet 1) ---
+        for i, store_name in enumerate(self.store_names):
+            prefix = str(i)
+            new_col = f"{prefix}是否新增"
+            
+            if new_col not in self.grid_df.columns:
+                continue
+                
+            store_new_df = self.grid_df[self.grid_df[new_col] == "是"].copy()
+            if store_new_df.empty:
+                continue
+            
+            comp_cols = [c for c in store_new_df.columns if c.startswith(prefix)]
+            if not comp_cols:
+                continue
+                
+            comp_df = store_new_df[comp_cols].copy()
+            comp_df.insert(0, "竞品店铺", store_name)
+            
+            if 'skuId' in store_new_df.columns:
+                comp_df.insert(0, "主店SKU", store_new_df['skuId'])
+            
+            new_col_names = []
+            for c in comp_df.columns:
+                if c in ["主店SKU", "竞品店铺"]:
+                    new_col_names.append(c)
+                    continue
+                new_col_names.append(c[len(prefix):])
+                
+            comp_df.columns = new_col_names
+            comp_df = comp_df.loc[:, ~comp_df.columns.duplicated()]
+            all_new_items_dfs.append(comp_df)
+            
+        if all_new_items_dfs:
+            final_df = pd.concat(all_new_items_dfs, ignore_index=True)
+        else:
+            final_df = pd.DataFrame(columns=["主店SKU", "竞品店铺", "skuId", "主图链接", "菜单名", "规格名", "活动价", "原价", "销售", "条码"])
+
+        # Add Operation Time
+        final_df["操作时间"] = op_time
+
+        # --- 2. Eliminated Main Store Items (Sheet 2) ---
+        if '是否淘汰' in self.grid_df.columns:
+            eliminated_df = self.grid_df[self.grid_df['是否淘汰'] == "是"].copy()
+        else:
+            eliminated_df = pd.DataFrame()
+            
+        if not eliminated_df.empty:
+            internal_keys = ['淘汰标记', '__idx']
+            main_cols = [c for c in eliminated_df.columns if (not c or not c[0].isdigit()) and c not in internal_keys]
+            eliminated_df = eliminated_df[main_cols].copy()
+            eliminated_df["操作时间"] = op_time
+        else:
+            # Empty dataframe with default main store columns
+            eliminated_df = pd.DataFrame(columns=["skuId", "主图链接", "菜单名", "规格名", "活动价", "原价", "销售", "条码", "操作时间"])
+
+        # --- 3. Save to Multi-sheet Excel ---
+        filename = f"新增竞品数据_{time.strftime('%Y%m%d_%H%M%S')}.xlsx"
+        path = os.path.join(self.base_dir, filename)
+        
+        import utils
+        sheet_data = {
+            "新增(竞店)": final_df.fillna("").to_dict(orient='records'),
+            "淘汰(主店)": eliminated_df.fillna("").to_dict(orient='records')
+        }
+        
+        utils.write_multisheet_dict_to_excel(sheet_data, path)
+        
+        return path

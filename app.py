@@ -208,6 +208,15 @@ def export_data():
     response.headers["Expires"] = "0"
     return response
 
+@app.route('/api/export_new')
+def export_new_data():
+    path = dm.export_new_items()
+    response = send_file(path, as_attachment=True)
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
 if __name__ == '__main__':
     # Disable reloader to prevent app restart during background file saves
     app.run(debug=True, port=5001, use_reloader=False)
