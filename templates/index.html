@@ -1031,7 +1031,7 @@
             </div>
             <div class="modal-body">
                 <input type="text" class="search-box" id="modalSearch" placeholder="搜索商品名/条码..."
-                    oninput="filterModalList()">
+                    oninput="renderModalList()">
                 <div id="modalList"></div>
             </div>
         </div>
@@ -2305,6 +2305,14 @@
                 globalSearch.addEventListener('keydown', (e) => {
                     if (e.key === 'Enter') {
                         filterData();
+                    }
+                });
+            }
+            const modalSearch = document.getElementById('modalSearch');
+            if (modalSearch) {
+                modalSearch.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        renderModalList();
                     }
                 });
             }
