@@ -1210,6 +1210,12 @@
                 });
             });
 
+            // Inject Gross Margin fields if 采购价 exists
+            if (allKeys.has('采购价')) {
+                allKeys.add('现在毛利');
+                allKeys.add('跟价毛利');
+            }
+
             const currentKeys = Array.from(allKeys);
             const { savedAll, savedVisible } = loadColumnSettings();
 
@@ -1222,7 +1228,7 @@
             } else {
                 // Default priority sort
                 allBaseColumns = currentKeys;
-                const priority = ['条码', '商品名称', '规格', '品牌', '活动价', '原价', '销售', 'A品牌', 'A商品名称', 'A规格', 'A材质口味'];
+                const priority = ['条码', '商品名称', '规格', '品牌', '采购价', '现在毛利', '跟价毛利', '活动价', '原价', '销售', 'A品牌', 'A商品名称', 'A规格', 'A材质口味'];
                 allBaseColumns.sort((a, b) => {
                     const idxA = priority.indexOf(a);
                     const idxB = priority.indexOf(b);
@@ -1235,7 +1241,7 @@
 
             // Determine visibleColumns
             const defaultVisible = [
-                "商品条码", "商品名称", "规格名称", "新活动价", "新售价", "采购价",
+                "商品条码", "商品名称", "规格名称", "现在毛利", "跟价毛利", "采购价",
                 "活动价", "美团类目三级", "skuId", "主图链接", "原价", "销售"
             ];
 
@@ -1650,6 +1656,10 @@
             let restOfContent = '';
             const processedFields = new Set();
 
+            // Pre-calculate margins
+            const mainPurchPrice = parseFloat(row['采购价']) || 0;
+            const mainNewActPrice = parseFloat(row['新活动价']) || 0;
+
             visibleColumns.forEach(col => {
                 const val = row[`${prefix}${col}`] || "-";
 
@@ -1663,6 +1673,37 @@
                 const isPriceField = ['原价', '活动价'].includes(col);
                 const isSuggestionField = ['新售价', '新活动价'].includes(col);
                 const isSalesField = (col === '销售');
+                const isMarginField = ['现在毛利', '跟价毛利'].includes(col);
+
+                if (isMarginField) {
+                    let displayVal = "-";
+                    let isNegative = false;
+                    if (col === '现在毛利') {
+                        const actPrice = parseFloat(row[prefix + '活动价']) || 0;
+                        if (actPrice > 0 && mainPurchPrice > 0) {
+                            const numMargin = (actPrice - mainPurchPrice) / actPrice;
+                            displayVal = (numMargin * 100).toFixed(2) + "%";
+                            isNegative = numMargin < 0;
+                        }
+                    } else if (col === '跟价毛利') {
+                        if (mainNewActPrice > 0 && mainPurchPrice > 0) {
+                            const numMargin = (mainNewActPrice - mainPurchPrice) / mainNewActPrice;
+                            displayVal = (numMargin * 100).toFixed(2) + "%";
+                            isNegative = numMargin < 0;
+                        }
+                    }
+
+                    const color = isNegative ? "#ef4444" : "#1e293b";
+                    const html = `
+                <div class="info-group" style="justify-content: flex-start; gap: 8px; border-bottom: none; padding: 0;">
+                    <div class="info-label" style="width: 50px; flex-shrink:0;">${col}</div>
+                    <div class="info-stats" style="flex: 1; text-align: left; font-weight: 700; color: ${color};">
+                        ${displayVal}
+                    </div>
+                </div>`;
+                    mainTopLeftContent += html;
+                    return;
+                }
 
                 if (isSuggestionField) {
                     if (!isMain || processedFields.has('建议价')) return;

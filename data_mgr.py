@@ -91,6 +91,35 @@ class DataManager:
             self.grid_df[col] = self.grid_df[col].astype(object)
         self.grid_df.loc[row_idx, col] = val
 
+    def _calculate_margins(self):
+        """Calculates '现在毛利' and '跟价毛利' for all rows and stores in grid_df."""
+        if self.grid_df is None or '采购价' not in self.grid_df.columns:
+            return
+
+        def calc_margin(act_val, purch_val):
+            try:
+                a = float(act_val)
+                p = float(purch_val)
+                if a > 0:
+                    return f"{round((a - p) / a * 100, 2)}%"
+            except:
+                pass
+            return "-"
+
+        # Main Store
+        self.grid_df['现在毛利'] = [calc_margin(row['活动价'], row['采购价']) for _, row in self.grid_df.iterrows()]
+        if '新活动价' in self.grid_df.columns:
+            self.grid_df['跟价毛利'] = [calc_margin(row['新活动价'], row['采购价']) for _, row in self.grid_df.iterrows()]
+
+        # Competitor Stores
+        for i in range(len(self.store_names)):
+            prefix = str(i)
+            comp_act_col = f"{prefix}活动价"
+            if comp_act_col in self.grid_df.columns:
+                self.grid_df[f"{prefix}现在毛利"] = [calc_margin(row[comp_act_col], row['采购价']) for _, row in self.grid_df.iterrows()]
+            if '新活动价' in self.grid_df.columns:
+                self.grid_df[f"{prefix}跟价毛利"] = [calc_margin(row['新活动价'], row['采购价']) for _, row in self.grid_df.iterrows()]
+
     def _save_to_disk(self):
         """Persists the current in-memory grid_df to disk in a background thread without blocking the UI."""
         if self.output_file and self.grid_df is not None:
@@ -248,6 +277,9 @@ class DataManager:
                 if col not in self.grid_df.columns:
                     self.grid_df[col] = ""
             
+            # 1. Export Main Store
+            self._calculate_margins()
+            
             # Add addition summaries for each competitor store
             for i, store_name in enumerate(self.store_names):
                 prefix = str(i)
@@ -280,7 +312,7 @@ class DataManager:
                 
                 # Remove prefix from column names
                 raw_cols = []
-                standardized_to_remove = {'skuId', '主图链接', '菜单名', '规格名', '活动价', '原价', '销售', '条码', '三级类目'}
+                standardized_to_remove = {'skuId', '主图链接', '菜单名', '规格名', '活动价', '原价', '销售', '条码', '三级类目', '现在毛利', '跟价毛利'}
                 
                 new_col_names = []
                 for c in comp_df.columns:
@@ -324,6 +356,7 @@ class DataManager:
         """
         all_new_items_dfs = []
         op_time = time.strftime('%Y-%m-%d %H:%M:%S')
+        self._calculate_margins()
 
         # --- 1. New Competitor Items (Sheet 1) ---
         for i, store_name in enumerate(self.store_names):
@@ -352,7 +385,9 @@ class DataManager:
                 if c in ["主店SKU", "竞品店铺"]:
                     new_col_names.append(c)
                     continue
-                new_col_names.append(c[len(prefix):])
+                name = c[len(prefix):]
+                # If we stripped prefix and it matches margin fields, keep them
+                new_col_names.append(name)
                 
             comp_df.columns = new_col_names
             comp_df = comp_df.loc[:, ~comp_df.columns.duplicated()]
