@@ -766,6 +766,40 @@
         .page-size-selector:focus {
             border-color: var(--primary-color);
         }
+
+        .spinner-small {
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            display: inline-block;
+            vertical-align: middle;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .search-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+        #searchClearBtn {
+            position: absolute;
+            right: 10px;
+            cursor: pointer;
+            color: #94a3b8;
+            display: none;
+            font-size: 20px;
+            line-height: 1;
+            user-select: none;
+            transition: color 0.2s;
+        }
+        #searchClearBtn:hover {
+            color: var(--danger-color);
+        }
     </style>
 </head>
 <body>
@@ -776,14 +810,17 @@
         <div class="header-slogan">洞察竞对态势 • 驱动价格决策</div>
     </div>
     <div class="header-actions">
-        <input type="text" class="btn" id="globalSearch" placeholder="搜索标题/SKUID..." oninput="handleSearch()" onkeydown="if(event.key==='Enter')handleSearch()" style="width: 200px; border-radius: 8px;">
+        <div class="search-wrapper">
+            <input type="text" class="btn" id="globalSearch" placeholder="搜索标题/SKUID..." oninput="handleSearch(); document.getElementById('searchClearBtn').style.display = this.value ? 'block' : 'none';" onkeydown="if(event.key==='Enter')handleSearch()" style="width: 220px; border-radius: 8px; padding-right: 30px;">
+            <span id="searchClearBtn" onclick="clearSearch()" title="重置搜索">&times;</span>
+        </div>
         <div style="position: relative;">
             <button class="btn" onclick="toggleFilter()"><img src="https://img.icons8.com/material-outlined/20/000000/filter.png"/> 展示筛选</button>
             <div class="filter-popup" id="filterPopup">
                 <!-- Filter checkboxes will be injected here -->
             </div>
         </div>
-        <button class="btn btn-primary" onclick="exportExcel()"><img src="https://img.icons8.com/material-outlined/20/ffffff/download.png"/> 下载成果</button>
+        <button class="btn btn-primary" id="exportBtn" onclick="exportExcel()"><img src="https://img.icons8.com/material-outlined/20/ffffff/download.png"/> 下载成果</button>
         <button class="btn btn-primary" style="background: #8b5cf6; border-color: #8b5cf6;" onclick="openAnalysisModal()"><img src="https://img.icons8.com/material-outlined/20/ffffff/search.png"/> 新建分析</button>
         <button class="btn" style="border-radius: 8px;" onclick="openConfigModal()"><img src="https://img.icons8.com/material-outlined/20/000000/settings.png"/> 配置管理</button>
         <input type="file" id="uploadInput" accept=".xlsx, .xls" style="display:none;" onchange="handleUpload(event)" />
@@ -1707,7 +1744,45 @@ async function performLink(productData) {
     loadData(false);
 }
 
-function exportExcel() { window.location.href = '/api/export?t=' + new Date().getTime(); }
+async function exportExcel() {
+    const btn = document.getElementById('exportBtn');
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-small"></span> 正在生成...';
+    
+    try {
+        const response = await fetch('/api/export?t=' + new Date().getTime());
+        if (!response.ok) throw new Error('Download failed');
+        
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        
+        // Try to get filename from header
+        let filename = "对比分析成果_" + new Date().toISOString().slice(0,10) + ".zip";
+        const disposition = response.headers.get('Content-Disposition');
+        if (disposition && disposition.indexOf('attachment') !== -1) {
+            const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+            const matches = filenameRegex.exec(disposition);
+            if (matches != null && matches[1]) { 
+                filename = matches[1].replace(/['"]/g, '');
+            }
+        }
+        
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+    } catch (err) {
+        console.error(err);
+        alert("下载失败，请稍后重试。");
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+    }
+}
 
 // Analysis Pipeline Logic
 function openAnalysisModal() {
@@ -1881,6 +1956,13 @@ async function saveConfig() {
 }
 
 function handleSearch() { filterData(); }
+
+function clearSearch() {
+    const input = document.getElementById('globalSearch');
+    input.value = '';
+    document.getElementById('searchClearBtn').style.display = 'none';
+    handleSearch();
+}
 
 // Image Zoom Logic
 function initImagePreview() {
