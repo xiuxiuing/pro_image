@@ -6,12 +6,8 @@ import time
 import json
 import shutil
 
-
-API_KEY = "AIzaSyBfXahKdOe13OtMaR_nn5BPQYd-avn9XOs"
-
+# API key is now passed from the frontend
 MODEL_NAME = "models/gemini-3.1-flash-lite-preview"  # Using requested model
-
-client = genai.Client(api_key=API_KEY)
 
 class ProductInfo(BaseModel):
     brand: str
@@ -24,7 +20,8 @@ class ProductInfo(BaseModel):
 class BatchResponse(BaseModel):
     items: list[ProductInfo]
 
-def extract_batch_ai(names, max_retries=5):
+def extract_batch_ai(names, api_key, max_retries=5):
+    client = genai.Client(api_key=api_key)
     prompt = f"""
     Extract high-accuracy details from the following product descriptions.
     
@@ -90,7 +87,7 @@ def safe_save(df, file_path):
         return False
 
 
-def process_file_ai(file_path, batch_size=50):  # Reduced batch size for more complex extraction
+def process_file_ai(file_path, api_key, batch_size=50):  # Reduced batch size for more complex extraction
     print(f"Loading {file_path}...")
     try:
         df = pd.read_excel(file_path, engine='openpyxl')
@@ -137,7 +134,7 @@ def process_file_ai(file_path, batch_size=50):  # Reduced batch size for more co
         print(
             f"Processing batch {i // batch_size + 1}/{(total_to_process - 1) // batch_size + 1} ({len(batch_indices)} rows)...")
 
-        results = extract_batch_ai(batch_inputs)
+        results = extract_batch_ai(batch_inputs, api_key=api_key)
 
         df.loc[batch_indices, 'A品牌'] = [item.brand for item in results]
         df.loc[batch_indices, 'A商品名称'] = [item.product_name for item in results]
@@ -160,10 +157,12 @@ if __name__ == "__main__":
     # Process the specific files requested by the user
     files = ["乐购达.xlsx", "沃玛希.xlsx", "优购哆0313.xlsx","犀牛.xlsx","AA百货.xlsx"]
     
+    test_api_key = os.environ.get("GEMINI_API_KEY", "YOUR_API_KEY")
+    
     for filename in files:
         file_to_process = os.path.join(base_dir, filename)
 
         if os.path.exists(file_to_process):
-            process_file_ai(file_to_process, batch_size=110)
+            process_file_ai(file_to_process, api_key=test_api_key, batch_size=110)
         else:
             print(f"File not found: {file_to_process}")

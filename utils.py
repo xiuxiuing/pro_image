@@ -11,14 +11,33 @@ def excel_to_list_dict(file_path, sheet_name=None):
 
     # 第一行作为 key
     headers = next(rows)
+    if not headers:
+        return []
 
     data = []
     for row in rows:
         # 跳过空行
         if all(cell is None for cell in row):
             continue
+        
+        row_list = list(row)
+        for i, val in enumerate(row_list):
+            if val is not None:
+                # 1. Handle very large numbers as strings (IDs, barcodes)
+                # Excel/JS precision limit starts at ~15-16 digits. We use 12 as safety.
+                if isinstance(val, (int, float)):
+                    abs_val = abs(val)
+                    if abs_val >= 10**12:
+                        # Convert to int then str to remove ANY scientific notation or decimals
+                        row_list[i] = str(int(val))
+                    elif isinstance(val, float):
+                        if val == int(val):
+                            row_list[i] = int(val)
+                        else:
+                            # Round common floats (similarity, price) to 4 decimals for cleaner internal data
+                            row_list[i] = round(val, 4)
 
-        data.append(dict(zip(headers, row)))
+        data.append(dict(zip(headers, row_list)))
 
     return data
 
@@ -39,7 +58,22 @@ def write_dict_list_to_excel(data, file_path="output_text.xlsx"):
 
     # 写入每一行
     for item in data:
-        row = [item.get(h, "") for h in headers]  # 如果缺失某列，填空
+        row = []
+        for h in headers:
+            val = item.get(h, "")
+            # Global Numeric Optimization for Writing
+            if isinstance(val, (int, float)):
+                abs_val = abs(val)
+                if abs_val >= 10**12:
+                    # Large IDs MUST be strings in Excel to avoid scientific notation and precision loss
+                    val = str(int(val))
+                elif isinstance(val, float):
+                    if val == int(val):
+                        val = int(val)
+                    else:
+                        # Rounding for prices/similarity tails
+                        val = round(val, 4)
+            row.append(val)
         ws.append(row)
 
     # 保存文件

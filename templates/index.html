@@ -878,8 +878,13 @@
                 <input type="file" id="compFilesInput" accept=".xlsx, .xls" multiple style="width: 100%;">
             </div>
             <div style="display: flex; align-items: center; gap: 8px;">
-                <input type="checkbox" id="skipExtractCheck" style="width: 18px; height: 18px; cursor: pointer;">
-                <label for="skipExtractCheck" style="font-size: 14px; font-weight: 600; cursor: pointer; color: var(--text-main);">跳过 AI 提取流程 (仅比对)</label>
+                <input type="checkbox" id="runAIExtractCheck" style="width: 18px; height: 18px; cursor: pointer;" onchange="document.getElementById('apiKeyContainer').style.display = this.checked ? 'block' : 'none'">
+                <label for="runAIExtractCheck" style="font-size: 14px; font-weight: 600; cursor: pointer; color: var(--text-main);">进行 AI 提取流程 (约需几分钟)</label>
+            </div>
+            <div id="apiKeyContainer" style="margin-top: 4px; display: none;">
+                <label style="display: block; font-weight: 600; margin-bottom: 8px; font-size: 14px; color: var(--text-main);">3. 填写 Gemini API Key</label>
+                <input type="text" id="apiKeyInput" placeholder="请输入您的 Gemini API Key" style="width: 100%; padding: 10px; border: 1.5px solid #e2e8f0; border-radius: 8px; font-size: 14px; outline: none; transition: all 0.2s;">
+                <div style="font-size: 12px; color: var(--danger-color); margin-top: 4px; display: none;" id="apiKeyError">请输入有效的 API Key</div>
             </div>
             <div style="margin-top: 10px;">
                 <button class="btn btn-primary" style="width: 100%; justify-content: center; height: 44px; font-size: 16px;" id="runBtn" onclick="runAnalysisPipeline()">开始 AI 分析与比对</button>
@@ -1725,15 +1730,30 @@ async function runAnalysisPipeline() {
     const runBtn = document.getElementById('runBtn');
     const statusBox = document.getElementById('pipelineStatus');
     const logEl = document.getElementById('statusLog');
-    const skipExtract = document.getElementById('skipExtractCheck').checked;
+    const runAIExtract = document.getElementById('runAIExtractCheck').checked;
+    
+    let apiKey = "";
+    const apiKeyError = document.getElementById('apiKeyError');
+    if (runAIExtract) {
+        apiKey = document.getElementById('apiKeyInput').value.trim();
+        if (!apiKey) {
+            apiKeyError.style.display = 'block';
+            document.getElementById('apiKeyInput').style.borderColor = 'var(--danger-color)';
+            return;
+        }
+    }
+    if (apiKeyError) {
+        apiKeyError.style.display = 'none';
+        document.getElementById('apiKeyInput').style.borderColor = '#e2e8f0';
+    }
     
     runBtn.disabled = true;
     runBtn.innerText = "正在分析中 (请勿关闭窗口)...";
     statusBox.style.display = 'block';
-    if (!skipExtract) {
+    if (runAIExtract) {
         logEl.innerHTML = "1. 正在上传并启动 AI 提取流程 (大概需要几分钟)...<br>";
     } else {
-        logEl.innerHTML = "1. 正在上传文件 (跳过 AI 流程)...<br>";
+        logEl.innerHTML = "1. 正在上传文件 (仅执行比对流程)...<br>";
     }
 
     const formData = new FormData();
@@ -1741,7 +1761,10 @@ async function runAnalysisPipeline() {
     for (let f of compFiles) {
         formData.append('comp_files', f);
     }
-    formData.append('skip_extract', skipExtract ? 'true' : 'false');
+    formData.append('skip_extract', runAIExtract ? 'false' : 'true');
+    if (runAIExtract) {
+        formData.append('api_key', apiKey);
+    }
 
     try {
         const response = await fetch('/api/run_pipeline', {

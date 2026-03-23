@@ -45,7 +45,9 @@ class DataManager:
     def load_data(self):
         # Load the main comparison output
         if os.path.exists(self.output_file):
-            self.grid_df = pd.read_excel(self.output_file)
+            import utils
+            data = utils.excel_to_list_dict(self.output_file)
+            self.grid_df = pd.DataFrame(data)
             self.grid_df = self.grid_df.astype(object)
             # Add a 'status' column if not exists (for Eliminate/Eliminated)
             if '淘汰标记' not in self.grid_df.columns:
@@ -60,7 +62,9 @@ class DataManager:
         for i, file_path in enumerate(self.source_files):
             store_name = self.store_names[i]
             if os.path.exists(file_path):
-                df = pd.read_excel(file_path)
+                import utils
+                data = utils.excel_to_list_dict(file_path)
+                df = pd.DataFrame(data)
                 self.store_dfs[str(i)] = {
                     "name": store_name,
                     "df": df
@@ -97,11 +101,8 @@ class DataManager:
             def save_task(df_to_save, target_path):
                 # This runs in background and DOES NOT hold self._save_lock during the slow to_excel()
                 try:
-                    temp_path = target_path + ".tmp"
-                    df_to_save.to_excel(temp_path, index=False)
-                    if os.path.exists(target_path):
-                        os.remove(target_path)
-                    os.rename(temp_path, target_path)
+                    import utils
+                    utils.write_dict_list_to_excel(df_to_save.fillna("").to_dict(orient='records'), target_path)
                     print(f"DEBUG: Background autosave completed: {target_path}")
                 except Exception as e:
                     print(f"ERROR: Background autosave failed: {e}")
@@ -229,7 +230,8 @@ class DataManager:
         if cols_to_drop:
             export_df.drop(columns=cols_to_drop, inplace=True)
             
-        export_df.to_excel(path, index=False)
+        import utils
+        utils.write_dict_list_to_excel(export_df.fillna("").to_dict(orient='records'), path)
         return path
 
     def save_separate_exports(self):

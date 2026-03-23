@@ -36,42 +36,53 @@ dim = 768
 # -----------------------------
 
 def get_sku_id(item):
-    return int(item.get("skuid") or item.get("SKUID"))
+    """获取 SKU ID，并强制转换为字符串以防止 Excel 精度丢失"""
+    val = item.get("skuid") or item.get("SKUID")
+    return str(int(val)) if val is not None and str(val).strip() != "" else ""
 
 
 def get_条码(item):
+    """获取商品条码"""
     return item.get("条码") or item.get("商品条码")
 
 
 def get_规格(item):
+    """获取商品规格"""
     return item.get("规格") or item.get("规格名称")
 
 
 def get_活动价(item):
+    """获取活动价（优先使用折扣价或新活动价）"""
     return item.get("单件折扣价") or item.get("新活动价") or item.get("活动价")
 
 
 def get_原价(item):
+    """获取原始售价（挂牌价）"""
     return item.get("单件原价") or item.get("新售价") or item.get("美团外卖渠道售价") or item.get("采购价")
 
 
 def get_销售(item):
+    """获取销售量"""
     return item.get("销售") or item.get("月销量")
 
 
 def get_美团类名1(item):
+    """获取美团一级类目"""
     return item.get("美团一级类目") or item.get("美团类目一级")
 
 
 def get_美团类名2(item):
+    """获取美团二级类目"""
     return item.get("美团二级类目") or item.get("美团类目二级")
 
 
 def get_美团类名3(item):
+    """获取美团三级类目"""
     return item.get("美团三级类目") or item.get("美团类目三级")
 
 
 def get_text(item):
+    """构建用于相似度计算的文本描述"""
     return f"{get_规格(item)}, {get_美团类名3(item)}, {item['商品名称']}, {item.get('A品牌', '')}, {item.get('A商品名称', '')}, {item.get('A规格', '')}, {item.get('A材质口味', '')}"
 
 
@@ -80,23 +91,32 @@ def get_text(item):
 # -----------------------------
 
 def build_match_item(item, prefix=""):
+    """
+    根据给定的商品数据构建一个标准字典，支持添加前缀以便合并数据。
+    """
     res = {f"{prefix}{k}": v for k, v in item.items()}
-    # Restore standardized keys for UI compatibility
-    res[f"{prefix}skuId"] = get_sku_id(item)
-    res[f"{prefix}主图链接"] = item.get("图片") or item.get("主图链接") or ""
-    res[f"{prefix}菜单名"] = item.get("商品名称") or item.get("菜单名") or ""
-    res[f"{prefix}规格名"] = get_规格(item)
-    res[f"{prefix}活动价"] = get_活动价(item)
-    res[f"{prefix}原价"] = get_原价(item)
-    res[f"{prefix}销售"] = get_销售(item)
-    res[f"{prefix}条码"] = get_条码(item)
+    
+    # 核心字段标准化（用于 UI 显示和后续处理）
+    res[f"{prefix}skuId"] = get_sku_id(item) # 强制为字符串防止精度丢失
+    res[f"{prefix}主图链接"] = item.get("图片") or item.get("主图链接") or "" # 商品图片地址
+    res[f"{prefix}菜单名"] = item.get("商品名称") or item.get("菜单名") or "" # 商品名称
+    res[f"{prefix}规格名"] = get_规格(item)   # 规格信息
+    res[f"{prefix}活动价"] = get_活动价(item) # 活动/折扣价
+    res[f"{prefix}原价"] = get_原价(item)     # 原始售价
+    res[f"{prefix}销售"] = get_销售(item)     # 销量数据
+    res[f"{prefix}条码"] = get_条码(item)     # 商品条码
+    
     return res
 
 
 def append_match_result(res_item, sear_item, similarity, match, prefix=""):
+    """
+    将匹配到的商品信息追加/更新到结果字典中，并记录相似度和匹配状态。
+    """
     res_item.update(build_match_item(sear_item, prefix))
     res_item[f"{prefix}相似度"] = similarity
     res_item[f"{prefix}匹配"] = match
+
 
 
 # -----------------------------

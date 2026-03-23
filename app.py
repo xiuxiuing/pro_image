@@ -40,12 +40,15 @@ def run_pipeline():
     try:
         # 2. Extract Info AI
         skip_extract = request.form.get('skip_extract') == 'true'
+        api_key = request.form.get('api_key')
         
         if not skip_extract:
+            if not api_key:
+                return jsonify({"status": "error", "message": "Missing API Key"}), 400
             print("Step 1: AI Extraction...")
-            extract_info_ai2.process_file_ai(main_path, batch_size=110)
+            extract_info_ai2.process_file_ai(main_path, api_key=api_key, batch_size=110)
             for path in comp_paths:
-                extract_info_ai2.process_file_ai(path, batch_size=110)
+                extract_info_ai2.process_file_ai(path, api_key=api_key, batch_size=110)
         else:
             print("Step 1: AI Extraction Skipped.")
         
