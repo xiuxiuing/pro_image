@@ -49,6 +49,35 @@ class DataManager:
             data = utils.excel_to_list_dict(self.output_file)
             self.grid_df = pd.DataFrame(data)
             self.grid_df = self.grid_df.astype(object)
+            
+            # Standardize column names (Rename '图片' to '主图链接', 'SKUID' to 'skuId')
+            # Consistent field naming for Price and Sales:
+            mappings = {
+                '图片': '主图链接', 
+                'SKUID': 'skuId',
+                '新售价': '原价',
+                '零售价': '原价',
+                '美团外卖渠道售价': '原价',
+                '月销量': '销售'
+            }
+            # Handle main store and all possible competitor prefixes
+            for i in range(10): # Handle up to 10 competitors
+                mappings[f"{i}图片"] = f"{i}主图链接"
+                mappings[f"{i}SKUID"] = f"{i}skuId"
+                mappings[f"{i}新售价"] = f"{i}原价"
+                mappings[f"{i}零售价"] = f"{i}原价"
+                mappings[f"{i}美团外卖渠道售价"] = f"{i}原价"
+                mappings[f"{i}月销量"] = f"{i}销售"
+            
+            for src, dst in mappings.items():
+                if src in self.grid_df.columns:
+                    if dst in self.grid_df.columns and src != dst:
+                        # If destination exists, merge data (prefer source for Standardization)
+                        self.grid_df[dst] = self.grid_df[src].fillna(self.grid_df[dst])
+                        self.grid_df.drop(columns=[src], inplace=True)
+                    else:
+                        self.grid_df.rename(columns={src: dst}, inplace=True)
+
             # Add a 'status' column if not exists (for Eliminate/Eliminated)
             if '淘汰标记' not in self.grid_df.columns:
                 self.grid_df['淘汰标记'] = 0 # 0: Normal, 1: Eliminated
@@ -401,11 +430,15 @@ class DataManager:
         # Add Operation Time
         final_df["操作时间"] = op_time
 
-        # --- 2. Eliminated Main Store Items (Sheet 2) ---
+        # --- 2. Main Store Items (Sheet 2: Eliminated OR Follow Priced) ---
+        mask = pd.Series(False, index=self.grid_df.index)
         if '是否淘汰' in self.grid_df.columns:
-            eliminated_df = self.grid_df[self.grid_df['是否淘汰'] == "是"].copy()
-        else:
-            eliminated_df = pd.DataFrame()
+            mask |= (self.grid_df['是否淘汰'] == "是")
+        if '跟价店' in self.grid_df.columns:
+            # Include items where follow pricing has been applied
+            mask |= (self.grid_df['跟价店'].notna() & (self.grid_df['跟价店'] != ""))
+            
+        eliminated_df = self.grid_df[mask].copy()
             
         if not eliminated_df.empty:
             internal_keys = ['淘汰标记', '__idx']

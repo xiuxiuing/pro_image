@@ -6,6 +6,10 @@
     <title>商品竞对分析平台</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
+        /* 
+         * --- 设计系统与变量定义 ---
+         * 包含全局颜色、间距、圆角以及阴影定义
+         */
         :root {
             --bg-color: #f8fafc;
             --sidebar-width: 120px;
@@ -119,7 +123,11 @@
             border-color: var(--primary-hover);
         }
 
-        /* Main Content Layout */
+        /* ---------------------------------------------------------
+         * --- 布局组件样式 (容器, 滚动条, 表头等) ---
+         * --------------------------------------------------------- */
+
+        /* 主体布局容器 */
         .main-container {
             display: flex;
             flex: 1;
@@ -965,6 +973,9 @@
 
 <body>
 
+    <!-- 
+      - 页头区域：包含标题、搜索框以及功能按钮
+      -->
     <header>
         <div style="display: flex; flex-direction: column;">
             <div class="header-title">商品竞对分析平台</div>
@@ -1132,20 +1143,28 @@
     </div>
 
     <script>
-        let gridData = [];
-        let filteredData = [];
-        let storeSources = [];
-        let mainStoreName = "主店";
-        let currentLinkAction = null;
-        let allStoreProducts = {};
-        let allBaseColumns = [];
-        let visibleColumns = [];
-        let advancedFilters = {};
-        let currentSort = { field: null, order: null };
-        let showNegativeSalesOnly = false;
-        let currentPage = 1;
-        let pageSize = 20;
+        /* 
+         * ---------------------------------------------------------
+         * --- 全局变量与核心状态管理 ---
+         * ---------------------------------------------------------
+         */
+        let gridData = [];              // 原始全量数据
+        let filteredData = [];          // 过滤/排序后的展示数据
+        let storeSources = [];          // 竞店配置信息
+        let mainStoreName = "主店";       // 主店名称 (Target)
+        let currentLinkAction = null;    // 当前正在进行的关联操作上下文
+        let allStoreProducts = {};       // 缓存各竞店的商品列表 (用于手动选择)
+        let allBaseColumns = [];         // 数据中的所有可用字段名
+        let visibleColumns = [];         // 当前用户选择展示的字段名
+        let advancedFilters = {};        // 高级筛选条件 (字段: 关键字)
+        let currentSort = { field: null, order: null }; // 当前排序状态
+        let showNegativeSalesOnly = false; // 是否只显示负销量 (竞店销量 > 主店销量)
+        let currentPage = 1;             // 当前页码
+        let pageSize = 20;               // 每页显示条数
 
+        /* 
+         * --- 数据初始化与加载 ---
+         */
         async function loadData(resetPage = true) {
             const loadingMsg = document.getElementById('loadingMsg');
             console.log("Fetching config and grid data...");
@@ -1196,6 +1215,10 @@
             }
         }
 
+        /* 
+         * --- 字段提取与表头管理 ---
+         * 从原始数据中提取所有可能的 Key，并根据优先级或缓存进行排序
+         */
         function extractHeaders() {
             if (gridData.length === 0) return;
             const allKeys = new Set();
@@ -1260,6 +1283,10 @@
         }
 
 
+        /* 
+         * --- 数据过滤引擎 ---
+         * 整合全局搜索、高级筛选和排序逻辑，生成 filteredData
+         */
         function filterData(resetPage = true) {
             const searchInput = document.getElementById('globalSearch');
             const searchVal = searchInput ? searchInput.value.toLowerCase().trim() : "";
@@ -1486,6 +1513,10 @@
             }
         }
 
+        /* 
+         * --- 网格渲染引擎 ---
+         * 动态生成表头、分页并渲染商品行
+         */
         function renderGrid(resetScroll = false) {
             const gridBodyEl = document.getElementById('gridBody');
             const storeHeaderEl = document.getElementById('storeHeader');
@@ -1634,6 +1665,10 @@
             return colors[idx] || 'rgba(0,0,0,0.05)';
         }
 
+        /* 
+         * --- 商品卡片构造器 ---
+         * 根据字段配置动态构建主店或竞店的产品信息卡片
+         */
         function createProductCard(row, storeId, rowIdx) {
             const card = document.createElement('div');
             const prefix = (storeId === null ? "" : storeId);
@@ -1664,8 +1699,12 @@
                 const val = row[`${prefix}${col}`] || "-";
 
             if (col === '主图链接') {
-                imageContent = `<div class="card-top-image" onmouseenter="showZoom('${val}', event)" onmousemove="updateZoomPos(event)" onmouseleave="hideZoom()" ${isMain ? `onclick="editMainImage(${rowIdx}, '${val}')" title="点击修改图片链接"` : ''}>
-                    <img src="${val}" onerror="this.src='https://via.placeholder.com/80?text=No+Img'">
+                let imgSrc = val;
+                if (val && !val.startsWith('http') && val !== '-') {
+                    imgSrc = '/img/' + val;
+                }
+                imageContent = `<div class="card-top-image" onmouseenter="showZoom('${imgSrc}', event)" onmousemove="updateZoomPos(event)" onmouseleave="hideZoom()" ${isMain ? `onclick="editMainImage(${rowIdx}, '${imgSrc}')" title="点击修改图片链接"` : ''}>
+                    <img src="${imgSrc}" onerror="this.src='https://via.placeholder.com/80?text=No+Img'">
                 </div>`;
                 return;
             }
@@ -1842,7 +1881,10 @@
             return card;
         }
 
-        // Action Functions
+        /* 
+         * --- 业务操作函数 (关联, 淘汰, 修改, 导出等) ---
+         */
+        // 修改主店图片链接
         async function editMainImage(rowIdx, currentUrl) {
             const newUrl = prompt("请输入新的图片链接：", currentUrl !== '-' ? currentUrl : '');
             if (newUrl !== null && newUrl.trim() !== "") {
@@ -1953,6 +1995,7 @@
             }
         }
 
+        // 手动关联弹窗控制
         async function openModal(rowIdx, storeId) {
             currentLinkAction = { rowIdx, storeId };
             document.getElementById('linkModal').style.display = 'flex';
@@ -2003,6 +2046,10 @@
             loadData(false);
         }
 
+        /* 
+         * --- 数据导出功能 ---
+         * 调用后端接口生成 Excel 并触发浏览器下载
+         */
         async function exportExcel() {
             const btn = document.getElementById('exportBtn');
             const originalHtml = btn.innerHTML;
@@ -2083,7 +2130,10 @@
             }
         }
 
-        // Analysis Pipeline Logic
+        /* 
+         * --- 分析流程 (Pipeline) 逻辑 ---
+         * 负责上传主店/竞店文件，启动后台比对和 AI 提取流程
+         */
         function openAnalysisModal() {
             document.getElementById('analysisModal').style.display = 'flex';
         }

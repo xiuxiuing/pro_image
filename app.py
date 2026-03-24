@@ -200,6 +200,14 @@ def update_cell():
     dm.update_cell(row_idx, {column: value})
     return jsonify({"status": "success"})
 
+@app.route('/img/<path:filename>')
+def serve_img(filename):
+    img_path = os.path.join(base_dir, "img", filename)
+    if os.path.exists(img_path):
+        return send_file(img_path)
+    else:
+        return "Image not found", 404
+
 @app.route('/api/upload', methods=['POST'])
 def upload_file():
     if 'file' not in request.files:
