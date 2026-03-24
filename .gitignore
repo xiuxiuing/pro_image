@@ -11,4 +11,9 @@ dist
 models
 __pycache__
 
-
+*.db
+*.log
+.DS_Store
+*.bak
+*.corrupted
+*.old

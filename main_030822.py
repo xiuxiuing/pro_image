@@ -384,8 +384,10 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="031511"):
                     img_vec,
                     text_vec
                 )
-                sear_item = source["sku_dict"].get(int(sid))
-                desc = ""
+                sear_item = source["sku_dict"].get(str(int(sid)))
+                if not sear_item:
+                    continue
+                
                 if get_美团类名3(item) != get_美团类名3(sear_item):
                     continue
 
@@ -393,7 +395,7 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="031511"):
                     res_item,
                     sear_item,
                     score,
-                    match + desc,
+                    match,
                     str(idx)
                 )
             res_data.append(res_item)

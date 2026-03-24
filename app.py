@@ -251,4 +251,4 @@ def export_new_data():
 
 if __name__ == '__main__':
     # Disable reloader to prevent app restart during background file saves
-    app.run(debug=True, port=5001, use_reloader=False)
+    app.run(debug=True, port=5001, use_reloader=True)

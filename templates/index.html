@@ -1160,7 +1160,7 @@
         let currentSort = { field: null, order: null }; // 当前排序状态
         let showNegativeSalesOnly = false; // 是否只显示负销量 (竞店销量 > 主店销量)
         let currentPage = 1;             // 当前页码
-        let pageSize = 20;               // 每页显示条数
+        let pageSize = 50;               // 每页显示条数
 
         /* 
          * --- 数据初始化与加载 ---
@@ -1619,7 +1619,7 @@
             }
 
             const totalSku = filteredData.length;
-            const totalSpu = new Set(filteredData.map(row => row['菜单名'])).size;
+            const totalSpu = new Set(filteredData.map(row => row['商品名称'])).size;
 
             paginEl.innerHTML = `
         <div class="pagination-info">
@@ -1635,6 +1635,10 @@
             <button class="page-btn" ${currentPage === 1 ? 'disabled' : ''} onclick="changePage(${currentPage - 1})">上一页</button>
             ${pagesHtml}
             <button class="page-btn" ${currentPage === totalPages ? 'disabled' : ''} onclick="changePage(${currentPage + 1})">下一页</button>
+            <span style="margin-left: 12px; color: #4b5563; font-size: 13px;">到第</span>
+            <input type="number" class="page-jump-input" min="1" max="${totalPages}" value="${currentPage}" 
+                onkeydown="if(event.key==='Enter') jumpToPage(this.value, ${totalPages})">
+            <span style="color: #4b5563; font-size: 13px;">页</span>
         </div>
     `;
         }
@@ -1648,6 +1652,13 @@
             pageSize = parseInt(size);
             currentPage = 1;
             renderGrid();
+        }
+
+        function jumpToPage(page, totalPages) {
+            let p = parseInt(page);
+            if (isNaN(p) || p < 1) p = 1;
+            if (p > totalPages) p = totalPages;
+            changePage(p);
         }
 
         function getStoreColor(storeId) {
@@ -1698,16 +1709,16 @@
             visibleColumns.forEach(col => {
                 const val = row[`${prefix}${col}`] || "-";
 
-            if (col === '主图链接') {
-                let imgSrc = val;
-                if (val && !val.startsWith('http') && val !== '-') {
-                    imgSrc = '/img/' + val;
-                }
-                imageContent = `<div class="card-top-image" onmouseenter="showZoom('${imgSrc}', event)" onmousemove="updateZoomPos(event)" onmouseleave="hideZoom()" ${isMain ? `onclick="editMainImage(${rowIdx}, '${imgSrc}')" title="点击修改图片链接"` : ''}>
+                if (col === '主图链接') {
+                    let imgSrc = val;
+                    if (val && !val.startsWith('http') && val !== '-') {
+                        imgSrc = '/img/' + val;
+                    }
+                    imageContent = `<div class="card-top-image" onmouseenter="showZoom('${imgSrc}', event)" onmousemove="updateZoomPos(event)" onmouseleave="hideZoom()" ${isMain ? `onclick="editMainImage(${rowIdx}, '${imgSrc}')" title="点击修改图片链接"` : ''}>
                     <img src="${imgSrc}" onerror="this.src='https://via.placeholder.com/80?text=No+Img'">
                 </div>`;
-                return;
-            }
+                    return;
+                }
 
                 const isPriceField = ['原价', '活动价'].includes(col);
                 const isSuggestionField = ['新售价', '新活动价'].includes(col);
@@ -1791,7 +1802,8 @@
                         if (hasLinkedComp) {
                             const diff = mainSales - maxCompSales;
                             const diffText = diff >= 0 ? `(+${diff})` : `(${diff})`;
-                            displayVal = `${val}${diffText}`;
+                            const displayBase = val === '-' ? 0 : val;
+                            displayVal = `${displayBase}${diffText}`;
                             if (diff < 0) extraStyle = "background: #ef4444; color: #fff; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 13px;";
                         }
                     }
@@ -1892,7 +1904,7 @@
                 // Update both '主图链接' for UI and '图片' for export
                 await updateField(rowIdx, '主图链接', url);
                 await updateField(rowIdx, '图片', url);
-                
+
                 // Also conditionally update '商品图片' and '主图' and '首图' if they exist, 
                 // just to be safe if the original file used these variants.
                 const variants = ['商品图片', '主图', '首图'];
@@ -1901,7 +1913,7 @@
                         await updateField(rowIdx, v, url);
                     }
                 }
-                
+
                 renderGrid(false);
             }
         }
@@ -1984,7 +1996,7 @@
                 if (response.ok) {
                     // Update local data and re-render
                     const prefix = storeId;
-                    const keys = ["skuId", "主图链接", "菜单名", "规格名", "活动价", "原价", "销售", "条码", "三级类目", "相似度", "匹配", "是否新增"];
+                    const keys = ["skuId", "主图链接", "商品名称", "规格名称", "活动价", "原价", "销售", "条码", "美团类目三级", "相似度", "匹配", "是否新增"];
                     keys.forEach(k => { gridData[rowIdx][prefix + k] = ""; });
 
                     filterData(false); // Preserve page/scroll
@@ -2021,11 +2033,16 @@
                 const item = document.createElement('div');
                 item.className = 'product-list-item';
                 const price = p['活动价'] || p['单件折扣价'] || "-";
+                let imgSrc = p['主图链接'] || p['图片'] || "";
+                if (imgSrc && !imgSrc.startsWith('http') && imgSrc !== '-') {
+                    imgSrc = '/img/' + imgSrc;
+                }
                 item.innerHTML = `
-            <div class="product-list-img"><img src="${p['图片']}" onerror="this.src='https://via.placeholder.com/80?text=No+Img'"></div>
+            <div class="product-list-img"><img src="${imgSrc}" onerror="this.src='https://via.placeholder.com/80?text=No+Img'"></div>
             <div style="flex:1">
                 <div style="font-weight:600">${p['商品名称']}</div>
-                <div style="font-size:12px; color:#6b7280">SKU: ${p['skuid'] || p['SKUID']}</div>
+                <div style="font-size:12px; color:#6b7280; margin-top:2px;">规格: ${p['规格名称'] || p['规格名'] || p['规格'] || '-'}</div>
+                <div style="font-size:12px; color:#94a3b8">SKU: ${p['skuId'] || p['skuid'] || p['SKUID'] || '-'}</div>
             </div>
             <div style="text-align:right">
                 <div class="modal-product-price">¥${price}</div>

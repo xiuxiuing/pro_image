@@ -5,6 +5,7 @@ import shutil
 import tempfile
 import time
 import threading
+import sqlite3
 
 class DataManager:
     def __init__(self, base_dir):
@@ -20,350 +21,428 @@ class DataManager:
         self.store_names = ["乐购达", "沃玛希", "犀牛", "AA百货"]
         self.main_store_name = "优购哆"
         
+        self.db_path = os.path.join(base_dir, "pro_image.db")
         self.grid_df = None
-        self.store_dfs = {} # Store name -> DataFrame
+        self.store_dfs = {} 
+        self._db_lock = threading.Lock()
         
-        self._save_lock = threading.Lock()
-        
+        self._init_db()
         self.load_data()
 
+    def _get_conn(self):
+        return sqlite3.connect(self.db_path, check_same_thread=False)
+
+    def _init_db(self):
+        with self._get_conn() as conn:
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS meta_info (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                )
+            ''')
+
     def update_config(self, target_file=None, source_files=None, output_file=None):
-        """Updates the current file configuration and reloads data."""
         if target_file:
             self.target_file = os.path.abspath(target_file)
             self.main_store_name = os.path.basename(self.target_file).replace(".xlsx", "").replace(".xls", "")
-        
         if source_files:
             self.source_files = [os.path.abspath(f) for f in source_files]
             self.store_names = [os.path.basename(f).replace(".xlsx", "").replace(".xls", "") for f in self.source_files]
-        
         if output_file:
             self.output_file = os.path.abspath(output_file)
-        
         self.load_data()
 
     def load_data(self):
-        # Load the main comparison output
-        if os.path.exists(self.output_file):
-            import utils
+        needs_import = True
+        current_mtime = str(os.path.getmtime(self.output_file)) if os.path.exists(self.output_file) else "0"
+        
+        with self._get_conn() as conn:
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT value FROM meta_info WHERE key='output_file'")
+                res_file = cur.fetchone()
+                cur.execute("SELECT value FROM meta_info WHERE key='output_mtime'")
+                res_mtime = cur.fetchone()
+                if res_file and res_file[0] == self.output_file and res_mtime and res_mtime[0] == current_mtime:
+                    needs_import = False
+            except Exception:
+                pass
+                
+        if needs_import and os.path.exists(self.output_file):
+            print(f"Importing {self.output_file} to SQLite...")
+            self._import_to_sqlite()
+        
+        self._reconstruct_from_sqlite()
+
+    def _import_to_sqlite(self):
+        import utils
+        import ssl
+        try:
             data = utils.excel_to_list_dict(self.output_file)
-            self.grid_df = pd.DataFrame(data)
-            self.grid_df = self.grid_df.astype(object)
-            
-            # Standardize column names (Rename '图片' to '主图链接', 'SKUID' to 'skuId')
-            # Consistent field naming for Price and Sales:
-            mappings = {
-                '图片': '主图链接', 
-                'SKUID': 'skuId',
-                '新售价': '原价',
-                '零售价': '原价',
-                '美团外卖渠道售价': '原价',
-                '月销量': '销售'
-            }
-            # Handle main store and all possible competitor prefixes
-            for i in range(10): # Handle up to 10 competitors
-                mappings[f"{i}图片"] = f"{i}主图链接"
-                mappings[f"{i}SKUID"] = f"{i}skuId"
-                mappings[f"{i}新售价"] = f"{i}原价"
-                mappings[f"{i}零售价"] = f"{i}原价"
-                mappings[f"{i}美团外卖渠道售价"] = f"{i}原价"
-                mappings[f"{i}月销量"] = f"{i}销售"
-            
-            for src, dst in mappings.items():
-                if src in self.grid_df.columns:
-                    if dst in self.grid_df.columns and src != dst:
-                        # If destination exists, merge data (prefer source for Standardization)
-                        self.grid_df[dst] = self.grid_df[src].fillna(self.grid_df[dst])
-                        self.grid_df.drop(columns=[src], inplace=True)
-                    else:
-                        self.grid_df.rename(columns={src: dst}, inplace=True)
+            df = pd.DataFrame(data)
+        except Exception as e:
+            print("Import err:", e)
+            return
 
-            # Add a 'status' column if not exists (for Eliminate/Eliminated)
-            if '淘汰标记' not in self.grid_df.columns:
-                self.grid_df['淘汰标记'] = 0 # 0: Normal, 1: Eliminated
-            if '是否淘汰' not in self.grid_df.columns:
-                self.grid_df['是否淘汰'] = ""
-        else:
-            print(f"Warning: {self.output_file} not found.")
-            self.grid_df = pd.DataFrame()
+        mappings = {
+            '图片': '主图链接', 'SKUID': 'skuId', '商品名称': '商品名称', '菜单名': '商品名称',
+            'A商品名称': '商品名称', '规格': '规格名称', '规格名称': '规格名称', '规格名': '规格名称',
+            'A规格': '规格名称', '新售价': '原价', '零售价': '原价', '美团外卖渠道售价': '原价',
+            '月销量': '销售', '销售': '销售', '条码': '商品条码', '商品条码': '商品条码',
+            '美团类目三级': '美团类目三级', '三级类目': '美团类目三级'
+        }
+        
+        base_mappings = mappings.copy()
+        for i in range(10):
+            p = str(i)
+            for k, v in base_mappings.items():
+                mappings[p+k] = p+v
 
-        # Load individual store data for manual linking
-        for i, file_path in enumerate(self.source_files):
-            store_name = self.store_names[i]
-            if os.path.exists(file_path):
-                import utils
-                data = utils.excel_to_list_dict(file_path)
-                df = pd.DataFrame(data)
-                self.store_dfs[str(i)] = {
-                    "name": store_name,
-                    "df": df
-                }
-                # Initialize 'is_new' column for each store in grid if not exists
+        for src, dst in mappings.items():
+            if src in df.columns:
+                if dst in df.columns and src != dst:
+                    df[dst] = df[dst].fillna(df[src])
+                    df.drop(columns=[src], inplace=True)
+                else:
+                    df.rename(columns={src: dst}, inplace=True)
+
+        internal_keys = ['淘汰标记', '是否淘汰', '新活动价', '新售价', '跟价店', '__idx']
+        main_cols = [c for c in df.columns if (not c or not c[0].isdigit()) and c not in internal_keys]
+        main_cols += [c for c in internal_keys if c in df.columns]
+
+        main_df = df[main_cols].copy()
+        
+        # Ensure critical columns exist
+        for c in ['淘汰标记', '是否淘汰', '新活动价', '新售价', '跟价店']:
+            if c not in main_df.columns:
+                main_df[c] = ""
+        main_df['淘汰标记'] = pd.to_numeric(main_df['淘汰标记'], errors='coerce').fillna(0).astype(int)
+
+        if 'skuId' not in main_df.columns:
+            main_df.insert(0, 'skuId', [str(i) for i in range(len(main_df))])
+        
+        main_df['skuId'] = main_df['skuId'].astype(str).replace(['nan', 'None', 'nan.0'], '')
+        main_df['_row_orig_idx'] = range(len(main_df))
+
+        links = []
+        comp_data = []
+
+        for i, store_name in enumerate(self.store_names):
+            prefix = str(i)
+            comp_cols = [c for c in df.columns if c.startswith(prefix)]
+            if not comp_cols: continue
+            
+            for idx, row in df.iterrows():
+                main_sku = main_df.loc[idx, 'skuId']
+                comp_sku = row.get(f"{prefix}skuId")
+                
+                if pd.notna(comp_sku) and str(comp_sku).strip().lower() not in ["", "nan", "none", "nan.0"]:
+                    links.append({
+                        'main_sku_id': str(main_sku), 'store_id': prefix, 'comp_sku_id': str(comp_sku),
+                        'similarity': row.get(f"{prefix}相似度"), 'match_type': row.get(f"{prefix}匹配"), 'is_new_add': row.get(f"{prefix}是否新增", "")
+                    })
+                    c_data = {'store_id': prefix}
+                    for c in comp_cols:
+                        if c not in [f"{prefix}相似度", f"{prefix}匹配", f"{prefix}是否新增"]:
+                            base_name = c[len(prefix):]
+                            c_data[base_name] = row[c]
+                    comp_data.append(c_data)
+
+        links_df = pd.DataFrame(links)
+        comp_df = pd.DataFrame(comp_data)
+
+        # Merge with individual store source files
+        all_comps = []
+        for i, path in enumerate(self.source_files):
+            if os.path.exists(path):
+                c_data_full = utils.excel_to_list_dict(path)
+                cdf = pd.DataFrame(c_data_full)
+                for src, dst in mappings.items():
+                    if src in cdf.columns:
+                        if dst in cdf.columns and src != dst:
+                            cdf[dst] = cdf[dst].fillna(cdf[src])
+                            cdf.drop(columns=[src], inplace=True)
+                        else:
+                            cdf.rename(columns={src: dst}, inplace=True)
+                cdf['store_id'] = str(i)
+                if 'skuId' in cdf.columns:
+                    cdf['skuId'] = cdf['skuId'].astype(str)
+                all_comps.append(cdf)
+                
+        if all_comps:
+            comp_df_full = pd.concat(all_comps, ignore_index=True)
+            if 'skuId' not in comp_df_full.columns:
+                 comp_df_full['skuId'] = [str(i) for i in range(len(comp_df_full))]
+            comp_df_full.drop_duplicates(subset=['store_id', 'skuId'], inplace=True, keep='last')
+            if not comp_df.empty:
+                comp_df['skuId'] = comp_df['skuId'].astype(str)
+                comp_df = pd.concat([comp_df, comp_df_full], ignore_index=True).drop_duplicates(subset=['store_id', 'skuId'], keep='first')
+            else:
+                comp_df = comp_df_full
+        elif not comp_df.empty:
+            comp_df['skuId'] = comp_df['skuId'].astype(str)
+            comp_df.drop_duplicates(subset=['store_id', 'skuId'], inplace=True)
+
+        with self._db_lock:
+            with self._get_conn() as conn:
+                main_df.to_sql('main_products', conn, index=False, if_exists='replace')
+                if not links_df.empty:
+                    links_df.to_sql('product_links', conn, index=False, if_exists='replace')
+                else:
+                    conn.execute("CREATE TABLE IF NOT EXISTS product_links (main_sku_id TEXT, store_id TEXT, comp_sku_id TEXT, similarity REAL, match_type TEXT, is_new_add TEXT)")
+                
+                if not comp_df.empty:
+                    comp_df.to_sql('comp_products', conn, index=False, if_exists='replace')
+                else:
+                    conn.execute("CREATE TABLE IF NOT EXISTS comp_products (store_id TEXT, skuId TEXT)")
+                
+                current_mtime = str(os.path.getmtime(self.output_file)) if os.path.exists(self.output_file) else "0"
+                conn.execute("REPLACE INTO meta_info (key, value) VALUES ('output_file', ?)", (self.output_file,))
+                conn.execute("REPLACE INTO meta_info (key, value) VALUES ('output_mtime', ?)", (current_mtime,))
+
+    def _reconstruct_from_sqlite(self):
+        with self._db_lock:
+            with self._get_conn() as conn:
+                try:
+                    self.main_df = pd.read_sql("SELECT * FROM main_products ORDER BY _row_orig_idx ASC", conn)
+                    links_df = pd.read_sql("SELECT * FROM product_links", conn)
+                    comp_df = pd.read_sql("SELECT * FROM comp_products", conn)
+                except Exception as e:
+                    print("DB Reconstruction err:", e)
+                    self.grid_df = pd.DataFrame()
+                    return
+
+        self.store_dfs = {}
+        for i, store_name in enumerate(self.store_names):
+            prefix = str(i)
+            st_df = comp_df[comp_df['store_id'] == prefix].copy() if not comp_df.empty else pd.DataFrame()
+            if not st_df.empty:
+                st_df.drop(columns=['store_id'], inplace=True)
+            self.store_dfs[prefix] = {"name": store_name, "df": st_df}
+
+        grid = self.main_df.copy()
+        if not links_df.empty and not comp_df.empty:
+            for i, store_name in enumerate(self.store_names):
                 prefix = str(i)
-                col_name = f"{prefix}是否新增"
-                if col_name not in self.grid_df.columns:
-                    self.grid_df[col_name] = ""
+                store_links = links_df[links_df['store_id'] == prefix].copy()
+                if store_links.empty: continue
+                
+                st_df = self.store_dfs[prefix]["df"]
+                if st_df.empty: continue
+                
+                merged_comp = pd.merge(store_links, st_df, left_on='comp_sku_id', right_on='skuId', how='left')
+                
+                rename_dict = {
+                    'similarity': f"{prefix}相似度",
+                    'match_type': f"{prefix}匹配",
+                    'is_new_add': f"{prefix}是否新增",
+                    'main_sku_id': 'main_sku_id'
+                }
+                drop_cols = ['store_id', 'comp_sku_id']
+                for c in merged_comp.columns:
+                    if c not in rename_dict and c not in drop_cols:
+                        rename_dict[c] = f"{prefix}{c}"
+                        
+                merged_comp.rename(columns=rename_dict, inplace=True)
+                # Drop unwanted columns
+                cols_to_drop = [c for c in drop_cols if c in merged_comp.columns]
+                if cols_to_drop:
+                    merged_comp.drop(columns=cols_to_drop, inplace=True)
+                
+                # No more 1:1 restriction here to allow all links to be merged
+                # merged_comp.drop_duplicates(subset=['main_sku_id'], inplace=True)
+                        
+                grid = pd.merge(grid, merged_comp, left_on='skuId', right_on='main_sku_id', how='left')
+                if 'main_sku_id' in grid.columns:
+                    grid.drop(columns=['main_sku_id'], inplace=True)
+
+        self.grid_df = grid
 
     def get_grid_data(self):
-        # Fill NaN with empty string to ensure valid JSON serialization
-        return self.grid_df.fillna("").to_dict(orient='records')
+        if self.grid_df is None or self.grid_df.empty:
+            return []
+        if '_row_orig_idx' in self.grid_df.columns:
+            export_df = self.grid_df.drop(columns=['_row_orig_idx'])
+        else:
+            export_df = self.grid_df
+        return export_df.fillna("").to_dict(orient='records')
 
     def get_store_products(self, store_id):
-        if store_id in self.store_dfs:
+        if store_id in self.store_dfs and not self.store_dfs[store_id]["df"].empty:
             return self.store_dfs[store_id]["df"].fillna("").to_dict(orient='records')
         return []
 
-    def _safe_set(self, row_idx, col, val):
-        if col not in self.grid_df.columns:
-            self.grid_df[col] = pd.Series(dtype=object)
-        elif self.grid_df[col].dtype != object:
-            self.grid_df[col] = self.grid_df[col].astype(object)
-        self.grid_df.loc[row_idx, col] = val
-
-    def _calculate_margins(self):
-        """Calculates '现在毛利' and '跟价毛利' for all rows and stores in grid_df."""
-        if self.grid_df is None or '采购价' not in self.grid_df.columns:
-            return
-
-        def calc_margin(act_val, purch_val):
-            try:
-                a = float(act_val)
-                p = float(purch_val)
-                if a > 0:
-                    return f"{round((a - p) / a * 100, 2)}%"
-            except:
-                pass
-            return "-"
-
-        # Main Store
-        self.grid_df['现在毛利'] = [calc_margin(row['活动价'], row['采购价']) for _, row in self.grid_df.iterrows()]
-        if '新活动价' in self.grid_df.columns:
-            self.grid_df['跟价毛利'] = [calc_margin(row['新活动价'], row['采购价']) for _, row in self.grid_df.iterrows()]
-
-        # Competitor Stores
-        for i in range(len(self.store_names)):
-            prefix = str(i)
-            comp_act_col = f"{prefix}活动价"
-            if comp_act_col in self.grid_df.columns:
-                self.grid_df[f"{prefix}现在毛利"] = [calc_margin(row[comp_act_col], row['采购价']) for _, row in self.grid_df.iterrows()]
-            if '新活动价' in self.grid_df.columns:
-                self.grid_df[f"{prefix}跟价毛利"] = [calc_margin(row['新活动价'], row['采购价']) for _, row in self.grid_df.iterrows()]
-
-    def _save_to_disk(self):
-        """Persists the current in-memory grid_df to disk in a background thread without blocking the UI."""
-        if self.output_file and self.grid_df is not None:
-            # Take a snapshot while holding the lock (very fast)
-            with self._save_lock:
-                snapshot = self.grid_df.copy()
-            
-            def save_task(df_to_save, target_path):
-                # This runs in background and DOES NOT hold self._save_lock during the slow to_excel()
-                try:
-                    import utils
-                    utils.write_dict_list_to_excel(df_to_save.fillna("").to_dict(orient='records'), target_path)
-                    print(f"DEBUG: Background autosave completed: {target_path}")
-                except Exception as e:
-                    print(f"ERROR: Background autosave failed: {e}")
-
-            # Start background thread
-            thread = threading.Thread(target=save_task, args=(snapshot, self.output_file))
-            thread.daemon = True
-            thread.start()
+    def _ensure_column(self, conn, table, col_name, default_val=""):
+        try:
+            conn.execute(f"SELECT `{col_name}` FROM `{table}` LIMIT 1")
+        except sqlite3.OperationalError:
+            conn.execute(f"ALTER TABLE `{table}` ADD COLUMN `{col_name}` TEXT")
 
     def update_cell(self, row_idx, update_data):
-        """
-        update_data: dict of column: value
-        """
-        for col, val in update_data.items():
-            self._safe_set(row_idx, col, val)
-        self._save_to_disk()
+        if row_idx >= len(self.grid_df): return
+        main_sku_id = self.grid_df.loc[row_idx, 'skuId']
+        with self._db_lock:
+            with self._get_conn() as conn:
+                for col, val in update_data.items():
+                    self._ensure_column(conn, "main_products", col)
+                    conn.execute(f"UPDATE main_products SET `{col}` = ? WHERE skuId = ?", (val, str(main_sku_id)))
+        self._reconstruct_from_sqlite()
 
     def eliminate_product(self, row_idx, status):
-        self._safe_set(row_idx, '淘汰标记', status)
-        self._safe_set(row_idx, '是否淘汰', "是" if status == 1 else "否")
-        self._save_to_disk()
-        return True
+        main_sku_id = self.grid_df.loc[row_idx, 'skuId']
+        is_elim = "是" if status == 1 else "否"
+        with self._db_lock:
+            with self._get_conn() as conn:
+                self._ensure_column(conn, "main_products", "淘汰标记")
+                self._ensure_column(conn, "main_products", "是否淘汰")
+                conn.execute("UPDATE main_products SET `淘汰标记`=?, `是否淘汰`=? WHERE skuId=?", (status, is_elim, str(main_sku_id)))
+        self._reconstruct_from_sqlite()
 
     def mark_as_new(self, row_idx, store_id, is_new):
-        col_name = f"{store_id}是否新增"
-        self._safe_set(row_idx, col_name, "是" if is_new else "否")
-        self._save_to_disk()
-        return True
+        main_sku_id = self.grid_df.loc[row_idx, 'skuId']
+        is_new_str = "是" if is_new else "否"
+        with self._db_lock:
+            with self._get_conn() as conn:
+                self._ensure_column(conn, "product_links", "is_new_add")
+                conn.execute("UPDATE product_links SET is_new_add=? WHERE main_sku_id=? AND store_id=?", (is_new_str, str(main_sku_id), str(store_id)))
+        self._reconstruct_from_sqlite()
 
     def price_match(self, row_idx, store_id):
-        # Find the activity price of the competitor and sync to main's NEW fields
+        main_sku_id = self.grid_df.loc[row_idx, 'skuId']
         prefix = str(store_id)
         act_col = f"{prefix}活动价"
         orig_col = f"{prefix}原价"
         
         updated = False
+        new_act = ""
+        new_orig = ""
+        store_name = ""
+        
         if act_col in self.grid_df.columns:
             val = self.grid_df.loc[row_idx, act_col]
             try:
-                # User logic: -0.1 if >= 0.3, else unchanged
                 num_val = float(val)
-                if num_val >= 0.3:
-                    new_val = round(num_val - 0.1, 2)
-                else:
-                    new_val = num_val
-                val = new_val
+                new_act = round(num_val - 0.1, 2) if num_val >= 0.3 else num_val
             except:
-                pass
-            self._safe_set(row_idx, '新活动价', val)
+                new_act = val
             updated = True
-        
+            
         if orig_col in self.grid_df.columns:
-            self._safe_set(row_idx, '新售价', self.grid_df.loc[row_idx, orig_col])
+            new_orig = self.grid_df.loc[row_idx, orig_col]
             updated = True
-        
+            
         if updated:
             store_name = self.store_dfs[str(store_id)]["name"]
-            self._safe_set(row_idx, '跟价店', store_name)
-            self._save_to_disk()
+            with self._db_lock:
+                with self._get_conn() as conn:
+                    self._ensure_column(conn, "main_products", "新活动价")
+                    self._ensure_column(conn, "main_products", "新售价")
+                    self._ensure_column(conn, "main_products", "跟价店")
+                    conn.execute("UPDATE main_products SET `新活动价`=?, `新售价`=?, `跟价店`=? WHERE skuId=?", 
+                                (new_act, new_orig, store_name, str(main_sku_id)))
+            self._reconstruct_from_sqlite()
             
         return updated
 
     def manual_link(self, row_idx, store_id, product_data):
-        """
-        product_data: data from the source store excel
-        """
-        prefix = str(store_id)
-        # Mapping fields from source to output structure
-        # Source fields: skuId/SKUID, 图片, 商品名称, 规格/规格名称, 单件折扣价/新活动价, 单件原价/新售价, 销售/月销量, 条码/商品条码
+        main_sku_id = self.grid_df.loc[row_idx, 'skuId']
+        comp_sku_id = product_data.get('skuId') or product_data.get('skuid') or product_data.get('SKUID')
+        if not comp_sku_id: return False
         
-        def get_val(d, keys):
-            for k in keys:
-                if k in d: return d[k]
-            return ""
-
-        mapping = {
-            "skuId": ["skuid", "SKUID"],
-            "主图链接": ["图片"],
-            "菜单名": ["商品名称"],
-            "规格名": ["规格", "规格名称"],
-            "活动价": ["单件折扣价", "新活动价"],
-            "原价": ["单件原价", "新售价"],
-            "销售": ["销售", "月销量"],
-            "条码": ["条码", "商品条码"],
-            "三级类目": ["美团类目三级", "三级类目"]
-        }
-
-        for out_key, src_keys in mapping.items():
-            full_key = f"{prefix}{out_key}"
-            val = get_val(product_data, src_keys)
-            self._safe_set(row_idx, full_key, val)
-        
-        # Also update similarity and match description
-        self._safe_set(row_idx, f"{prefix}相似度", 1.0)
-        self._safe_set(row_idx, f"{prefix}匹配", "手动关联")
-        self._save_to_disk()
-        
+        with self._db_lock:
+            with self._get_conn() as conn:
+                conn.execute("DELETE FROM product_links WHERE main_sku_id=? AND store_id=?", (str(main_sku_id), str(store_id)))
+                conn.execute("""
+                    INSERT INTO product_links (main_sku_id, store_id, comp_sku_id, similarity, match_type, is_new_add)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (str(main_sku_id), str(store_id), str(comp_sku_id), 1.0, '手动关联', '否'))
+        self._reconstruct_from_sqlite()
         return True
 
     def unlink_product(self, row_idx, store_id):
-        prefix = str(store_id)
-        keys_to_clear = [
-            "skuId", "主图链接", "菜单名", "规格名", "活动价", "原价", "销售", "条码", "三级类目", 
-            "相似度", "匹配", "是否新增"
-        ]
-        for key in keys_to_clear:
-            full_key = f"{prefix}{key}"
-            if full_key in self.grid_df.columns:
-                self._safe_set(row_idx, full_key, "")
-        
-        self._save_to_disk()
+        main_sku_id = self.grid_df.loc[row_idx, 'skuId']
+        with self._db_lock:
+            with self._get_conn() as conn:
+                conn.execute("DELETE FROM product_links WHERE main_sku_id=? AND store_id=?", (str(main_sku_id), str(store_id)))
+        self._reconstruct_from_sqlite()
         return True
 
+    def _calculate_margins(self):
+        if self.grid_df is None or '采购价' not in self.grid_df.columns: return
+
+        def calc_margin(act_val, purch_val):
+            try:
+                a, p = float(act_val), float(purch_val)
+                if a > 0: return f"{round((a - p) / a * 100, 2)}%"
+            except: pass
+            return "-"
+
+        self.grid_df['现在毛利'] = [calc_margin(row.get('活动价'), row.get('采购价')) for _, row in self.grid_df.iterrows()]
+        if '新活动价' in self.grid_df.columns:
+            self.grid_df['跟价毛利'] = [calc_margin(row.get('新活动价'), row.get('采购价')) for _, row in self.grid_df.iterrows()]
+
+        for i in range(len(self.store_names)):
+            prefix = str(i)
+            comp_act_col = f"{prefix}活动价"
+            if comp_act_col in self.grid_df.columns:
+                self.grid_df[f"{prefix}现在毛利"] = [calc_margin(row.get(comp_act_col), row.get('采购价')) for _, row in self.grid_df.iterrows()]
+            if '新活动价' in self.grid_df.columns:
+                self.grid_df[f"{prefix}跟价毛利"] = [calc_margin(row.get('新活动价'), row.get('采购价')) for _, row in self.grid_df.iterrows()]
+
     def save_to_excel(self):
-        """
-        Saves the current grid_df to a single merged Excel file.
-        """
         filename = f"对比分析全量成果_{time.strftime('%Y%m%d_%H%M%S')}.xlsx"
         path = os.path.join(self.base_dir, filename)
-        
-        # Clean up internal technical keys for the final export
         export_df = self.grid_df.copy()
-        internal_to_drop = ['__idx', '淘汰标记']
+        internal_to_drop = ['__idx', '淘汰标记', '_row_orig_idx']
         cols_to_drop = [c for c in internal_to_drop if c in export_df.columns]
-        if cols_to_drop:
-            export_df.drop(columns=cols_to_drop, inplace=True)
+        if cols_to_drop: export_df.drop(columns=cols_to_drop, inplace=True)
             
         import utils
         utils.write_dict_list_to_excel(export_df.fillna("").to_dict(orient='records'), path)
         return path
 
     def save_separate_exports(self):
-        """
-        Splits grid_df into separate store files and returns the path to a ZIP archive.
-        """
         temp_dir = tempfile.mkdtemp()
         try:
-            internal_keys = ['淘汰标记', '__idx']
-            
-            # 1. Export Main Store
-            # Ensure standard editing columns exist
+            internal_keys = ['淘汰标记', '__idx', '_row_orig_idx']
             for col in ['新活动价', '新售价', '跟价店', '是否淘汰']:
-                if col not in self.grid_df.columns:
-                    self.grid_df[col] = ""
+                if col not in self.grid_df.columns: self.grid_df[col] = ""
             
-            # 1. Export Main Store
             self._calculate_margins()
             
-            # Add addition summaries for each competitor store
             for i, store_name in enumerate(self.store_names):
                 prefix = str(i)
-                new_col = f"{prefix}是否新增"
-                summary_col = f"{store_name}新增"
+                new_col, summary_col = f"{prefix}是否新增", f"{store_name}新增"
                 if new_col in self.grid_df.columns:
                     self.grid_df[summary_col] = self.grid_df[new_col]
-                else:
-                    self.grid_df[summary_col] = ""
+                else: self.grid_df[summary_col] = ""
 
-            # Get all columns that don't start with a digit and aren't internal
             main_cols = [c for c in self.grid_df.columns if (not c or not c[0].isdigit()) and c not in internal_keys]
             main_df = self.grid_df[main_cols].copy()
             main_path = os.path.join(temp_dir, f"主店_{self.main_store_name}.xlsx")
             main_df.to_excel(main_path, index=False)
 
-            # 2. Export Competitor Stores
             for i, store_name in enumerate(self.store_names):
                 prefix = str(i)
-                # Find all columns starting with this prefix
                 comp_cols = [c for c in self.grid_df.columns if c.startswith(prefix)]
-                if not comp_cols:
-                    continue
+                if not comp_cols: continue
                 
                 comp_df = self.grid_df[comp_cols].copy()
-                
-                # Add main store SKU ID to competitor data for reference
                 if 'skuId' in self.grid_df.columns:
                     comp_df.insert(0, "主店SKU", self.grid_df['skuId'])
-                
-                # Remove prefix from column names
-                raw_cols = []
-                standardized_to_remove = {'skuId', '主图链接', '菜单名', '规格名', '活动价', '原价', '销售', '条码', '三级类目', '现在毛利', '跟价毛利'}
                 
                 new_col_names = []
                 for c in comp_df.columns:
                     if c == "主店SKU":
                         new_col_names.append(c)
                         continue
-                        
-                    base_name = c[len(prefix):]
-                    # If this is a standardized key we added, and the original column name is already present, we might skip it or keep it.
-                    # As a general rule, if the original column exists without the standardized mapping, we keep the original.
-                    # But the simplest is to just strip prefixes and let duplicates happen (Excel handles them or we can deduplicate).
-                    new_col_names.append(base_name)
+                    new_col_names.append(c[len(prefix):])
                 
                 comp_df.columns = new_col_names
-                
-                # Basic deduplication of columns if any (optional but good)
                 comp_df = comp_df.loc[:, ~comp_df.columns.duplicated()]
-                
                 comp_path = os.path.join(temp_dir, f"竞店_{store_name}.xlsx")
                 comp_df.to_excel(comp_path, index=False)
 
-            # 3. Create ZIP
             zip_filename = f"对比成果_{time.strftime('%Y%m%d_%H%M%S')}.zip"
             zip_path = os.path.join(self.base_dir, zip_filename)
             
@@ -372,51 +451,35 @@ class DataManager:
                     for file in files:
                         file_path = os.path.join(root, file)
                         zf.write(file_path, arcname=file)
-            
             return zip_path
         finally:
             shutil.rmtree(temp_dir)
 
     def export_new_items(self):
-        """
-        Exports all competitor products marked as "新增" ("是") into Sheet 1,
-        and all main store products marked as "淘汰" ("是") into Sheet 2.
-        Records operation time in both.
-        """
         all_new_items_dfs = []
         op_time = time.strftime('%Y-%m-%d %H:%M:%S')
         self._calculate_margins()
 
-        # --- 1. New Competitor Items (Sheet 1) ---
         for i, store_name in enumerate(self.store_names):
             prefix = str(i)
             new_col = f"{prefix}是否新增"
-            
-            if new_col not in self.grid_df.columns:
-                continue
+            if new_col not in self.grid_df.columns: continue
                 
             store_new_df = self.grid_df[self.grid_df[new_col] == "是"].copy()
-            if store_new_df.empty:
-                continue
+            if store_new_df.empty: continue
             
             comp_cols = [c for c in store_new_df.columns if c.startswith(prefix)]
-            if not comp_cols:
-                continue
+            if not comp_cols: continue
                 
             comp_df = store_new_df[comp_cols].copy()
             comp_df.insert(0, "竞品店铺", store_name)
-            
             if 'skuId' in store_new_df.columns:
                 comp_df.insert(0, "主店SKU", store_new_df['skuId'])
             
             new_col_names = []
             for c in comp_df.columns:
-                if c in ["主店SKU", "竞品店铺"]:
-                    new_col_names.append(c)
-                    continue
-                name = c[len(prefix):]
-                # If we stripped prefix and it matches margin fields, keep them
-                new_col_names.append(name)
+                if c in ["主店SKU", "竞品店铺"]: new_col_names.append(c)
+                else: new_col_names.append(c[len(prefix):])
                 
             comp_df.columns = new_col_names
             comp_df = comp_df.loc[:, ~comp_df.columns.duplicated()]
@@ -426,39 +489,30 @@ class DataManager:
             final_df = pd.concat(all_new_items_dfs, ignore_index=True)
         else:
             final_df = pd.DataFrame(columns=["主店SKU", "竞品店铺", "skuId", "主图链接", "菜单名", "规格名", "活动价", "原价", "销售", "条码"])
-
-        # Add Operation Time
         final_df["操作时间"] = op_time
 
-        # --- 2. Main Store Items (Sheet 2: Eliminated OR Follow Priced) ---
         mask = pd.Series(False, index=self.grid_df.index)
         if '是否淘汰' in self.grid_df.columns:
             mask |= (self.grid_df['是否淘汰'] == "是")
         if '跟价店' in self.grid_df.columns:
-            # Include items where follow pricing has been applied
             mask |= (self.grid_df['跟价店'].notna() & (self.grid_df['跟价店'] != ""))
             
         eliminated_df = self.grid_df[mask].copy()
-            
         if not eliminated_df.empty:
-            internal_keys = ['淘汰标记', '__idx']
+            internal_keys = ['淘汰标记', '__idx', '_row_orig_idx']
             main_cols = [c for c in eliminated_df.columns if (not c or not c[0].isdigit()) and c not in internal_keys]
             eliminated_df = eliminated_df[main_cols].copy()
             eliminated_df["操作时间"] = op_time
         else:
-            # Empty dataframe with default main store columns
             eliminated_df = pd.DataFrame(columns=["skuId", "主图链接", "菜单名", "规格名", "活动价", "原价", "销售", "条码", "操作时间"])
 
-        # --- 3. Save to Multi-sheet Excel ---
         filename = f"新增竞品数据_{time.strftime('%Y%m%d_%H%M%S')}.xlsx"
         path = os.path.join(self.base_dir, filename)
-        
         import utils
         sheet_data = {
             "新增(竞店)": final_df.fillna("").to_dict(orient='records'),
             "淘汰(主店)": eliminated_df.fillna("").to_dict(orient='records')
         }
-        
         utils.write_multisheet_dict_to_excel(sheet_data, path)
-        
         return path
+
