@@ -103,6 +103,9 @@ def handle_projects():
         final_comp_paths = [p.replace(f"project_{temp_pid}", f"project_{pid}") for p in comp_paths]
         final_manual_result_path = manual_result_path.replace(f"project_{temp_pid}", f"project_{pid}") if manual_result_path else None
 
+        use_ai = request.form.get('use_ai') == 'on'
+        api_key = request.form.get('api_key')
+
         # Initial analysis flow
         try:
             if final_manual_result_path:
@@ -112,6 +115,13 @@ def handle_projects():
                 shutil.copy(final_manual_result_path, dm.output_file)
                 dm.load_data() # Load the data from the copied manual result file
             else:
+                # Optional AI Extraction
+                if use_ai and api_key:
+                    print(f"Starting AI extraction with API Key: {api_key[:5]}***")
+                    extract_info_ai2.process_file_ai(final_main_path, api_key)
+                    for comp_path in final_comp_paths:
+                        extract_info_ai2.process_file_ai(comp_path, api_key)
+                
                 # Standard AI Analysis
                 output_file = main_030822.run_analysis(final_main_path, final_comp_paths, output_name=time.strftime("%y%m%d_%H%M%S"))
                 output_path = os.path.join(base_dir, output_file)

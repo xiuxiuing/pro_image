@@ -396,9 +396,24 @@
                 <div class="mode-btn active" id="mode-auto" onclick="switchMode('auto')">🤖 自动 AI 分析</div>
                 <div class="mode-btn" id="mode-manual" onclick="switchMode('manual')">⚡ 跳过分析 (手动上传)</div>
             </div>
-
+            
             <form id="create-project-form">
                 <input type="hidden" name="skip_analysis" id="skip-analysis-input" value="false">
+
+                <div class="form-group" id="ai-extraction-toggle-group" style="background: #fff8e1; padding: 20px; border-radius: 20px; margin-bottom: 24px; border: 1px solid #ffe082;">
+                    <label class="form-label" style="display: flex; align-items: center; cursor: pointer; text-transform: none; margin-bottom: 0;">
+                        <input type="checkbox" name="use_ai" id="use-ai-checkbox" style="width: 20px; height: 20px; margin-right: 12px; accent-color: #000;" onchange="toggleAiKey()">
+                        <div>
+                            <span style="font-size: 16px; font-weight: 800;">✨ AI 智能属性提取</span>
+                            <div style="font-size: 12px; font-weight: 500; color: #b45309; margin-top: 4px;">利用 AI 补齐缺失的品牌、规格等核心属性 (推荐)</div>
+                        </div>
+                    </label>
+                </div>
+
+                <div class="form-group" id="ai-key-group" style="display: none;">
+                    <label class="form-label">Gemini API Key</label>
+                    <input type="password" name="api_key" id="api-key-input" class="form-control" placeholder="输入您的 API Key" style="background: #fff;">
+                </div>
 
                 <div class="form-group">
                     <label class="form-label">项目名称 (必填)</label>
@@ -455,6 +470,19 @@
             document.getElementById('result-file-input').required = isManual;
 
             document.getElementById('submit-btn').innerText = isManual ? '直接导入结果' : '开始 AI 分析';
+            
+            // AI toggle is only for auto mode
+            document.getElementById('ai-extraction-toggle-group').style.display = isManual ? 'none' : 'block';
+            if (isManual) {
+                document.getElementById('use-ai-checkbox').checked = false;
+                toggleAiKey();
+            }
+        }
+
+        function toggleAiKey() {
+            const useAi = document.getElementById('use-ai-checkbox').checked;
+            document.getElementById('ai-key-group').style.display = useAi ? 'block' : 'none';
+            document.getElementById('api-key-input').required = useAi;
         }
 
         async function loadProjects() {
