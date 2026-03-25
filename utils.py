@@ -2,6 +2,25 @@ from openpyxl import load_workbook
 from openpyxl import Workbook
 
 
+def optimize_numeric_value(val):
+    """
+    Standardizes numeric values for internal processing and Excel export:
+    1. Handles very large numbers as strings (IDs, barcodes >= 10^12)
+    2. Converts whole-number floats to integers.
+    3. Rounds other floats to 4 decimal places.
+    """
+    if isinstance(val, (int, float)):
+        abs_val = abs(val)
+        if abs_val >= 10**12:
+            # Large IDs MUST be strings to avoid scientific notation and precision loss
+            return str(int(val))
+        elif isinstance(val, float):
+            if val == int(val):
+                return int(val)
+            else:
+                return round(val, 4)
+    return val
+
 
 def excel_to_list_dict(file_path, sheet_name=None):
     wb = load_workbook(file_path, data_only=True)
@@ -20,23 +39,7 @@ def excel_to_list_dict(file_path, sheet_name=None):
         if all(cell is None for cell in row):
             continue
         
-        row_list = list(row)
-        for i, val in enumerate(row_list):
-            if val is not None:
-                # 1. Handle very large numbers as strings (IDs, barcodes)
-                # Excel/JS precision limit starts at ~15-16 digits. We use 12 as safety.
-                if isinstance(val, (int, float)):
-                    abs_val = abs(val)
-                    if abs_val >= 10**12:
-                        # Convert to int then str to remove ANY scientific notation or decimals
-                        row_list[i] = str(int(val))
-                    elif isinstance(val, float):
-                        if val == int(val):
-                            row_list[i] = int(val)
-                        else:
-                            # Round common floats (similarity, price) to 4 decimals for cleaner internal data
-                            row_list[i] = round(val, 4)
-
+        row_list = [optimize_numeric_value(cell) for cell in row]
         data.append(dict(zip(headers, row_list)))
 
     return data
@@ -58,27 +61,13 @@ def write_dict_list_to_excel(data, file_path="output_text.xlsx"):
 
     # 写入每一行
     for item in data:
-        row = []
-        for h in headers:
-            val = item.get(h, "")
-            # Global Numeric Optimization for Writing
-            if isinstance(val, (int, float)):
-                abs_val = abs(val)
-                if abs_val >= 10**12:
-                    # Large IDs MUST be strings in Excel to avoid scientific notation and precision loss
-                    val = str(int(val))
-                elif isinstance(val, float):
-                    if val == int(val):
-                        val = int(val)
-                    else:
-                        # Rounding for prices/similarity tails
-                        val = round(val, 4)
-            row.append(val)
+        row = [optimize_numeric_value(item.get(h, "")) for h in headers]
         ws.append(row)
 
     # 保存文件
     wb.save(file_path)
     print(f"Excel saved to {file_path}")
+
 
 def write_multisheet_dict_to_excel(sheet_data_dict, file_path="output_multisheet.xlsx"):
     """
@@ -91,11 +80,10 @@ def write_multisheet_dict_to_excel(sheet_data_dict, file_path="output_multisheet
     # Create workbook
     wb = Workbook()
     
-    # Remove default sheet
-    if "Sheet" in wb.sheetnames:
-        wb.remove(wb["Sheet"])
-    if "Sheet1" in wb.sheetnames:
-        wb.remove(wb["Sheet1"])
+    # Remove default sheets
+    for sname in ["Sheet", "Sheet1"]:
+        if sname in wb.sheetnames:
+            wb.remove(wb[sname])
 
     for sheet_title, data in sheet_data_dict.items():
         ws = wb.create_sheet(title=sheet_title)
@@ -109,20 +97,7 @@ def write_multisheet_dict_to_excel(sheet_data_dict, file_path="output_multisheet
 
         # Write rows
         for item in data:
-            row = []
-            for h in headers:
-                val = item.get(h, "")
-                # Global Numeric Optimization
-                if isinstance(val, (int, float)):
-                    abs_val = abs(val)
-                    if abs_val >= 10**12:
-                        val = str(int(val))
-                    elif isinstance(val, float):
-                        if val == int(val):
-                            val = int(val)
-                        else:
-                            val = round(val, 4)
-                row.append(val)
+            row = [optimize_numeric_value(item.get(h, "")) for h in headers]
             ws.append(row)
 
     # Save file

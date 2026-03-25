@@ -12,8 +12,14 @@ models
 __pycache__
 
 *.db
+*.db-*
 *.log
 .DS_Store
 *.bak
 *.corrupted
 *.old
+venv/
+license.dat
+uploads/
+node_modules/
+.env

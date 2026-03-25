@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <title>项目管理 - 商品分析平台</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@400;600;700;800&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --primary-accent: #FFD500;
+            --text-main: #000;
+            --text-muted: #64748b;
+            --glass-bg: rgba(255, 255, 255, 0.5);
+            --glass-border: rgba(255, 255, 255, 0.3);
+            --radius-xl: 32px;
+            --radius-lg: 20px;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #f8fafc;
+            color: var(--text-main);
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+        }
+
+        /* --- Brand Background --- */
+        .dynamic-bg {
+            position: fixed;
+            inset: 0;
+            z-index: -1;
+            overflow: hidden;
+            background: #f8fafc;
+        }
+
+        #bg-video {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            min-width: 100%;
+            min-height: 100%;
+            width: auto;
+            height: auto;
+            transform: translate(-50%, -50%);
+            object-fit: cover;
+            filter: saturate(1.1) brightness(1.05);
+        }
+
+        .dynamic-bg::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.15) 0%, rgba(255, 255, 255, 0.05) 100%);
+            z-index: 1;
+        }
+
+        .container {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0;
+            box-sizing: border-box;
+            position: relative;
+            z-index: 1;
+        }
+
+        header {
+            width: 100%;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+
+        .header-title h1 {
+            margin: 0;
+            font-family: 'Outfit', sans-serif;
+            font-size: 88px;
+            font-weight: 800;
+            letter-spacing: 0.15em;
+            color: #1e293b;
+        }
+
+        .header-title p {
+            margin: 15px 0 0 0;
+            font-size: 26px;
+            font-weight: 600;
+            color: #475569;
+            letter-spacing: 0.25em;
+        }
+
+        /* --- Project Grid at Bottom --- */
+        .project-section {
+            width: 100%;
+            padding-bottom: 80px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .project-grid {
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+            gap: 48px;
+            width: 100%;
+            padding: 0 60px;
+            flex-wrap: wrap;
+        }
+
+        .project-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(32px);
+            -webkit-backdrop-filter: blur(32px);
+            border: 1.5px solid var(--glass-border);
+            border-radius: 20px;
+            width: 280px;
+            min-width: 280px;
+            height: 200px;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+            cursor: pointer;
+            text-decoration: none;
+            color: inherit;
+            box-sizing: border-box;
+        }
+
+        .project-card:hover {
+            transform: translateY(-12px) scale(1.02);
+            background: rgba(255, 255, 255, 0.8);
+            border-color: var(--primary-accent);
+            box-shadow: 0 20px 40px rgba(255, 213, 0, 0.15);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .card-icon {
+            font-size: 24px;
+            filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.05));
+        }
+
+        .status-badge {
+            padding: 4px 10px;
+            border-radius: 8px;
+            font-size: 10px;
+            font-weight: 800;
+            background: #fffbeb;
+            color: #b45309;
+            border: 1px solid #fde68a;
+        }
+
+        .project-name {
+            font-family: 'Outfit', sans-serif;
+            font-size: 20px;
+            font-weight: 800;
+            color: #000;
+            margin-bottom: 6px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .project-meta {
+            font-size: 11px;
+            color: #475569;
+            font-weight: 600;
+            line-height: 1.5;
+            margin-bottom: 16px;
+            text-align: center;
+        }
+
+        .card-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: auto;
+            width: 100%;
+            justify-content: center;
+        }
+
+        .btn-card {
+            width: 100px;
+            height: 50px;
+            border-radius: 14px;
+            font-size: 13px;
+            font-weight: 800;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            border: none;
+            cursor: pointer;
+            padding: 0;
+        }
+
+        .btn-enter {
+            background: #000;
+            color: #fff;
+        }
+
+        .btn-delete {
+            background: #fff;
+            color: #ef4444;
+            border: 1px solid #fee2e2;
+        }
+
+        .project-card.new-card {
+            border: 2px dashed #cbd5e1;
+            background: rgba(255, 255, 255, 0.3);
+            justify-content: center;
+            align-items: center;
+            height: 200px;
+        }
+
+        .new-card .plus-icon {
+            font-size: 40px;
+            color: #94a3b8;
+            font-weight: 200;
+        }
+
+        /* --- Modal --- */
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(12px);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            padding: 20px;
+        }
+
+        .modal-content {
+            background: #fff;
+            width: 100%;
+            max-width: 640px;
+            border-radius: 40px;
+            padding: 56px;
+            box-shadow: 0 40px 100px rgba(0, 0, 0, 0.1);
+            position: relative;
+        }
+
+        .modal-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 32px;
+            font-weight: 800;
+            margin-bottom: 40px;
+        }
+
+        .form-group {
+            margin-bottom: 24px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 13px;
+            font-weight: 800;
+            margin-bottom: 12px;
+            color: #000;
+            text-transform: uppercase;
+        }
+
+        .form-control {
+            width: 100%;
+            background: #f8fafc;
+            border: 1.5px solid #e2e8f0;
+            border-radius: 16px;
+            padding: 16px 20px;
+            color: #1e293b;
+            font-size: 16px;
+            outline: none;
+            box-sizing: border-box;
+        }
+
+        .btn {
+            padding: 16px 32px;
+            border-radius: 16px;
+            font-size: 16px;
+            font-weight: 800;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+        }
+
+        .btn-new {
+            background: var(--primary-accent);
+            color: #000;
+        }
+
+        .mode-toggle {
+            display: flex;
+            background: #f1f5f9;
+            padding: 6px;
+            border-radius: 16px;
+            margin-bottom: 40px;
+        }
+
+        .mode-btn {
+            flex: 1;
+            padding: 12px;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 800;
+            text-align: center;
+            cursor: pointer;
+            color: #64748b;
+        }
+
+        .mode-btn.active {
+            background: #fff;
+            color: #000;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+
+        #loading-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.95);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+        }
+
+        .planet-spinner {
+            width: 72px;
+            height: 72px;
+            border: 6px solid #f1f5f9;
+            border-top: 6px solid var(--primary-accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="dynamic-bg">
+        <video id="bg-video" autoplay muted loop playsinline poster="/static/bg_meituan.jpg">
+            <source src="/static/bg.mp4" type="video/mp4">
+        </video>
+    </div>
+
+    <div id="loading-overlay">
+        <div class="planet-spinner"></div>
+        <p style="margin-top: 24px; font-weight: 700; color: #64748b; font-size: 20px;">正在部署分析环境...</p>
+    </div>
+
+    <div class="container">
+        <header>
+            <div class="header-title">
+                <h1>商品分析平台</h1>
+                <p>洞穿竞对态势 • 驱动价格决策</p>
+            </div>
+        </header>
+
+        <div class="project-section">
+            <div class="project-grid" id="project-list">
+                <!-- Projects injected here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Project Modal -->
+    <div id="createModal" class="modal-backdrop">
+        <div class="modal-content">
+            <div class="modal-title">✨ 初始化分析项目</div>
+
+            <div class="mode-toggle">
+                <div class="mode-btn active" id="mode-auto" onclick="switchMode('auto')">🤖 自动 AI 分析</div>
+                <div class="mode-btn" id="mode-manual" onclick="switchMode('manual')">⚡ 跳过分析 (手动上传)</div>
+            </div>
+
+            <form id="create-project-form">
+                <input type="hidden" name="skip_analysis" id="skip-analysis-input" value="false">
+
+                <div class="form-group">
+                    <label class="form-label">项目名称 (必填)</label>
+                    <input type="text" name="name" class="form-control" placeholder="例如: 闪购商品竞对分析" required>
+                </div>
+
+                <!-- Always Visible Source File Section -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+                    <div class="form-group">
+                        <label class="form-label">主店文件 (必填)</label>
+                        <input type="file" name="main_file" class="form-control" accept=".xlsx,.xls" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">竞店文件 (必填)</label>
+                        <input type="file" name="comp_files" class="form-control" accept=".xlsx,.xls" multiple required>
+                    </div>
+                </div>
+
+                <div id="manual-result-section" style="display: none;">
+                    <div class="form-group">
+                        <label class="form-label">比对结果文件 (手工结果 - 必填)</label>
+                        <input type="file" name="result_file" id="result-file-input" class="form-control"
+                            accept=".xlsx,.xls">
+                    </div>
+                </div>
+
+                <div style="margin-top: 48px; display: flex; gap: 16px;">
+                    <button type="submit" class="btn btn-new" style="flex: 2; height: 60px;" id="submit-btn">开始 AI
+                        分析</button>
+                    <button type="button" class="btn" style="flex: 1; background: #f1f5f9; color: #64748b;"
+                        onclick="closeModal()">取消</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        function openModal() {
+            document.getElementById('createModal').style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('createModal').style.display = 'none';
+        }
+
+        function switchMode(mode) {
+            const isManual = mode === 'manual';
+            document.getElementById('skip-analysis-input').value = isManual;
+            document.getElementById('mode-auto').classList.toggle('active', !isManual);
+            document.getElementById('mode-manual').classList.toggle('active', isManual);
+
+            // Manual result file is only needed in manual mode
+            document.getElementById('manual-result-section').style.display = isManual ? 'block' : 'none';
+            document.getElementById('result-file-input').required = isManual;
+
+            document.getElementById('submit-btn').innerText = isManual ? '直接导入结果' : '开始 AI 分析';
+        }
+
+        async function loadProjects() {
+            try {
+                const resp = await fetch('/api/projects');
+                const projects = await resp.json();
+                const list = document.getElementById('project-list');
+                list.innerHTML = '';
+
+                projects.forEach(p => {
+                    const card = document.createElement('div');
+                    card.className = 'project-card';
+                    card.innerHTML = `
+                        <div class="project-name">${p.name}</div>
+                        <div class="project-meta">
+                            📅 创建: ${p.created_at || '2026-03-25'}<br>
+                            📦 SKU 数量: ${p.sku_count || 0}
+                        </div>
+                        <div class="card-actions">
+                            <button class="btn-card btn-enter" onclick="activateProject(${p.id})">进入工作台</button>
+                            <button class="btn-card btn-delete" onclick="deleteProject(${p.id}, event)">删除</button>
+                        </div>
+                    `;
+                    card.onclick = (e) => {
+                        if (!e.target.closest('button')) {
+                            activateProject(p.id);
+                        }
+                    };
+                    list.appendChild(card);
+                });
+
+                // Add "+" Card
+                const addCard = document.createElement('div');
+                addCard.className = 'project-card new-card';
+                addCard.onclick = openModal;
+                addCard.innerHTML = `<div class="plus-icon">+</div>`;
+                list.appendChild(addCard);
+
+            } catch (err) {
+                console.error('Projects load error:', err);
+            }
+        }
+
+        document.getElementById('create-project-form').onsubmit = async (e) => {
+            e.preventDefault();
+            document.getElementById('loading-overlay').style.display = 'flex';
+            closeModal();
+
+            const formData = new FormData(e.target);
+            try {
+                const resp = await fetch('/api/projects', { method: 'POST', body: formData });
+                const res = await resp.json();
+                if (res.status === 'success') {
+                    location.href = `/dashboard?project_id=${res.project_id}`;
+                } else {
+                    alert('错误: ' + res.message);
+                }
+            } catch (err) {
+                alert('请求失败');
+            } finally {
+                document.getElementById('loading-overlay').style.display = 'none';
+            }
+        };
+
+        async function activateProject(id) {
+            await fetch(`/api/projects/${id}/activate`, { method: 'POST' });
+            location.href = '/dashboard';
+        }
+
+        async function deleteProject(id, event) {
+            if (event) event.stopPropagation();
+            if (!confirm('确定要删除该项目吗？所有关联数据都将丢失！')) return;
+            await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+            loadProjects();
+        }
+
+        window.onclick = function (event) {
+            const modal = document.getElementById('createModal');
+            if (event.target == modal) closeModal();
+        }
+
+        loadProjects();
+    </script>
+</body>
+
+</html>

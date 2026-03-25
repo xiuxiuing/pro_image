@@ -1,416 +1,168 @@
 import utils
 import os
-
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-os.environ["OMP_NUM_THREADS"] = "1"
 import requests
-from PIL import Image
 import traceback
-
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
 import torch
 import numpy as np
 import faiss
-
+import sys
+from PIL import Image
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from transformers import AutoImageProcessor, AutoModel, AutoTokenizer
 
+# --- Environment & Setup ---
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+os.environ["OMP_NUM_THREADS"] = "1"
 device = "cuda" if torch.cuda.is_available() else "cpu"
-
-# -----------------------------
-# model
-# -----------------------------
-
-import sys
-# Define model base path
-if getattr(sys, 'frozen', False):
-    models_base = os.path.join(sys._MEIPASS, "models")
-else:
-    models_base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
-
-# 1. Dinov2
-dinov2_path = os.path.join(models_base, "dinov2-base")
-if not os.path.exists(dinov2_path):
-    dinov2_path = "facebook/dinov2-base" # Fallback to online
-
-img_processor = AutoImageProcessor.from_pretrained(dinov2_path)
-img_model = AutoModel.from_pretrained(dinov2_path).to(device).eval()
-
-# 2. BGE
-bge_path = os.path.join(models_base, "bge-base-zh-v1.5")
-if not os.path.exists(bge_path):
-    bge_path = "BAAI/bge-base-zh-v1.5" # Fallback to online
-
-text_tokenizer = AutoTokenizer.from_pretrained(bge_path)
-text_model = AutoModel.from_pretrained(bge_path).to(device).eval()
-
 dim = 768
 
+# Define model paths with frozen/MEIPASS support
+models_base = os.path.join(sys._MEIPASS, "models") if getattr(sys, 'frozen', False) else os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
 
-# -----------------------------
-# 字段读取
-# -----------------------------
+def load_model_from_path(name, fallback):
+    p = os.path.join(models_base, name)
+    return p if os.path.exists(p) else fallback
+
+# Load Models
+dinov2_p = load_model_from_path("dinov2-base", "facebook/dinov2-base")
+img_processor = AutoImageProcessor.from_pretrained(dinov2_p)
+img_model = AutoModel.from_pretrained(dinov2_p).to(device).eval()
+
+bge_p = load_model_from_path("bge-base-zh-v1.5", "BAAI/bge-base-zh-v1.5")
+text_tokenizer = AutoTokenizer.from_pretrained(bge_p)
+text_model = AutoModel.from_pretrained(bge_p).to(device).eval()
+
+# --- Field Getters ---
+def g(item, keys, default=""):
+    for k in keys:
+        v = item.get(k)
+        if v is not None and str(v).strip() != "": return v
+    return default
 
 def get_sku_id(item):
-    """获取 SKU ID，并强制转换为字符串以防止 Excel 精度丢失"""
-    val = item.get("skuid") or item.get("SKUID")
-    return str(int(val)) if val is not None and str(val).strip() != "" else ""
+    v = g(item, ["skuid", "SKUID"])
+    if not v: return ""
+    try:
+        # Handle float strings like "123.0"
+        return str(int(float(v)))
+    except:
+        return str(v).strip()
 
-
-def get_条码(item):
-    """获取商品条码"""
-    return item.get("条码") or item.get("商品条码")
-
-
-def get_规格(item):
-    """获取商品规格"""
-    return item.get("规格") or item.get("规格名称")
-
-
-def get_活动价(item):
-    """获取活动价（优先使用折扣价或新活动价）"""
-    return item.get("单件折扣价") or item.get("新活动价") or item.get("活动价")
-
-
-def get_原价(item):
-    """获取原始售价（挂牌价）"""
-    return item.get("单件原价") or item.get("新售价") or item.get("美团外卖渠道售价") or item.get("采购价")
-
-
-def get_销售(item):
-    """获取销售量"""
-    return item.get("销售") or item.get("月销量")
-
-
-def get_美团类名1(item):
-    """获取美团一级类目"""
-    return item.get("美团一级类目") or item.get("美团类目一级")
-
-
-def get_美团类名2(item):
-    """获取美团二级类目"""
-    return item.get("美团二级类目") or item.get("美团类目二级")
-
-
-def get_美团类名3(item):
-    """获取美团三级类目"""
-    return item.get("美团三级类目") or item.get("美团类目三级")
-
+def get_条码(item): return g(item, ["条码", "商品条码"])
+def get_规格(item): return g(item, ["规格", "规格名称"])
+def get_活动价(item): return g(item, ["单件折扣价", "新活动价", "活动价"])
+def get_原价(item): return g(item, ["单件原价", "新售价", "美团外卖渠道售价", "采购价"])
+def get_销售(item): return g(item, ["销售", "月销量"])
+def get_美团类名3(item): return g(item, ["美团三级类目", "美团类目三级", "三级类目"])
 
 def get_text(item):
-    """构建用于相似度计算的文本描述"""
-    return f"{get_规格(item)}, {get_美团类名3(item)}, {item['商品名称']}, {item.get('A品牌', '')}, {item.get('A商品名称', '')}, {item.get('A规格', '')}, {item.get('A材质口味', '')}"
+    return f"{get_规格(item)}, {get_美团类名3(item)}, {item.get('商品名称','')}, {item.get('A品牌', '')}, {item.get('A商品名称', '')}, {item.get('A规格', '')}"
 
-
-# -----------------------------
-# 结果封装
-# -----------------------------
-
+# --- Result Construction ---
 def build_match_item(item, prefix=""):
-    """
-    根据给定的商品数据构建一个标准字典，支持添加前缀以便合并数据。
-    """
     res = {f"{prefix}{k}": v for k, v in item.items()}
-    
-    # 核心字段标准化（用于 UI 显示和后续处理）
-    res[f"{prefix}skuId"] = get_sku_id(item) # 强制为字符串防止精度丢失
-    res[f"{prefix}主图链接"] = item.get("图片") or item.get("主图链接") or "" # 商品图片地址
-    res[f"{prefix}菜单名"] = item.get("商品名称") or item.get("菜单名") or "" # 商品名称
-    res[f"{prefix}规格名"] = get_规格(item)   # 规格信息
-    res[f"{prefix}活动价"] = get_活动价(item) # 活动/折扣价
-    res[f"{prefix}原价"] = get_原价(item)     # 原始售价
-    res[f"{prefix}销售"] = get_销售(item)     # 销量数据
-    res[f"{prefix}条码"] = get_条码(item)     # 商品条码
-    
+    res.update({
+        f"{prefix}skuId": get_sku_id(item),
+        f"{prefix}主图链接": g(item, ["图片", "主图链接"]),
+        f"{prefix}菜单名": g(item, ["商品名称", "菜单名"]),
+        f"{prefix}规格名": get_规格(item),
+        f"{prefix}活动价": get_活动价(item),
+        f"{prefix}原价": get_原价(item),
+        f"{prefix}销售": get_销售(item),
+        f"{prefix}条码": get_条码(item)
+    })
     return res
 
-
-def append_match_result(res_item, sear_item, similarity, match, prefix=""):
-    """
-    将匹配到的商品信息追加/更新到结果字典中，并记录相似度和匹配状态。
-    """
+def append_match_result(res_item, sear_item, sim, match, prefix=""):
     res_item.update(build_match_item(sear_item, prefix))
-    res_item[f"{prefix}相似度"] = similarity
-    res_item[f"{prefix}匹配"] = match
+    res_item[f"{prefix}相似度"], res_item[f"{prefix}匹配"] = sim, match
 
-
-
-# -----------------------------
-# 下载图片
-# -----------------------------
-
-def download_img(url, sku_id, file_path):
-    os.makedirs(file_path, exist_ok=True)
-
-    file_name = f"{file_path}/{sku_id}.webp"
-
-    if os.path.exists(file_name):
-        return
-
+# --- Image Utilities ---
+def download_img(url, sku_id, folder):
+    os.makedirs(folder, exist_ok=True); path = f"{folder}/{sku_id}.webp"
+    if os.path.exists(path): return
     try:
-        r = requests.get(url, timeout=20)
-        r.raise_for_status()
+        r = requests.get(url, timeout=20); r.raise_for_status()
+        with open(path, "wb") as f: f.write(r.content)
+    except: pass
 
-        with open(file_name, "wb") as f:
-            f.write(r.content)
-    except:
-        pass
+def download_imgs(data, folder="img", workers=30):
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        [ex.submit(download_img, (item.get("图片") or "").strip(), get_sku_id(item), folder) for item in data]
 
-
-def download_worker(item, file_path="img"):
-    sku_id = get_sku_id(item)
-
+# --- Embedding & Index ---
+def image_to_embedding(path):
     try:
-        url = item["图片"].strip()
-        download_img(url, sku_id, file_path)
-        return f"成功 {sku_id}"
-    except Exception as e:
-        return f"失败 {sku_id} {e}"
-
-
-def download_imgs(data, file_path="img", max_workers=30):
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(download_worker, item, file_path) for item in data]
-
-        for future in as_completed(futures):
-            future.result()
-
-
-# -----------------------------
-# embedding
-# -----------------------------
-
-def image_to_embedding(image_path):
-    try:
-        with Image.open(image_path) as img:
-            image = img.convert("RGB")
-
-        inputs = img_processor(images=image, return_tensors="pt").to(device)
-
-        with torch.no_grad():
-            outputs = img_model(**inputs)
-            emb = outputs.last_hidden_state[:, 0]
-
-        emb = emb / emb.norm(dim=-1, keepdim=True)
-
-        return emb.cpu().numpy().astype("float32")
-    except:
-        return None
-
+        with Image.open(path) as img: i = img_processor(images=img.convert("RGB"), return_tensors="pt").to(device)
+        with torch.no_grad(): o = img_model(**i); e = o.last_hidden_state[:, 0]
+        e = e / e.norm(dim=-1, keepdim=True)
+        return e.cpu().numpy().astype("float32")
+    except: return None
 
 def text_to_embedding(text):
-    inputs = text_tokenizer(
-        text,
-        padding=True,
-        truncation=True,
-        max_length=512,
-        return_tensors="pt"
-    ).to(device)
+    i = text_tokenizer(text, padding=True, truncation=True, max_length=512, return_tensors="pt").to(device)
+    with torch.no_grad(): o = text_model(**i); e = o.last_hidden_state[:, 0]
+    return torch.nn.functional.normalize(e, dim=1).cpu().numpy().astype("float32")
 
-    with torch.no_grad():
-        outputs = text_model(**inputs)
-        emb = outputs.last_hidden_state[:, 0]
-
-    emb = torch.nn.functional.normalize(emb, dim=1)
-
-    return emb.cpu().numpy().astype("float32")
-
-
-# -----------------------------
-# build index
-# -----------------------------
-
-def build_img_index(data, image_dir, index_path):
-    vectors = []
-    ids = []
-
+def build_index(data, mode="img", folder="img", path="index"):
+    vecs, ids = [], []
     for item in data:
-
-        sku_id = get_sku_id(item)
-
+        sid = get_sku_id(item)
+        if not sid: continue
         try:
+            v = image_to_embedding(f"{folder}/{sid}.webp") if mode == "img" else text_to_embedding(get_text(item))
+            if v is not None:
+                try:
+                    # FAISS IndexIDMap2 requires int64 IDs
+                    numeric_id = int(float(sid))
+                    vecs.append(v)
+                    ids.append(numeric_id)
+                except:
+                    # Skip non-numeric IDs for FAISS index, but they will still be in tiaoma_dict
+                    continue
+        except Exception as e: print(f"Embedding err {sid}: {e}")
+    if not vecs: return
+    v_stack = np.vstack(vecs); id_arr = np.array(ids, dtype="int64")
+    index = faiss.IndexIDMap2(faiss.IndexFlatIP(dim)); index.add_with_ids(v_stack, id_arr)
+    faiss.write_index(index, path)
 
-            vec = image_to_embedding(f"{image_dir}/{sku_id}.webp")
-            if vec is not None:
-                vectors.append(vec)
-                ids.append(sku_id)
-
-        except Exception as e:
-            print(f"embedding失败 {sku_id}: {e}")
-
-    if not vectors:
-        return
-
-    vectors = np.vstack(vectors)
-
-    ids = np.array(ids, dtype="int64")
-
-    index = faiss.IndexFlatIP(dim)
-
-    index = faiss.IndexIDMap2(index)
-
-    index.add_with_ids(vectors, ids)
-
-    faiss.write_index(index, index_path)
-
-    print("index saved", index.ntotal)
-
-
-def build_text_index(data, index_path):
-    vectors = []
-    ids = []
-
-    for item in data:
-
-        sku_id = get_sku_id(item)
-
-        try:
-
-            vec = text_to_embedding(get_text(item))
-
-            vectors.append(vec)
-
-            ids.append(sku_id)
-
-        except Exception:
-
-            print("text embedding失败", sku_id)
-
-    if not vectors:
-        return
-
-    vectors = np.vstack(vectors)
-
-    ids = np.array(ids, dtype="int64")
-
-    index = faiss.IndexFlatIP(dim)
-
-    index = faiss.IndexIDMap2(index)
-
-    index.add_with_ids(vectors, ids)
-
-    faiss.write_index(index, index_path)
-
-
-# -----------------------------
-# search
-# -----------------------------
-
-def search(index_img, index_text, img_vec, text_vec):
-    s1 = 0
-    ids_img = [[-1]]
-    if img_vec is not None:
-        scores_img, ids_img = index_img.search(img_vec, 1)
-        s1 = float(scores_img[0][0])
-        if s1 >= 0.9:
-            return ids_img[0][0], s1, "图片匹配"
-
-    scores_text, ids_text = index_text.search(text_vec, 1)
-    s2 = float(scores_text[0][0])
-
-    if s2 >= 0.9:
-        return ids_text[0][0], s2, "文本匹配"
-
-    if s1 >= s2:
-        return ids_img[0][0], s1, "图片匹配"
-
-    return ids_text[0][0], s2, "文本匹配"
-
-
-# -----------------------------
-# Analysis Logic
-# -----------------------------
-
-def run_analysis(target_xlsx, source_xlsxs, output_name="031511"):
+# --- Analysis Pipeline ---
+def run_analysis(target_xlsx, source_xlsxs, output_name="res"):
     sources = []
-
-    # -----------------------------
-    # 初始化source
-    # -----------------------------
     for idx, xlsx in enumerate(source_xlsxs):
-        print(f"Loading source: {xlsx}")
-        data = utils.excel_to_list_dict(xlsx, "Sheet1")
-        download_imgs(data)
-
-        img_index_path = f"sku_img_{output_name}{idx}.index"
-        text_index_path = f"sku_text_{output_name}{idx}.index"
-
-        if not os.path.exists(img_index_path):
-            build_img_index(data, "img", img_index_path)
-
-        if not os.path.exists(text_index_path):
-            build_text_index(data, text_index_path)
-
-        img_index = faiss.read_index(img_index_path)
-        text_index = faiss.read_index(text_index_path)
-
-        sku_dict = {get_sku_id(i): i for i in data}
-        tiaoma_dict = {get_条码(i): i for i in data if get_条码(i)}
-
+        print(f"Loading source: {xlsx}"); data = utils.excel_to_list_dict(xlsx, "Sheet1")
+        download_imgs(data); i_path, t_path = f"img_{output_name}{idx}.index", f"txt_{output_name}{idx}.index"
+        if not os.path.exists(i_path): build_index(data, "img", "img", i_path)
+        if not os.path.exists(t_path): build_index(data, "text", "", t_path)
         sources.append({
-            "data": data,
-            "sku_dict": sku_dict,
-            "tiaoma_dict": tiaoma_dict,
-            "img_index": img_index,
-            "text_index": text_index
+            "sku_dict": {get_sku_id(i): i for i in data}, "tiaoma_dict": {get_条码(i): i for i in data if get_条码(i)},
+            "i_idx": faiss.read_index(i_path) if os.path.exists(i_path) else None,
+            "t_idx": faiss.read_index(t_path) if os.path.exists(t_path) else None
         })
 
-    # -----------------------------
-    # query
-    # -----------------------------
-    print(f"Loading query: {target_xlsx}")
-    query_data = utils.excel_to_list_dict(target_xlsx, "Sheet1")
-    download_imgs(query_data, "query_img")
-
-    res_data = []
+    print(f"Loading query: {target_xlsx}"); query_data = utils.excel_to_list_dict(target_xlsx, "Sheet1")
+    download_imgs(query_data, "query_img"); res_data = []
     for item in query_data:
         try:
-            sku_id = get_sku_id(item)
-            img_path = f"query_img/{sku_id}.webp"
-            img_vec = image_to_embedding(img_path)
-            text_vec = text_to_embedding(get_text(item))
-
+            sid = get_sku_id(item); i_vec, t_vec = image_to_embedding(f"query_img/{sid}.webp"), text_to_embedding(get_text(item))
             res_item = build_match_item(item)
-            for idx, source in enumerate(sources):
-                sear_item = source["tiaoma_dict"].get(get_条码(item))
-
-                if sear_item:
-                    append_match_result(res_item, sear_item, 1, "条码匹配", str(idx))
-                    continue
-
-                sid, score, match = search(
-                    source["img_index"],
-                    source["text_index"],
-                    img_vec,
-                    text_vec
-                )
-                sear_item = source["sku_dict"].get(str(int(sid)))
-                if not sear_item:
-                    continue
+            for idx, src in enumerate(sources):
+                hit = src["tiaoma_dict"].get(get_条码(item))
+                if hit: append_match_result(res_item, hit, 1, "条码匹配", str(idx)); continue
                 
-                if get_美团类名3(item) != get_美团类名3(sear_item):
-                    continue
-
-                append_match_result(
-                    res_item,
-                    sear_item,
-                    score,
-                    match,
-                    str(idx)
-                )
+                s_id, score, match = -1, 0, ""
+                if i_vec is not None and src["i_idx"] is not None:
+                    sc, ids = src["i_idx"].search(i_vec, 1); s_id, score, match = ids[0][0], float(sc[0][0]), "图片匹配"
+                if score < 0.9 and t_vec is not None and src["t_idx"] is not None:
+                    sc, ids = src["t_idx"].search(t_vec, 1)
+                    if float(sc[0][0]) > score: s_id, score, match = ids[0][0], float(sc[0][0]), "文本匹配"
+                
+                hit = src["sku_dict"].get(str(int(s_id)))
+                if hit and get_美团类名3(item) == get_美团类名3(hit): append_match_result(res_item, hit, score, match, str(idx))
             res_data.append(res_item)
-        except Exception as e:
-            traceback.print_exc()
+        except: traceback.print_exc()
 
-    output_file = f"output_{output_name}.xlsx"
-    utils.write_dict_list_to_excel(
-        res_data,
-        file_path=output_file
-    )
-    print(f"完成, 输出文件: {output_file}")
-    return output_file
+    out = f"output_{output_name}.xlsx"; utils.write_dict_list_to_excel(res_data, out); return out
 
 if __name__ == '__main__':
-    target_f = "优购哆.xlsx"
-    sources_f = ["乐购达.xlsx", "沃玛希.xlsx", "犀牛.xlsx", "AA百货.xlsx"]
-    run_analysis(target_f, sources_f)
+    run_analysis("优购哆.xlsx", ["乐购达.xlsx", "沃玛希.xlsx", "犀牛.xlsx", "AA百货.xlsx"])

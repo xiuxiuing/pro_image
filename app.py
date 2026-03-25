@@ -1,11 +1,11 @@
-from flask import Flask, render_template, request, jsonify, send_file
+from flask import Flask, render_template, request, jsonify, send_file, send_from_directory
 from data_mgr import DataManager
 from license_utils import LicenseManager
 import os
+import shutil
 import pandas as pd
 import time
 import traceback
-
 import extract_info_ai2
 import main_030822
 
@@ -18,121 +18,131 @@ LICENSE_FILE = os.path.join(base_dir, "license.dat")
 CURRENT_HWID = LicenseManager.get_hwid()
 
 def check_license():
-    if not os.path.exists(LICENSE_FILE):
-        return False, "License file missing"
-    with open(LICENSE_FILE, "r") as f:
-        content = f.read().strip()
+    if not os.path.exists(LICENSE_FILE): return False, "License file missing"
+    with open(LICENSE_FILE, "r") as f: content = f.read().strip()
     return LicenseManager.verify_license(content, CURRENT_HWID)
 
 @app.route('/api/license_info')
 def get_license_info():
     is_valid, msg = check_license()
-    return jsonify({
-        "hwid": CURRENT_HWID,
-        "is_valid": is_valid,
-        "message": msg
-    })
+    return jsonify({"hwid": CURRENT_HWID, "is_valid": is_valid, "message": msg})
 
 @app.route('/')
+def projects_page():
+    is_valid, _ = check_license()
+    if not is_valid: return render_template('activate.html', hwid=CURRENT_HWID)
+    return render_template('projects.html')
+
+@app.route('/dashboard')
 def index():
     is_valid, _ = check_license()
-    if not is_valid:
-        return render_template('activate.html', hwid=CURRENT_HWID)
-    return render_template('index.html')
+    if not is_valid: return render_template('activate.html', hwid=CURRENT_HWID)
+    return render_template('index.html', active_project=dm.active_project_name)
 
-@app.route('/api/run_pipeline', methods=['POST'])
-def run_pipeline():
-    if 'main_file' not in request.files or 'comp_files' not in request.files:
-        return jsonify({"status": "error", "message": "Missing files"}), 400
-    
-    main_file = request.files['main_file']
-    comp_files = request.files.getlist('comp_files')
-    
-    # 1. Save uploaded files
-    upload_dir = os.path.join(base_dir, "uploads")
-    os.makedirs(upload_dir, exist_ok=True)
-    
-    main_path = os.path.join(upload_dir, main_file.filename)
-    main_file.save(main_path)
-    
-    comp_paths = []
-    for f in comp_files:
-        path = os.path.join(upload_dir, f.filename)
-        f.save(path)
-        comp_paths.append(path)
-    
-    try:
-        # 2. Extract Info AI
-        skip_extract = request.form.get('skip_extract') == 'true'
-        api_key = request.form.get('api_key')
-        
-        if not skip_extract:
-            if not api_key:
-                return jsonify({"status": "error", "message": "Missing API Key"}), 400
-            print("Step 1: AI Extraction...")
-            extract_info_ai2.process_file_ai(main_path, api_key=api_key, batch_size=110)
-            for path in comp_paths:
-                extract_info_ai2.process_file_ai(path, api_key=api_key, batch_size=110)
-        else:
-            print("Step 1: AI Extraction Skipped.")
-        
-        # 3. Run Analysis
-        print("Step 2: Comparison Analysis...")
-        output_name = time.strftime("%Y%m%d_%H%M%S")
-        output_file = main_030822.run_analysis(main_path, comp_paths, output_name=output_name)
-        
-        # 4. Update DataManager
-        dm.output_file = os.path.join(base_dir, output_file)
-        dm.target_file = main_path
-        dm.main_store_name = os.path.basename(main_path).replace(".xlsx", "")
-        dm.source_files = comp_paths
-        dm.store_names = [os.path.basename(p).replace(".xlsx", "") for p in comp_paths]
-        dm.load_data()
-        
-        return jsonify({"status": "success", "output_file": output_file})
-    except Exception as e:
-        traceback.print_exc()
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-@app.route('/api/config', methods=['GET', 'POST'])
-def get_config():
+@app.route('/api/projects', methods=['GET', 'POST'])
+def handle_projects():
     if request.method == 'POST':
-        data = request.json
-        target = data.get('target')
-        sources = data.get('sources')
-        output = data.get('output')
+        name = request.form.get('name')
+        if not name: return jsonify({"status": "error", "message": "Project name is required"}), 400
         
-        dm.update_config(target_file=target, source_files=sources, output_file=output)
-        return jsonify({"status": "success"})
-    
-    return jsonify({
-        "main_store": dm.main_store_name,
-        "target_file": dm.target_file,
-        "output_file": dm.output_file,
-        "source_files": dm.source_files,
-        "stores": [{"id": str(i), "name": name, "path": dm.source_files[i]} for i, name in enumerate(dm.store_names)]
-    })
+        main_file = request.files.get('main_file')
+        comp_files = request.files.getlist('comp_files')
+        
+        if not main_file or not main_file.filename:
+            return jsonify({"status": "error", "message": "Main store file is required"}), 400
+        
+        valid_comp_files = [f for f in comp_files if f.filename]
+        if not valid_comp_files:
+            return jsonify({"status": "error", "message": "At least one competitor store file is required"}), 400
+        
+        # Temporary PID for directory naming
+        temp_pid = int(time.time())
+        proj_dir = os.path.join(base_dir, "uploads", f"project_{temp_pid}")
+        os.makedirs(proj_dir, exist_ok=True)
+        
+        # Save Main Store File
+        main_path = os.path.join(proj_dir, main_file.filename)
+        main_file.save(main_path)
+        main_store_name = main_file.filename.replace(".xlsx", "").replace(".xls", "")
+        
+        # Save Competitor Store Files
+        comp_infos = []
+        comp_paths = []
+        for f in valid_comp_files:
+            path = os.path.join(proj_dir, f.filename)
+            f.save(path)
+            comp_paths.append(path)
+            comp_infos.append({"path": path, "store_name": f.filename.replace(".xlsx", "").replace(".xls", "")})
+        
+        # Handle manual result file if Skip Analysis is selected
+        result_file = request.files.get('result_file')
+        manual_result_path = None
+        if result_file and result_file.filename:
+            manual_result_path = os.path.join(proj_dir, result_file.filename)
+            result_file.save(manual_result_path)
 
-@app.route('/api/list_files')
-def list_files():
-    files = []
-    # Search in root and uploads
-    search_dirs = [base_dir, os.path.join(base_dir, "uploads")]
-    for d in search_dirs:
-        if not os.path.exists(d): continue
-        for f in os.listdir(d):
-            if f.endswith('.xlsx') or f.endswith('.xls'):
-                files.append({
-                    "name": f,
-                    "path": os.path.join(d, f)
-                })
-    return jsonify(files)
+        # Create project in DB
+        pid = dm.create_project(name, {"path": main_path, "store_name": main_store_name}, comp_infos)
+        
+        # Rename directory to real PID
+        real_proj_dir = os.path.join(base_dir, "uploads", f"project_{pid}")
+        if os.path.exists(real_proj_dir): shutil.rmtree(real_proj_dir)
+        os.rename(proj_dir, real_proj_dir)
+        
+        # Update paths in DB
+        with dm._db_lock:
+            with dm._get_conn() as conn:
+                conn.execute("UPDATE project_files SET local_path = REPLACE(local_path, ?, ?) WHERE project_id = ?", 
+                            (f"project_{temp_pid}", f"project_{pid}", pid))
+
+        # Update internal DataManager state and paths
+        dm.activate_project(pid)
+        
+        # Final paths for analysis or manual setup
+        final_main_path = main_path.replace(f"project_{temp_pid}", f"project_{pid}")
+        final_comp_paths = [p.replace(f"project_{temp_pid}", f"project_{pid}") for p in comp_paths]
+        final_manual_result_path = manual_result_path.replace(f"project_{temp_pid}", f"project_{pid}") if manual_result_path else None
+
+        # Initial analysis flow
+        try:
+            if final_manual_result_path:
+                # IMPORTANT: Even when skipping analysis, we need the output file in place
+                # The dm.output_file is set during dm.activate_project, which creates a default output path.
+                # We copy the manual result file to this default output path.
+                shutil.copy(final_manual_result_path, dm.output_file)
+                dm.load_data() # Load the data from the copied manual result file
+            else:
+                # Standard AI Analysis
+                output_file = main_030822.run_analysis(final_main_path, final_comp_paths, output_name=time.strftime("%y%m%d_%H%M%S"))
+                output_path = os.path.join(base_dir, output_file)
+                dm.update_config(target_file=final_main_path, source_files=final_comp_paths, output_file=output_path)
+        except Exception as e:
+            traceback.print_exc()
+        
+        return jsonify({"status": "success", "project_id": pid})
+        
+    return jsonify(dm.list_projects())
+
+@app.route('/api/projects/<int:pid>/activate', methods=['POST'])
+def activate_project(pid):
+    dm.activate_project(pid)
+    return jsonify({"status": "success"})
+
+@app.route('/api/projects/<int:pid>', methods=['DELETE'])
+def delete_project(pid):
+    dm.delete_project(pid)
+    return jsonify({"status": "success"})
+
+@app.route('/api/config', methods=['GET'])
+def get_config():
+    return jsonify({
+        "main_store": dm.main_store_name, "target_file": dm.target_file, "output_file": dm.output_file,
+        "source_files": dm.source_files, "stores": [{"id": str(i), "name": n, "path": dm.source_files[i]} for i, n in enumerate(dm.store_names)]
+    })
 
 @app.route('/api/grid_data')
 def get_grid_data():
-    data = dm.get_grid_data()
-    print(f"Serving grid data: {len(data)} rows")
-    return jsonify(data)
+    return jsonify(dm.get_grid_data())
 
 @app.route('/api/store_products/<store_id>')
 def get_store_products(store_id):
@@ -140,115 +150,68 @@ def get_store_products(store_id):
 
 @app.route('/api/eliminate', methods=['POST'])
 def eliminate():
-    data = request.json
-    row_idx = data.get('row_idx')
-    status = data.get('status', 1)
-    dm.eliminate_product(row_idx, status)
+    d = request.json
+    dm.eliminate_product(d.get('row_idx'), d.get('status', 1))
     return jsonify({"status": "success"})
 
 @app.route('/api/toggle_add', methods=['POST'])
 def toggle_add():
-    data = request.json
-    row_idx = data.get('row_idx')
-    store_id = data.get('store_id')
-    is_new = data.get('is_new', True)
-    dm.mark_as_new(row_idx, store_id, is_new)
+    d = request.json
+    dm.mark_as_new(d.get('row_idx'), d.get('store_id'), d.get('is_new', True))
     return jsonify({"status": "success"})
 
 @app.route('/api/price_match', methods=['POST'])
 def price_match():
-    data = request.json
-    row_idx = data.get('row_idx')
-    store_id = data.get('store_id')
+    d = request.json
+    row_idx, store_id = d.get('row_idx'), d.get('store_id')
     dm.price_match(row_idx, store_id)
     
-    def safe_f(v):
+    def f(v):
         if pd.isna(v) or v == "": return ""
         try: return float(v)
         except: return str(v)
 
     return jsonify({
-        "status": "success", 
-        "new_act": safe_f(dm.grid_df.at[row_idx, '新活动价']),
-        "new_orig": safe_f(dm.grid_df.at[row_idx, '新售价']),
-        "store_name": dm.grid_df.at[row_idx, '跟价店']
+        "status": "success", "new_act": f(dm.grid_df.at[row_idx, '新活动价']),
+        "new_orig": f(dm.grid_df.at[row_idx, '新售价']), "store_name": dm.grid_df.at[row_idx, '跟价店']
     })
 
 @app.route('/api/manual_link', methods=['POST'])
 def manual_link():
-    data = request.json
-    row_idx = data.get('row_idx')
-    store_id = data.get('store_id')
-    product_data = data.get('product_data')
-    dm.manual_link(row_idx, store_id, product_data)
+    d = request.json
+    dm.manual_link(d.get('row_idx'), d.get('store_id'), d.get('product_data'))
     return jsonify({"status": "success"})
 
 @app.route('/api/unlink', methods=['POST'])
 def unlink():
-    data = request.json
-    row_idx = data.get('row_idx')
-    store_id = data.get('store_id')
-    dm.unlink_product(row_idx, store_id)
+    d = request.json
+    dm.unlink_product(d.get('row_idx'), d.get('store_id'))
     return jsonify({"status": "success"})
 
 @app.route('/api/update_cell', methods=['POST'])
 def update_cell():
-    data = request.json
-    row_idx = data.get('row_idx')
-    column = data.get('column')
-    value = data.get('value')
-    dm.update_cell(row_idx, {column: value})
+    d = request.json
+    dm.update_cell(d.get('row_idx'), {d.get('column'): d.get('value')})
     return jsonify({"status": "success"})
 
 @app.route('/img/<path:filename>')
 def serve_img(filename):
-    img_path = os.path.join(base_dir, "img", filename)
-    if os.path.exists(img_path):
-        return send_file(img_path)
-    else:
-        return "Image not found", 404
+    return send_from_directory(os.path.join(base_dir, "img"), filename)
 
-@app.route('/api/upload', methods=['POST'])
-def upload_file():
-    if 'file' not in request.files:
-        return jsonify({"status": "error", "message": "No file part"}), 400
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({"status": "error", "message": "No selected file"}), 400
-    
-    upload_type = request.form.get('type', 'output') # target, source, output
-    
-    upload_dir = os.path.join(base_dir, "uploads")
-    os.makedirs(upload_dir, exist_ok=True)
-    save_path = os.path.join(upload_dir, file.filename)
-    file.save(save_path)
-    
-    if upload_type == 'target':
-        dm.update_config(target_file=save_path)
-    elif upload_type == 'output':
-        dm.update_config(output_file=save_path)
-    # Note: 'source' uploads just save the file, user should select it in config
-    
-    return jsonify({"status": "success", "path": save_path})
 
 @app.route('/api/export')
 def export_data():
-    path = dm.save_separate_exports()
-    response = send_file(path, as_attachment=True)
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-    return response
+    p = dm.save_separate_exports()
+    resp = send_file(p, as_attachment=True)
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"; resp.headers["Pragma"] = "no-cache"; resp.headers["Expires"] = "0"
+    return resp
 
 @app.route('/api/export_new')
 def export_new_data():
-    path = dm.export_new_items()
-    response = send_file(path, as_attachment=True)
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-    return response
+    p = dm.export_new_items()
+    resp = send_file(p, as_attachment=True)
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"; resp.headers["Pragma"] = "no-cache"; resp.headers["Expires"] = "0"
+    return resp
 
 if __name__ == '__main__':
-    # Disable reloader to prevent app restart during background file saves
-    app.run(debug=True, port=5001, use_reloader=True)
+    app.run(debug=False, port=5001)

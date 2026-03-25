@@ -977,9 +977,9 @@
       - 页头区域：包含标题、搜索框以及功能按钮
       -->
     <header>
-        <div style="display: flex; flex-direction: column;">
+        <div style="display: flex; flex-direction: column; cursor: pointer;" onclick="location.href='/'" title="回到项目中心">
             <div class="header-title">商品竞对分析平台</div>
-            <div class="header-slogan">洞察竞对态势 • 驱动价格决策</div>
+             <div class="header-slogan" style="text-transform: none;">洞察竞对态势 • 驱动价格决策 <span style="margin-left: 15px; color: var(--text-muted); font-weight: 400; text-transform: none;">(当前项目: <span style="color: var(--primary-color); font-weight: 700;">{{ active_project }}</span>)</span></div>
         </div>
         <div class="header-actions">
             <div class="search-wrapper">
@@ -1001,15 +1001,6 @@
             <button class="btn btn-primary" id="exportNewBtn" style="background: #10b981; border-color: #10b981;"
                 onclick="exportNewItems()"><img src="https://img.icons8.com/material-outlined/20/ffffff/add-file.png" />
                 差异数据</button>
-            <button class="btn btn-primary" style="background: #8b5cf6; border-color: #8b5cf6;"
-                onclick="openAnalysisModal()"><img
-                    src="https://img.icons8.com/material-outlined/20/ffffff/search.png" /> 新建分析</button>
-            <button class="btn" style="border-radius: 8px;" onclick="openConfigModal()"><img
-                    src="https://img.icons8.com/material-outlined/20/000000/settings.png" /> 配置管理</button>
-            <input type="file" id="uploadInput" accept=".xlsx, .xls" style="display:none;"
-                onchange="handleUpload(event)" />
-            <button class="btn" style="border-radius: 8px;"
-                onclick="if(confirm('确定要手动上传比对结果文件吗？此操作将覆盖当前系统中的数据。')) { document.getElementById('uploadInput').dataset.type='output'; document.getElementById('uploadInput').click(); }">上传文件</button>
         </div>
     </header>
 
@@ -1048,99 +1039,7 @@
         </div>
     </div>
 
-    <div class="modal" id="configModal">
-        <div class="modal-content" style="max-width: 600px;">
-            <div class="modal-header">
-                <h3>配置管理</h3>
-                <button class="btn" onclick="closeConfigModal()">关闭</button>
-            </div>
-            <div class="modal-body" style="padding: 24px; display: flex; flex-direction: column; gap: 20px;">
-                <div style="background: #f8fafc; padding: 16px; border-radius: 12px; border: 1px solid #e2e8f0;">
-                    <h4 style="margin: 0 0 12px 0;">当前配置</h4>
-                    <div style="display: flex; flex-direction: column; gap: 12px;">
-                        <div>
-                            <label
-                                style="display: block; font-size: 12px; color: var(--text-muted); font-weight: 600;">主店文件
-                                (Target)</label>
-                            <select id="configTarget"
-                                style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #e2e8f0;"></select>
-                        </div>
-                        <div>
-                            <label
-                                style="display: block; font-size: 12px; color: var(--text-muted); font-weight: 600;">比对输出文件
-                                (Output)</label>
-                            <select id="configOutput"
-                                style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #e2e8f0;"></select>
-                        </div>
-                        <div>
-                            <label
-                                style="display: block; font-size: 12px; color: var(--text-muted); font-weight: 600;">竞对店铺文件
-                                (Sources - 可多选)</label>
-                            <select id="configSources" multiple
-                                style="width: 100%; height: 120px; padding: 8px; border-radius: 6px; border: 1px solid #e2e8f0;"></select>
-                        </div>
-                    </div>
-                    <button class="btn btn-primary" style="width: 100%; margin-top: 20px; justify-content: center;"
-                        onclick="saveConfig()">保存并更新配置</button>
-                </div>
 
-                <div style="border-top: 1px solid #f1f5f9; padding-top: 20px;">
-                    <h4 style="margin: 0 0 12px 0;">快速上传</h4>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                        <button class="btn" style="justify-content: center"
-                            onclick="document.getElementById('uploadInput').dataset.type='target'; document.getElementById('uploadInput').click()">上传并设为主店</button>
-                        <button class="btn" style="justify-content: center"
-                            onclick="document.getElementById('uploadInput').dataset.type='source'; document.getElementById('uploadInput').click()">上传竞店文件</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="modal" id="analysisModal">
-        <div class="modal-content" style="max-width: 500px;">
-            <div class="modal-header">
-                <h3>新建对比分析</h3>
-                <button class="btn" onclick="closeAnalysisModal()">关闭</button>
-            </div>
-            <div class="modal-body" style="padding: 24px; display: flex; flex-direction: column; gap: 20px;">
-                <div>
-                    <label style="display: block; font-weight: 600; margin-bottom: 8px;">1. 选择主店文件 (乐购达/优购哆)</label>
-                    <input type="file" id="mainFileInput" accept=".xlsx, .xls" style="width: 100%;">
-                </div>
-                <div>
-                    <label style="display: block; font-weight: 600; margin-bottom: 8px;">2. 选择竞对店铺文件 (可多选)</label>
-                    <input type="file" id="compFilesInput" accept=".xlsx, .xls" multiple style="width: 100%;">
-                </div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <input type="checkbox" id="runAIExtractCheck" style="width: 18px; height: 18px; cursor: pointer;"
-                        onchange="document.getElementById('apiKeyContainer').style.display = this.checked ? 'block' : 'none'">
-                    <label for="runAIExtractCheck"
-                        style="font-size: 14px; font-weight: 600; cursor: pointer; color: var(--text-main);">进行 AI 提取流程
-                        (约需几分钟)</label>
-                </div>
-                <div id="apiKeyContainer" style="margin-top: 4px; display: none;">
-                    <label
-                        style="display: block; font-weight: 600; margin-bottom: 8px; font-size: 14px; color: var(--text-main);">3.
-                        填写 Gemini API Key</label>
-                    <input type="text" id="apiKeyInput" placeholder="请输入您的 Gemini API Key"
-                        style="width: 100%; padding: 10px; border: 1.5px solid #e2e8f0; border-radius: 8px; font-size: 14px; outline: none; transition: all 0.2s;">
-                    <div style="font-size: 12px; color: var(--danger-color); margin-top: 4px; display: none;"
-                        id="apiKeyError">请输入有效的 API Key</div>
-                </div>
-                <div style="margin-top: 10px;">
-                    <button class="btn btn-primary"
-                        style="width: 100%; justify-content: center; height: 44px; font-size: 16px;" id="runBtn"
-                        onclick="runAnalysisPipeline()">开始 AI 分析与比对</button>
-                </div>
-                <div id="pipelineStatus"
-                    style="display: none; padding: 12px; background: #f3f4f6; border-radius: 8px; font-size: 14px; line-height: 1.6;">
-                    <div style="font-weight: 700; margin-bottom: 4px;">进度日志：</div>
-                    <div id="statusLog">准备中...</div>
-                </div>
-            </div>
-        </div>
-    </div>
 
     <script>
         /* 
@@ -1180,7 +1079,7 @@
                 gridData = await response.json();
 
                 if (gridData.length === 0) {
-                    loadingMsg.innerText = "数据为空，请先点击右上角 [新建分析] 启动流程。";
+                    loadingMsg.innerText = "当前项目未包含分析结果，请重新创建项目或在首页重新初始化。";
                     return;
                 }
 
@@ -1595,24 +1494,16 @@
 
         function renderPagination(totalItems, totalPages) {
             const paginEl = document.getElementById('pagination');
-            if (!paginEl) return;
-
-            if (totalItems === 0) {
-                paginEl.innerHTML = '';
+            if (!paginEl || totalItems === 0) {
+                if (paginEl) paginEl.innerHTML = '';
                 return;
             }
-
-            const startIndex = (currentPage - 1) * pageSize + 1;
-            const endIndex = Math.min(currentPage * pageSize, totalItems);
 
             let pagesHtml = '';
             const maxVisiblePages = 5;
             let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
             let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
-
-            if (endPage - startPage + 1 < maxVisiblePages) {
-                startPage = Math.max(1, endPage - maxVisiblePages + 1);
-            }
+            if (endPage - startPage + 1 < maxVisiblePages) startPage = Math.max(1, endPage - maxVisiblePages + 1);
 
             for (let i = startPage; i <= endPage; i++) {
                 pagesHtml += `<button class="page-btn ${i === currentPage ? 'active' : ''}" onclick="changePage(${i})">${i}</button>`;
@@ -1622,25 +1513,23 @@
             const totalSpu = new Set(filteredData.map(row => row['商品名称'])).size;
 
             paginEl.innerHTML = `
-        <div class="pagination-info">
-            <span style="margin-left: 0px; font-weight: bold;">sku : ${totalSku}</span> <span style="margin-left: 20px; font-weight: bold;">spu : ${totalSpu}</span>
-        </div>
-        <div class="pagination-controls">
-            <select class="page-size-selector" onchange="changePageSize(this.value)">
-                <option value="10" ${pageSize === 10 ? 'selected' : ''}>10 条/页</option>
-                <option value="20" ${pageSize === 20 ? 'selected' : ''}>20 条/页</option>
-                <option value="50" ${pageSize === 50 ? 'selected' : ''}>50 条/页</option>
-                <option value="100" ${pageSize === 100 ? 'selected' : ''}>100 条/页</option>
-            </select>
-            <button class="page-btn" ${currentPage === 1 ? 'disabled' : ''} onclick="changePage(${currentPage - 1})">上一页</button>
-            ${pagesHtml}
-            <button class="page-btn" ${currentPage === totalPages ? 'disabled' : ''} onclick="changePage(${currentPage + 1})">下一页</button>
-            <span style="margin-left: 12px; color: #4b5563; font-size: 13px;">到第</span>
-            <input type="number" class="page-jump-input" min="1" max="${totalPages}" value="${currentPage}" 
-                onkeydown="if(event.key==='Enter') jumpToPage(this.value, ${totalPages})">
-            <span style="color: #4b5563; font-size: 13px;">页</span>
-        </div>
-    `;
+                <div class="pagination-info">
+                    <span style="font-weight: bold;">sku : ${totalSku}</span> 
+                    <span style="margin-left: 20px; font-weight: bold;">spu : ${totalSpu}</span>
+                </div>
+                <div class="pagination-controls">
+                    <select class="page-size-selector" onchange="changePageSize(this.value)">
+                        ${[10, 20, 50, 100].map(s => `<option value="${s}" ${pageSize === s ? 'selected' : ''}>${s} 条/页</option>`).join('')}
+                    </select>
+                    <button class="page-btn" ${currentPage === 1 ? 'disabled' : ''} onclick="changePage(${currentPage - 1})">上一页</button>
+                    ${pagesHtml}
+                    <button class="page-btn" ${currentPage === totalPages ? 'disabled' : ''} onclick="changePage(${currentPage + 1})">下一页</button>
+                    <span style="margin-left: 12px; color: #4b5563; font-size: 13px;">到第</span>
+                    <input type="number" class="page-jump-input" min="1" max="${totalPages}" value="${currentPage}" 
+                        onkeydown="if(event.key==='Enter') jumpToPage(this.value, ${totalPages})">
+                    <span style="color: #4b5563; font-size: 13px;">页</span>
+                </div>
+            `;
         }
 
         function changePage(page) {
@@ -1714,7 +1603,7 @@
                     if (val && !val.startsWith('http') && val !== '-') {
                         imgSrc = '/img/' + val;
                     }
-                    imageContent = `<div class="card-top-image" onmouseenter="showZoom('${imgSrc}', event)" onmousemove="updateZoomPos(event)" onmouseleave="hideZoom()" ${isMain ? `onclick="editMainImage(${rowIdx}, '${imgSrc}')" title="点击修改图片链接"` : ''}>
+                    imageContent = `<div class="card-top-image" ${isMain ? `onclick="editMainImage(${rowIdx}, '${imgSrc}')" title="点击修改图片链接"` : ''}>
                     <img src="${imgSrc}" onerror="this.src='https://via.placeholder.com/80?text=No+Img'">
                 </div>`;
                     return;
@@ -2151,175 +2040,9 @@
          * --- 分析流程 (Pipeline) 逻辑 ---
          * 负责上传主店/竞店文件，启动后台比对和 AI 提取流程
          */
-        function openAnalysisModal() {
-            document.getElementById('analysisModal').style.display = 'flex';
-        }
 
-        function closeAnalysisModal() {
-            document.getElementById('analysisModal').style.display = 'none';
-        }
-
-        async function runAnalysisPipeline() {
-            const mainFile = document.getElementById('mainFileInput').files[0];
-            const compFiles = document.getElementById('compFilesInput').files;
-
-            if (!mainFile || compFiles.length === 0) {
-                alert("请选择主店文件和至少一个竞对店铺文件");
-                return;
-            }
-
-            const runBtn = document.getElementById('runBtn');
-            const statusBox = document.getElementById('pipelineStatus');
-            const logEl = document.getElementById('statusLog');
-            const runAIExtract = document.getElementById('runAIExtractCheck').checked;
-
-            let apiKey = "";
-            const apiKeyError = document.getElementById('apiKeyError');
-            if (runAIExtract) {
-                apiKey = document.getElementById('apiKeyInput').value.trim();
-                if (!apiKey) {
-                    apiKeyError.style.display = 'block';
-                    document.getElementById('apiKeyInput').style.borderColor = 'var(--danger-color)';
-                    return;
-                }
-            }
-            if (apiKeyError) {
-                apiKeyError.style.display = 'none';
-                document.getElementById('apiKeyInput').style.borderColor = '#e2e8f0';
-            }
-
-            runBtn.disabled = true;
-            runBtn.innerText = "正在分析中 (请勿关闭窗口)...";
-            statusBox.style.display = 'block';
-            if (runAIExtract) {
-                logEl.innerHTML = "1. 正在上传并启动 AI 提取流程 (大概需要几分钟)...<br>";
-            } else {
-                logEl.innerHTML = "1. 正在上传文件 (仅执行比对流程)...<br>";
-            }
-
-            const formData = new FormData();
-            formData.append('main_file', mainFile);
-            for (let f of compFiles) {
-                formData.append('comp_files', f);
-            }
-            formData.append('skip_extract', runAIExtract ? 'false' : 'true');
-            if (runAIExtract) {
-                formData.append('api_key', apiKey);
-            }
-
-            try {
-                const response = await fetch('/api/run_pipeline', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const result = await response.json();
-                if (result.status === 'success') {
-                    logEl.innerHTML += "2. 比对分析完成！<br>3. 正在加载数据...<br>";
-                    alert("分析完成！");
-                    location.reload();
-                } else {
-                    logEl.innerHTML += `<span style="color:red">分析失败: ${result.message}</span>`;
-                    runBtn.disabled = false;
-                    runBtn.innerText = "重试分析";
-                }
-            } catch (error) {
-                console.error('Pipeline error:', error);
-                logEl.innerHTML += `<span style="color:red">发生系统错误: ${error.message}</span>`;
-                runBtn.disabled = false;
-                runBtn.innerText = "重试分析";
-            }
-        }
-
-        async function handleUpload(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-            const type = event.target.dataset.type || 'output';
-
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('type', type);
-
-            const res = await fetch('/api/upload', { method: 'POST', body: formData });
-            const result = await res.json();
-            if (result.status === 'success') {
-                alert('上传并应用成功');
-                await loadData();
-                if (document.getElementById('configModal').style.display === 'flex') {
-                    await openConfigModal(); // Refresh lists
-                }
-            } else {
-                alert('上传失败: ' + result.message);
-            }
-            event.target.value = '';
-        }
 
         // Config Modal Logic
-        async function openConfigModal() {
-            document.getElementById('configModal').style.display = 'flex';
-
-            // 1. Fetch available files
-            const filesRes = await fetch('/api/list_files');
-            const files = await filesRes.json();
-
-            // 2. Fetch current config
-            const configRes = await fetch('/api/config');
-            const config = await configRes.json();
-
-            // 3. Fill selects
-            const targetSelect = document.getElementById('configTarget');
-            const outputSelect = document.getElementById('configOutput');
-            const sourcesSelect = document.getElementById('configSources');
-
-            targetSelect.innerHTML = '';
-            outputSelect.innerHTML = '';
-            sourcesSelect.innerHTML = '';
-
-            files.forEach(f => {
-                const createOpt = (selected) => {
-                    const opt = document.createElement('option');
-                    opt.value = f.path;
-                    opt.innerText = f.name + (f.path.includes('uploads') ? ' (已上传)' : '');
-                    if (selected) opt.selected = true;
-                    return opt;
-                };
-
-                targetSelect.appendChild(createOpt(f.path === config.target_file));
-                outputSelect.appendChild(createOpt(f.path === config.output_file));
-
-                const isSource = config.source_files.some(sf => sf === f.path);
-                sourcesSelect.appendChild(createOpt(isSource));
-            });
-        }
-
-        function closeConfigModal() {
-            document.getElementById('configModal').style.display = 'none';
-        }
-
-        async function saveConfig() {
-            const target = document.getElementById('configTarget').value;
-            const output = document.getElementById('configOutput').value;
-            const sources = Array.from(document.getElementById('configSources').selectedOptions).map(o => o.value);
-
-            if (!target || !output || sources.length === 0) {
-                alert('请完整配置主店、输出及至少一个竞店文件');
-                return;
-            }
-
-            const res = await fetch('/api/config', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ target, output, sources })
-            });
-
-            if (res.ok) {
-                alert('配置已更新');
-                closeConfigModal();
-                location.reload();
-            } else {
-                alert('配置更新失败');
-            }
-        }
 
         function handleSearch() { filterData(); }
 
@@ -2332,35 +2055,37 @@
 
         // Image Zoom Logic
         function initImagePreview() {
-            const preview = document.getElementById('imagePreview');
+            const overlay = document.getElementById('image-zoom-overlay');
+            const zoomImg = document.getElementById('zoom-img');
+            
             document.addEventListener('mouseover', e => {
-                const img = e.target.closest('.card-image img, .product-list-img img');
+                const img = e.target.closest('.card-top-image img, .product-list-img img');
                 if (img) {
-                    preview.innerHTML = `<img src="${img.src}">`;
-                    preview.style.display = 'block';
+                    zoomImg.src = img.src;
+                    overlay.style.display = 'block';
+                    updateZoomPos(e);
                 }
             });
 
             document.addEventListener('mousemove', e => {
-                if (preview.style.display === 'block') {
-                    let x = e.clientX + 20;
-                    let y = e.clientY + 20;
-
-                    // Boundary check
-                    if (x + 520 > window.innerWidth) x = e.clientX - 520;
-                    if (y + 520 > window.innerHeight) y = e.clientY - 520;
-
-                    preview.style.left = x + 'px';
-                    preview.style.top = y + 'px';
-                }
+                if (overlay.style.display === 'block') updateZoomPos(e);
             });
 
             document.addEventListener('mouseout', e => {
-                if (e.target.closest('.card-image img, .product-list-img img')) {
-                    preview.style.display = 'none';
-                    preview.innerHTML = '';
+                if (e.target.closest('.card-top-image img, .product-list-img img')) {
+                    overlay.style.display = 'none';
                 }
             });
+        }
+
+        function updateZoomPos(event) {
+            const overlay = document.getElementById('image-zoom-overlay');
+            let x = event.clientX + 20, y = event.clientY - 175;
+            const winW = window.innerWidth, winH = window.innerHeight;
+            if (x + 350 > winW) x = event.clientX - 370;
+            if (y < 10) y = 10;
+            if (y + 350 > winH) y = winH - 360;
+            overlay.style.left = x + 'px'; overlay.style.top = y + 'px';
         }
 
         window.addEventListener('DOMContentLoaded', () => {
@@ -2386,37 +2111,6 @@
         });
     </script>
     <div id="image-zoom-overlay"><img src="" id="zoom-img"></div>
-    <script>
-        function showZoom(src, event) {
-            const overlay = document.getElementById('image-zoom-overlay');
-            const img = document.getElementById('zoom-img');
-            img.src = src;
-            overlay.style.display = 'block';
-
-            // Initial position near cursor
-            updateZoomPos(event);
-        }
-
-        function updateZoomPos(event) {
-            const overlay = document.getElementById('image-zoom-overlay');
-            let x = event.clientX + 20;
-            let y = event.clientY - 175; // Center vertically relative to overlay height
-
-            const winW = window.innerWidth;
-            const winH = window.innerHeight;
-
-            if (x + 350 > winW) x = event.clientX - 370;
-            if (y < 10) y = 10;
-            if (y + 350 > winH) y = winH - 360;
-
-            overlay.style.left = x + 'px';
-            overlay.style.top = y + 'px';
-        }
-
-        function hideZoom() {
-            document.getElementById('image-zoom-overlay').style.display = 'none';
-        }
-    </script>
 </body>
 
 </html>
