@@ -87,7 +87,7 @@ def safe_save(df, file_path):
         return False
 
 
-def process_file_ai(file_path, api_key, batch_size=50):  # Reduced batch size for more complex extraction
+def process_file_ai(file_path, api_key, batch_size=110):  # Reduced batch size for more complex extraction
     print(f"Loading {file_path}...")
     try:
         df = pd.read_excel(file_path, engine='openpyxl')
