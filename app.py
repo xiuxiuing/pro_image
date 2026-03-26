@@ -152,11 +152,20 @@ def get_config():
 
 @app.route('/api/grid_data')
 def get_grid_data():
-    return jsonify(dm.get_grid_data())
+    page = request.args.get('page', 1, type=int)
+    limit = request.args.get('limit', 50, type=int)
+    search = request.args.get('search', "")
+    mode = request.args.get('mode', "all")
+    return jsonify(dm.get_paginated_grid(page=page, limit=limit, search=search, mode=mode))
 
 @app.route('/api/store_products/<store_id>')
 def get_store_products(store_id):
     return jsonify(dm.get_store_products(store_id))
+
+
+@app.route('/api/unlinked_items')
+def get_unlinked_items():
+    return jsonify(dm.get_unlinked_products())
 
 @app.route('/api/eliminate', methods=['POST'])
 def eliminate():
@@ -165,9 +174,10 @@ def eliminate():
     return jsonify({"status": "success"})
 
 @app.route('/api/toggle_add', methods=['POST'])
+@app.route('/api/toggle_add', methods=['POST'])
 def toggle_add():
     d = request.json
-    dm.mark_as_new(d.get('row_idx'), d.get('store_id'), d.get('is_new', True))
+    dm.mark_as_new(d.get('row_idx'), d.get('store_id'), d.get('is_new', True), sku_id=d.get('sku_id'))
     return jsonify({"status": "success"})
 
 @app.route('/api/price_match', methods=['POST'])

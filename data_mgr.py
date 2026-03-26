@@ -468,14 +468,85 @@ class DataManager:
         self.grid_df = grid
 
     def get_grid_data(self):
-        if self.grid_df is None or self.grid_df.empty: return []
-        export_df = self.grid_df.drop(columns=['_row_orig_idx']) if '_row_orig_idx' in self.grid_df.columns else self.grid_df
-        return export_df.fillna("").to_dict(orient='records')
+        if self.grid_df is None or self.grid_df.empty: return {"items": [], "total": 0}
+        # Backward compatibility for old calls, but returning paginated for safety
+        return self.get_paginated_grid(page=1, limit=50)
+
+    def get_paginated_grid(self, page=1, limit=50, search="", mode="all"):
+        if self.grid_df is None or self.grid_df.empty:
+            return {"items": [], "total": 0, "page": page, "pages": 0}
+
+        df = self.grid_df.copy()
+
+        # 1. Search Filter
+        if search:
+            search = str(search).lower()
+            mask = df.apply(lambda row: any(search in str(v).lower() for v in row), axis=1)
+            df = df[mask]
+
+        # 2. Mode Filter
+        if mode == "diff":
+            def has_diff(row):
+                main_act = 0
+                try: main_act = float(row.get('活动价', 0))
+                except: pass
+                if main_act <= 0: return False
+                
+                for i in range(len(self.store_names)):
+                    prefix = str(i)
+                    comp_act = 0
+                    try: comp_act = float(row.get(f"{prefix}活动价", 0))
+                    except: pass
+                    if comp_act > 0 and abs(main_act - comp_act) > 0.01:
+                        return True
+                return False
+            
+            df = df[df.apply(has_diff, axis=1)]
+
+        total = len(df)
+        pages = (total + limit - 1) // limit
+        start = (page - 1) * limit
+        end = start + limit
+
+        items = df.iloc[start:end].fillna("").to_dict(orient='records')
+        
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "pages": pages
+        }
 
     def get_store_products(self, store_id):
         if store_id in self.store_dfs and not self.store_dfs[store_id]["df"].empty:
             return self.store_dfs[store_id]["df"].fillna("").to_dict(orient='records')
         return []
+
+    def get_unlinked_products(self):
+        """Find SKUs in comp_products NOT in product_links for each store"""
+        if not self.active_project_id: return {}
+        unlinked = {}
+        with self._db_lock:
+            conn = self._get_conn()
+            try:
+                for i, _ in enumerate(self.store_names):
+                    prefix = str(i)
+                    query = """
+                        SELECT * FROM comp_products 
+                        WHERE project_id = ? AND store_id = ?
+                        AND skuId NOT IN (
+                            SELECT comp_sku_id FROM product_links 
+                            WHERE project_id = ? AND store_id = ?
+                        )
+                    """
+                    df = pd.read_sql(query, conn, params=(self.active_project_id, prefix, self.active_project_id, prefix))
+                    unlinked[prefix] = df.fillna("").to_dict(orient='records')
+            except Exception as e:
+                print("Error fetching unlinked products:", e)
+            finally:
+                conn.close()
+        return unlinked
 
     def _ensure_column(self, conn, table, col_name):
         try: conn.execute(f"SELECT `{col_name}` FROM `{table}` LIMIT 1")
@@ -511,16 +582,33 @@ class DataManager:
                 conn.close()
         self._reconstruct_from_sqlite()
 
-    def mark_as_new(self, row_idx, store_id, is_new):
-        main_sku_id = self.grid_df.loc[row_idx, 'skuId']
+    def mark_as_new(self, row_idx, store_id, is_new, sku_id=None):
         is_new_str = "是" if is_new else "否"
+        
+        # If sku_id is provided, we use it directly (important for Unlinked Pool mode)
+        # Otherwise, we fall back to row_idx lookup
+        comp_sku_id = sku_id
+        if not comp_sku_id and row_idx is not None:
+            prefix = str(store_id)
+            comp_sku_id = self.grid_df.loc[row_idx, f"{prefix}skuId"]
+
+        if not comp_sku_id:
+            return
+
         with self._db_lock:
             conn = self._get_conn()
             try:
                 with conn:
+                    # 1. Update existing links in product_links
                     self._ensure_column(conn, "product_links", "is_new_add")
-                    conn.execute("UPDATE product_links SET is_new_add=? WHERE project_id = ? AND main_sku_id=? AND store_id=?", 
-                                (is_new_str, self.active_project_id, str(main_sku_id), str(store_id)))
+                    conn.execute("UPDATE product_links SET is_new_add=? WHERE project_id = ? AND store_id=? AND comp_sku_id=?", 
+                                (is_new_str, self.active_project_id, str(store_id), str(comp_sku_id)))
+                    
+                    # 2. ALSO update comp_products table if the column exists (for unlinked items)
+                    # We ensure the column exists first
+                    self._ensure_column(conn, "comp_products", "is_new_add")
+                    conn.execute("UPDATE comp_products SET is_new_add=? WHERE project_id=? AND store_id=? AND skuId=?",
+                                (is_new_str, self.active_project_id, str(store_id), str(comp_sku_id)))
             finally:
                 conn.close()
         self._reconstruct_from_sqlite()
@@ -646,9 +734,11 @@ class DataManager:
                 new_col, summ_col = f"{prefix}是否新增", f"{store_name}新增"
                 self.grid_df[summ_col] = self.grid_df[new_col] if new_col in self.grid_df.columns else ""
 
+            # 1. Main store export
             main_cols = [c for c in self.grid_df.columns if (not c or not c[0].isdigit()) and c not in INTERNAL_EXPORT_KEYS]
             self.grid_df[main_cols].to_excel(os.path.join(temp_dir, f"主店_{self.main_store_name}.xlsx"), index=False)
 
+            # 2. Linked competitor store exports
             for i, store_name in enumerate(self.store_names):
                 prefix = str(i)
                 comp_cols = [c for c in self.grid_df.columns if c.startswith(prefix)]
@@ -658,6 +748,28 @@ class DataManager:
                 comp_df.columns = [c if c == "主店SKU" else c[len(prefix):] for c in comp_df.columns]
                 comp_df.loc[:, ~comp_df.columns.duplicated()].to_excel(os.path.join(temp_dir, f"竞店_{store_name}.xlsx"), index=False)
 
+            # 3. Unlinked pool export
+            unlinked_data = []
+            with self._get_conn() as conn:
+                for i, store_name in list(enumerate(self.store_names)):
+                    prefix = str(i)
+                    query = """
+                        SELECT * FROM comp_products 
+                        WHERE project_id = ? AND store_id = ?
+                        AND skuId NOT IN (
+                            SELECT comp_sku_id FROM product_links 
+                            WHERE project_id = ? AND store_id = ?
+                        )
+                    """
+                    df = pd.read_sql(query, conn, params=(self.active_project_id, prefix, self.active_project_id, prefix))
+                    if not df.empty:
+                        df.insert(0, "竞品店铺", store_name)
+                        unlinked_data.append(df)
+            
+            if unlinked_data:
+                pool_df = pd.concat(unlinked_data, ignore_index=True)
+                pool_df.to_excel(os.path.join(temp_dir, "未关联商品池.xlsx"), index=False)
+
             zip_path = os.path.join(self.base_dir, f"对比成果_{time.strftime('%Y%m%d_%H%M%S')}.zip")
             with zipfile.ZipFile(zip_path, 'w') as zf:
                 for root, _, files in os.walk(temp_dir):
@@ -666,27 +778,40 @@ class DataManager:
         finally: shutil.rmtree(temp_dir)
 
     def export_new_items(self):
-        all_new_items_dfs, op_time = [], time.strftime('%Y-%m-%d %H:%M:%S')
+        op_time = time.strftime('%Y-%m-%d %H:%M:%S')
         self._calculate_margins()
-
-        for i, store_name in enumerate(self.store_names):
-            prefix = str(i)
-            new_col = f"{prefix}是否新增"
-            if new_col not in self.grid_df.columns: continue
-            store_new_df = self.grid_df[self.grid_df[new_col] == "是"].copy()
-            if store_new_df.empty: continue
-            comp_cols = [c for c in store_new_df.columns if c.startswith(prefix)]
-            if not comp_cols: continue
+        
+        # Mapping prefix to store name
+        store_map = {str(i): name for i, name in enumerate(self.store_names)}
+        
+        # 1. Fetch ALL products marked as "New" from comp_products (includes unlinked ones)
+        all_new_data = []
+        with self._get_conn() as conn:
+            query = "SELECT * FROM comp_products WHERE project_id = ? AND is_new_add = '是'"
+            all_comp_new_df = pd.read_sql(query, conn, params=(self.active_project_id,))
+            if not all_comp_new_df.empty:
+                # Add store name and main store link info if available
+                all_comp_new_df['竞品店铺'] = all_comp_new_df['store_id'].map(store_map)
                 
-            comp_df = store_new_df[comp_cols].copy()
-            comp_df.insert(0, "竞品店铺", store_name)
-            if 'skuId' in store_new_df.columns: comp_df.insert(0, "主店SKU", store_new_df['skuId'])
-            comp_df.columns = [c if c in ["主店SKU", "竞品店铺"] else c[len(prefix):] for c in comp_df.columns]
-            all_new_items_dfs.append(comp_df.loc[:, ~comp_df.columns.duplicated()])
-            
-        final_df = pd.concat(all_new_items_dfs, ignore_index=True) if all_new_items_dfs else pd.DataFrame(columns=["主店SKU", "竞品店铺", "skuId", "主图链接", "商品名称", "规格名称", "活动价", "原价", "销售", "条码"])
+                # Fetch links to get Main Store SKU if linked
+                link_query = "SELECT comp_sku_id, main_sku_id FROM product_links WHERE project_id = ?"
+                links = pd.read_sql(link_query, conn, params=(self.active_project_id,))
+                
+                # Merge to get Main SKU
+                merged = all_comp_new_df.merge(links, left_on='skuId', right_on='comp_sku_id', how='left')
+                merged.rename(columns={'main_sku_id': '主店SKU'}, inplace=True)
+                
+                # Ensure core columns
+                cols = ['主店SKU', '竞品店铺', 'skuId', '主图链接', '商品名称', '规格名称', '活动价', '原价', '销售', '条码']
+                final_new_df = merged[[c for c in cols if c in merged.columns]].copy()
+                for c in cols:
+                    if c not in final_new_df.columns: final_new_df[c] = ""
+                all_new_data = final_new_df.fillna("").to_dict(orient='records')
+
+        final_df = pd.DataFrame(all_new_data) if all_new_data else pd.DataFrame(columns=["主店SKU", "竞品店铺", "skuId", "主图链接", "商品名称", "规格名称", "活动价", "原价", "销售", "条码"])
         final_df["操作时间"] = op_time
 
+        # 2. Main store eliminated items
         mask = pd.Series(False, index=self.grid_df.index)
         if '是否淘汰' in self.grid_df.columns: mask |= (self.grid_df['是否淘汰'] == "是")
         if '跟价店' in self.grid_df.columns: mask |= (self.grid_df['跟价店'].notna() & (self.grid_df['跟价店'] != ""))
