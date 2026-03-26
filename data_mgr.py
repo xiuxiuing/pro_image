@@ -46,6 +46,7 @@ class DataManager:
         self.active_project_name = "默认项目"
         self.target_file = ""
         self.output_file = ""
+        self.project_dir = "" # Base dir for this project's files
         self.source_files = []
         self.store_names = []
         self.main_store_name = ""
@@ -57,6 +58,23 @@ class DataManager:
         self._init_db()
         self._load_active_project()
         self.load_data()
+
+    def _get_project_dirs(self, pid):
+        """Returns standard subdirectories for a project."""
+        pdir = os.path.join(self.base_dir, "uploads", f"project_{pid}")
+        return {
+            "root": pdir,
+            "sources": os.path.join(pdir, "sources"),
+            "outputs": os.path.join(pdir, "outputs"),
+            "cache": os.path.join(pdir, "cache")
+        }
+
+    def _ensure_project_dirs(self, pid):
+        """Ensures all standard project subdirectories exist."""
+        dirs = self._get_project_dirs(pid)
+        for _, path in dirs.items():
+            os.makedirs(path, exist_ok=True)
+        return dirs
 
     def _load_active_project(self):
         with self._db_lock:
@@ -72,6 +90,10 @@ class DataManager:
                 if row:
                     self.active_project_id, self.active_project_name = row[0], row[1]
                     
+                    # Ensure dirs exist and set project_dir
+                    dirs = self._ensure_project_dirs(self.active_project_id)
+                    self.project_dir = dirs["root"]
+                    
                     # Load files
                     cur = conn.execute("SELECT type, local_path, store_name FROM project_files WHERE project_id = ? ORDER BY id ASC", (self.active_project_id,))
                     files = cur.fetchall()
@@ -86,8 +108,8 @@ class DataManager:
                             self.source_files.append(path)
                             self.store_names.append(store)
                     
-                    # Output file defaults to a name based on project
-                    self.output_file = os.path.join(self.base_dir, f"output_{self.active_project_id}.xlsx")
+                    # Output file defaults to outputs/ subfolder
+                    self.output_file = os.path.join(dirs["outputs"], f"output_{self.active_project_id}.xlsx")
             finally:
                 conn.close()
 
@@ -715,7 +737,9 @@ class DataManager:
 
     def save_to_excel(self):
         filename = f"对比分析全量成果_{time.strftime('%Y%m%d_%H%M%S')}.xlsx"
-        path = os.path.join(self.base_dir, filename)
+        dirs = self._get_project_dirs(self.active_project_id)
+        path = os.path.join(dirs["outputs"], filename)
+        
         export_df = self.grid_df.copy()
         cols_to_drop = [c for c in INTERNAL_EXPORT_KEYS if c in export_df.columns]
         if cols_to_drop: export_df.drop(columns=cols_to_drop, inplace=True)
@@ -766,11 +790,11 @@ class DataManager:
                         df.insert(0, "竞品店铺", store_name)
                         unlinked_data.append(df)
             
-            if unlinked_data:
-                pool_df = pd.concat(unlinked_data, ignore_index=True)
-                pool_df.to_excel(os.path.join(temp_dir, "未关联商品池.xlsx"), index=False)
-
-            zip_path = os.path.join(self.base_dir, f"对比成果_{time.strftime('%Y%m%d_%H%M%S')}.zip")
+                if not pool_df.empty:
+                    pool_df.to_excel(os.path.join(temp_dir, "未关联商品池.xlsx"), index=False)
+            
+            dirs = self._get_project_dirs(self.active_project_id)
+            zip_path = os.path.join(dirs["outputs"], f"对比成果_{time.strftime('%Y%m%d_%H%M%S')}.zip")
             with zipfile.ZipFile(zip_path, 'w') as zf:
                 for root, _, files in os.walk(temp_dir):
                     for file in files: zf.write(os.path.join(root, file), arcname=file)
@@ -822,7 +846,8 @@ class DataManager:
             elim_df = elim_df[main_cols].copy(); elim_df["操作时间"] = op_time
         else: elim_df = pd.DataFrame(columns=["skuId", "主图链接", "商品名称", "规格名称", "活动价", "原价", "销售", "条码", "操作时间"])
 
-        path = os.path.join(self.base_dir, f"新增竞品数据_{time.strftime('%Y%m%d_%H%M%S')}.xlsx")
+        dirs = self._get_project_dirs(self.active_project_id)
+        path = os.path.join(dirs["outputs"], f"新增竞品数据_{time.strftime('%Y%m%d_%H%M%S')}.xlsx")
         sheet_data = {"新增(竞店)": final_df.fillna("").to_dict(orient='records'), "淘汰(主店)": elim_df.fillna("").to_dict(orient='records')}
         utils.write_multisheet_dict_to_excel(sheet_data, path); return path
 
@@ -894,6 +919,15 @@ class DataManager:
                     conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
             finally:
                 conn.close()
+
+        # Delete project folder on disk
+        dirs = self._get_project_dirs(project_id)
+        if os.path.exists(dirs["root"]):
+            try:
+                shutil.rmtree(dirs["root"])
+                print(f"Deleted project folder: {dirs['root']}")
+            except Exception as e:
+                print(f"Error deleting folder {dirs['root']}: {e}")
         
         if self.active_project_id == project_id:
             # Find any other project to activate

@@ -58,10 +58,11 @@ def handle_projects():
         # Temporary PID for directory naming
         temp_pid = int(time.time())
         proj_dir = os.path.join(base_dir, "uploads", f"project_{temp_pid}")
-        os.makedirs(proj_dir, exist_ok=True)
+        sources_dir = os.path.join(proj_dir, "sources")
+        os.makedirs(sources_dir, exist_ok=True)
         
         # Save Main Store File
-        main_path = os.path.join(proj_dir, main_file.filename)
+        main_path = os.path.join(sources_dir, main_file.filename)
         main_file.save(main_path)
         main_store_name = main_file.filename.replace(".xlsx", "").replace(".xls", "")
         
@@ -69,7 +70,7 @@ def handle_projects():
         comp_infos = []
         comp_paths = []
         for f in valid_comp_files:
-            path = os.path.join(proj_dir, f.filename)
+            path = os.path.join(sources_dir, f.filename)
             f.save(path)
             comp_paths.append(path)
             comp_infos.append({"path": path, "store_name": f.filename.replace(".xlsx", "").replace(".xls", "")})
@@ -78,7 +79,9 @@ def handle_projects():
         result_file = request.files.get('result_file')
         manual_result_path = None
         if result_file and result_file.filename:
-            manual_result_path = os.path.join(proj_dir, result_file.filename)
+            outputs_dir = os.path.join(proj_dir, "outputs")
+            os.makedirs(outputs_dir, exist_ok=True)
+            manual_result_path = os.path.join(outputs_dir, result_file.filename)
             result_file.save(manual_result_path)
 
         # Create project in DB
@@ -99,6 +102,8 @@ def handle_projects():
         dm.activate_project(pid)
         
         # Final paths for analysis or manual setup
+        # Note: dm.activate_project ensures subfolders exist for the NEW pid
+        dirs = dm._get_project_dirs(pid)
         final_main_path = main_path.replace(f"project_{temp_pid}", f"project_{pid}")
         final_comp_paths = [p.replace(f"project_{temp_pid}", f"project_{pid}") for p in comp_paths]
         final_manual_result_path = manual_result_path.replace(f"project_{temp_pid}", f"project_{pid}") if manual_result_path else None
@@ -109,22 +114,22 @@ def handle_projects():
         # Initial analysis flow
         try:
             if final_manual_result_path:
-                # IMPORTANT: Even when skipping analysis, we need the output file in place
-                # The dm.output_file is set during dm.activate_project, which creates a default output path.
-                # We copy the manual result file to this default output path.
                 shutil.copy(final_manual_result_path, dm.output_file)
-                dm.load_data() # Load the data from the copied manual result file
+                dm.load_data() 
             else:
                 # Optional AI Extraction
                 if use_ai and api_key:
-                    print(f"Starting AI extraction with API Key: {api_key[:5]}***")
                     extract_info_ai2.process_file_ai(final_main_path, api_key)
                     for comp_path in final_comp_paths:
                         extract_info_ai2.process_file_ai(comp_path, api_key)
                 
                 # Standard AI Analysis
-                output_file = main_030822.run_analysis(final_main_path, final_comp_paths, output_name=time.strftime("%y%m%d_%H%M%S"))
-                output_path = os.path.join(base_dir, output_file)
+                output_path = main_030822.run_analysis(
+                    final_main_path, 
+                    final_comp_paths, 
+                    output_name=time.strftime("%y%m%d_%H%M%S"),
+                    output_dir=dirs["outputs"]
+                )
                 dm.update_config(target_file=final_main_path, source_files=final_comp_paths, output_file=output_path)
         except Exception as e:
             traceback.print_exc()

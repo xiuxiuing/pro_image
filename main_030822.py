@@ -121,11 +121,19 @@ def build_index(data, mode="img", folder="img", path="index"):
     faiss.write_index(index, path)
 
 # --- Analysis Pipeline ---
-def run_analysis(target_xlsx, source_xlsxs, output_name="res"):
+def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir="."):
+    os.makedirs(output_dir, exist_ok=True)
+    cache_dir = os.path.join(output_dir, "..", "cache") if output_dir != "." else "."
+    os.makedirs(cache_dir, exist_ok=True)
+
     sources = []
     for idx, xlsx in enumerate(source_xlsxs):
         print(f"Loading source: {xlsx}"); data = utils.excel_to_list_dict(xlsx, "Sheet1")
-        download_imgs(data); i_path, t_path = f"img_{output_name}{idx}.index", f"txt_{output_name}{idx}.index"
+        download_imgs(data)
+        
+        i_path = os.path.join(cache_dir, f"img_{output_name}{idx}.index")
+        t_path = os.path.join(cache_dir, f"txt_{output_name}{idx}.index")
+        
         if not os.path.exists(i_path): build_index(data, "img", "img", i_path)
         if not os.path.exists(t_path): build_index(data, "text", "", t_path)
         sources.append({
@@ -156,7 +164,9 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res"):
             res_data.append(res_item)
         except: traceback.print_exc()
 
-    out = f"output_{output_name}.xlsx"; utils.write_dict_list_to_excel(res_data, out); return out
+    out_path = os.path.join(output_dir, f"output_{output_name}.xlsx")
+    utils.write_dict_list_to_excel(res_data, out_path)
+    return out_path
 
 if __name__ == '__main__':
     run_analysis("优购哆.xlsx", ["乐购达.xlsx", "沃玛希.xlsx", "犀牛.xlsx", "AA百货.xlsx"])
