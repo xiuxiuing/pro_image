@@ -6,6 +6,7 @@ import tempfile
 import time
 import threading
 import sqlite3
+import hashlib
 import utils
 
 # --- Constants ---
@@ -189,10 +190,12 @@ class DataManager:
         if not self.active_project_id: return
         needs_import = True
         current_mtime = str(os.path.getmtime(self.output_file)) if os.path.exists(self.output_file) else "0"
+        current_hash = self._file_sha256(self.output_file) if os.path.exists(self.output_file) else "0"
         
         # Project-specific metadata keys
         file_key = f"proj_{self.active_project_id}_file"
         mtime_key = f"proj_{self.active_project_id}_mtime"
+        hash_key = f"proj_{self.active_project_id}_hash"
         
         with self._db_lock:
             with self._get_conn() as conn:
@@ -202,6 +205,8 @@ class DataManager:
                     res_file = cur.fetchone()
                     cur.execute("SELECT value FROM meta_info WHERE key=?", (mtime_key,))
                     res_mtime = cur.fetchone()
+                    cur.execute("SELECT value FROM meta_info WHERE key=?", (hash_key,))
+                    res_hash = cur.fetchone()
                     cur.execute("SELECT value FROM meta_info WHERE key='mapping_version'")
                     res_ver = cur.fetchone()
                     
@@ -211,7 +216,11 @@ class DataManager:
                     cur.execute("SELECT COUNT(*) FROM comp_products WHERE project_id=?", (self.active_project_id,))
                     count_comp = cur.fetchone()[0]
                     
-                    if res_file and res_file[0] == self.output_file and res_mtime and res_mtime[0] == current_mtime:
+                    if (
+                        res_file and res_file[0] == self.output_file and
+                        res_mtime and res_mtime[0] == current_mtime and
+                        res_hash and res_hash[0] == current_hash
+                    ):
                         if res_ver and res_ver[0] == MAPPING_VERSION and (count_main > 0 or count_comp > 0):
                             needs_import = False
                 except: pass
@@ -223,6 +232,7 @@ class DataManager:
                     with conn:
                         conn.execute("INSERT OR REPLACE INTO meta_info (key, value) VALUES (?, ?)", (file_key, self.output_file))
                         conn.execute("INSERT OR REPLACE INTO meta_info (key, value) VALUES (?, ?)", (mtime_key, current_mtime))
+                        conn.execute("INSERT OR REPLACE INTO meta_info (key, value) VALUES (?, ?)", (hash_key, current_hash))
                         conn.execute("INSERT OR REPLACE INTO meta_info (key, value) VALUES ('mapping_version', ?)", (MAPPING_VERSION,))
             
             # Re-import from source files if they exist
@@ -231,6 +241,16 @@ class DataManager:
                 self._import_to_sqlite()
         
         self._reconstruct_from_sqlite()
+
+    def _file_sha256(self, file_path, chunk_size=1024 * 1024):
+        sha256 = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                sha256.update(chunk)
+        return sha256.hexdigest()
 
     def _apply_mappings(self, df, mappings):
         """Standardizes column names in a DataFrame based on provided mappings."""
@@ -452,11 +472,26 @@ class DataManager:
             finally:
                 conn.close()
 
+        # SQLite numeric-like TEXT fields may be inferred as int by pandas.
+        # Normalize join/filter keys to string to avoid silent merge misses.
+        if not links_df.empty:
+            for col in ['store_id', 'main_sku_id', 'comp_sku_id']:
+                if col in links_df.columns:
+                    links_df[col] = links_df[col].astype(str)
+        if not comp_df.empty:
+            for col in ['store_id', 'skuId']:
+                if col in comp_df.columns:
+                    comp_df[col] = comp_df[col].astype(str)
+        if self.main_df is not None and not self.main_df.empty and 'skuId' in self.main_df.columns:
+            self.main_df['skuId'] = self.main_df['skuId'].astype(str)
+
         self.store_dfs = {}
         for i, store_name in enumerate(self.store_names):
             prefix = str(i)
             st_df = comp_df[comp_df['store_id'] == prefix].copy() if not comp_df.empty else pd.DataFrame()
-            if not st_df.empty: st_df.drop(columns=['store_id'], inplace=True)
+            if not st_df.empty:
+                # Keep competitor product fields only; remove aux columns to avoid _x/_y suffix noise.
+                st_df.drop(columns=['store_id', 'project_id', 'is_new_add'], inplace=True, errors='ignore')
             self.store_dfs[prefix] = {"name": store_name, "df": st_df}
 
         if self.main_df is None: self.grid_df = pd.DataFrame(); return
@@ -473,12 +508,30 @@ class DataManager:
                 if st_df.empty: continue
                 
                 merged_comp = pd.merge(store_links, st_df, left_on='comp_sku_id', right_on='skuId', how='left')
-                
-                rename_dict = {'similarity': f"{prefix}相似度", 'match_type': f"{prefix}匹配", 'is_new_add': f"{prefix}是否新增", 'main_sku_id': 'main_sku_id'}
+
+                sim_col = 'similarity' if 'similarity' in merged_comp.columns else 'similarity_x'
+                match_col = 'match_type' if 'match_type' in merged_comp.columns else 'match_type_x'
+                new_col = 'is_new_add'
+                if new_col not in merged_comp.columns:
+                    if 'is_new_add_x' in merged_comp.columns:
+                        new_col = 'is_new_add_x'
+                    elif 'is_new_add_y' in merged_comp.columns:
+                        new_col = 'is_new_add_y'
+
+                rename_dict = {'main_sku_id': 'main_sku_id'}
+                if sim_col in merged_comp.columns:
+                    rename_dict[sim_col] = f"{prefix}相似度"
+                if match_col in merged_comp.columns:
+                    rename_dict[match_col] = f"{prefix}匹配"
+                if new_col in merged_comp.columns:
+                    rename_dict[new_col] = f"{prefix}是否新增"
                 drop_cols = ['store_id', 'comp_sku_id']
                 for c in merged_comp.columns:
                     col_name = str(c)
-                    if col_name not in rename_dict and col_name not in drop_cols: rename_dict[col_name] = f"{prefix}{col_name}"
+                    if col_name in ['is_new_add_x', 'is_new_add_y', 'project_id_x', 'project_id_y']:
+                        continue
+                    if col_name not in rename_dict and col_name not in drop_cols:
+                        rename_dict[col_name] = f"{prefix}{col_name}"
                         
                 merged_comp.rename(columns=rename_dict, inplace=True)
                 cols_to_drop = [c for c in drop_cols if c in merged_comp.columns]
@@ -606,34 +659,58 @@ class DataManager:
 
     def mark_as_new(self, row_idx, store_id, is_new, sku_id=None):
         is_new_str = "是" if is_new else "否"
-        
-        # If sku_id is provided, we use it directly (important for Unlinked Pool mode)
-        # Otherwise, we fall back to row_idx lookup
+        prefix = str(store_id)
+        main_sku_id = None
+        if row_idx is not None and self.grid_df is not None and row_idx < len(self.grid_df):
+            main_sku_id = self.grid_df.loc[row_idx, 'skuId']
+
+        # If sku_id is provided, use it directly (supports unlinked pool mode).
+        comp_sku_col = f"{prefix}skuId"
         comp_sku_id = sku_id
-        if not comp_sku_id and row_idx is not None:
-            prefix = str(store_id)
-            comp_sku_id = self.grid_df.loc[row_idx, f"{prefix}skuId"]
+        if not comp_sku_id and row_idx is not None and self.grid_df is not None and row_idx < len(self.grid_df):
+            comp_sku_id = self.grid_df.loc[row_idx, comp_sku_col] if comp_sku_col in self.grid_df.columns else ""
 
         if not comp_sku_id:
-            return
+            return False
 
+        changed = False
         with self._db_lock:
             conn = self._get_conn()
             try:
                 with conn:
                     # 1. Update existing links in product_links
                     self._ensure_column(conn, "product_links", "is_new_add")
-                    conn.execute("UPDATE product_links SET is_new_add=? WHERE project_id = ? AND store_id=? AND comp_sku_id=?", 
-                                (is_new_str, self.active_project_id, str(store_id), str(comp_sku_id)))
-                    
+                    cur = conn.execute(
+                        "UPDATE product_links SET is_new_add=? WHERE project_id = ? AND store_id=? AND comp_sku_id=?",
+                        (is_new_str, self.active_project_id, str(store_id), str(comp_sku_id))
+                    )
+                    changed = cur.rowcount > 0
+
                     # 2. ALSO update comp_products table if the column exists (for unlinked items)
                     # We ensure the column exists first
                     self._ensure_column(conn, "comp_products", "is_new_add")
-                    conn.execute("UPDATE comp_products SET is_new_add=? WHERE project_id=? AND store_id=? AND skuId=?",
-                                (is_new_str, self.active_project_id, str(store_id), str(comp_sku_id)))
+                    comp_cur = conn.execute(
+                        "UPDATE comp_products SET is_new_add=? WHERE project_id=? AND store_id=? AND skuId=?",
+                        (is_new_str, self.active_project_id, str(store_id), str(comp_sku_id))
+                    )
+                    changed = changed or (comp_cur.rowcount > 0)
+
+                    # Fallback: when a visible competitor SKU exists but link row is missing,
+                    # create the link so "新增" can be persisted and exported.
+                    if not changed and is_new and main_sku_id not in [None, ""] and comp_sku_id not in [None, ""]:
+                        conn.execute(
+                            """
+                            INSERT INTO product_links (project_id, main_sku_id, store_id, comp_sku_id, similarity, match_type, is_new_add)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (self.active_project_id, str(main_sku_id), str(store_id), str(comp_sku_id), 1.0, "手动新增", "是")
+                        )
+                        changed = True
             finally:
                 conn.close()
-        self._reconstruct_from_sqlite()
+        if changed:
+            self._reconstruct_from_sqlite()
+        return changed
 
     def price_match(self, row_idx, store_id):
         main_sku_id = self.grid_df.loc[row_idx, 'skuId']

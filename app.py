@@ -179,10 +179,11 @@ def eliminate():
     return jsonify({"status": "success"})
 
 @app.route('/api/toggle_add', methods=['POST'])
-@app.route('/api/toggle_add', methods=['POST'])
 def toggle_add():
     d = request.json
-    dm.mark_as_new(d.get('row_idx'), d.get('store_id'), d.get('is_new', True), sku_id=d.get('sku_id'))
+    ok = dm.mark_as_new(d.get('row_idx'), d.get('store_id'), d.get('is_new', True), sku_id=d.get('sku_id'))
+    if not ok:
+        return jsonify({"status": "error", "message": "未找到可标记的关联商品，请先完成关联"}), 400
     return jsonify({"status": "success"})
 
 @app.route('/api/price_match', methods=['POST'])
