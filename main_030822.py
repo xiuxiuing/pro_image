@@ -40,13 +40,7 @@ def g(item, keys, default=""):
     return default
 
 def get_sku_id(item):
-    v = g(item, ["skuid", "SKUID"])
-    if not v: return ""
-    try:
-        # Handle float strings like "123.0"
-        return str(int(float(v)))
-    except:
-        return str(v).strip()
+    return utils.get_sku_id(item)
 
 def get_条码(item): return g(item, ["条码", "商品条码"])
 def get_规格(item): return g(item, ["规格", "规格名称"])

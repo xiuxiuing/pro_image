@@ -58,7 +58,7 @@ class DataManager:
                     self.active_project_id, self.active_project_name = row[0], row[1]
                     
                     # Load files
-                    cur = conn.execute("SELECT type, local_path, store_name FROM project_files WHERE project_id = ?", (self.active_project_id,))
+                    cur = conn.execute("SELECT type, local_path, store_name FROM project_files WHERE project_id = ? ORDER BY id ASC", (self.active_project_id,))
                     files = cur.fetchall()
                     
                     self.source_files = []
@@ -183,115 +183,180 @@ class DataManager:
         return df
 
     def _import_to_sqlite(self):
-        try:
-            data = utils.excel_to_list_dict(self.output_file)
-            df = pd.DataFrame(data)
-        except Exception as e:
-            print("Import err:", e)
-            return
-
-        # Prepare dynamic mappings
-        mappings = FIELD_MAPPINGS.copy()
-        for i in range(10):
-            p = str(i)
-            for k, v in FIELD_MAPPINGS.items():
-                mappings[p+k] = p+v
-
-        df = self._apply_mappings(df, mappings)
-
-        # Standard main columns
-        main_cols = [c for c in df.columns if (not c or not c[0].isdigit()) and c not in ['__idx']]
-        main_df = df[main_cols].copy()
-        
-        for c in INTERNAL_COLUMNS:
-            if c not in main_df.columns: main_df[c] = ""
-        main_df['淘汰标记'] = pd.to_numeric(main_df['淘汰标记'], errors='coerce').fillna(0).astype(int)
-
-        if 'skuId' not in main_df.columns:
-            main_df.insert(0, 'skuId', [str(i) for i in range(len(main_df))])
-        
-        main_df['skuId'] = main_df['skuId'].astype(str).replace(['nan', 'None', 'nan.0'], '')
-        main_df['_row_orig_idx'] = range(len(main_df))
-
-        links, comp_data = [], []
-        for i, store_name in enumerate(self.store_names):
-            prefix = str(i)
-            comp_cols = [c for c in df.columns if c.startswith(prefix)]
-            if not comp_cols: continue
-            
-            for idx, row in df.iterrows():
-                main_sku, comp_sku = main_df.loc[idx, 'skuId'], row.get(f"{prefix}skuId")
-                if pd.notna(comp_sku) and str(comp_sku).strip().lower() not in ["", "nan", "none", "nan.0"]:
-                    links.append({
-                        'main_sku_id': str(main_sku), 'store_id': prefix, 'comp_sku_id': str(comp_sku),
-                        'similarity': row.get(f"{prefix}相似度"), 'match_type': row.get(f"{prefix}匹配"), 'is_new_add': row.get(f"{prefix}是否新增", "")
-                    })
-                    c_data = {'store_id': prefix}
-                    special_cols = [f"{prefix}相似度", f"{prefix}匹配", f"{prefix}是否新增"]
-                    for c in comp_cols:
-                        if c not in special_cols:
-                            c_data[c[len(prefix):]] = row[c]
-                    comp_data.append(c_data)
-
-        comp_df = pd.DataFrame(comp_data)
-
-        # Merge with individual store source files
-        all_comps = []
-        for i, path in enumerate(self.source_files):
-            if os.path.exists(path):
-                cdf = pd.DataFrame(utils.excel_to_list_dict(path))
-                cdf = self._apply_mappings(cdf, FIELD_MAPPINGS)
-                cdf['store_id'] = str(i)
-                if 'skuId' in cdf.columns: cdf['skuId'] = cdf['skuId'].astype(str)
-                all_comps.append(cdf)
-                
-        if all_comps:
-            comp_df_full = pd.concat(all_comps, ignore_index=True)
-            if 'skuId' not in comp_df_full.columns:
-                 comp_df_full['skuId'] = [str(i) for i in range(len(comp_df_full))]
-            comp_df_full.drop_duplicates(subset=['store_id', 'skuId'], inplace=True, keep='last')
-            if not comp_df.empty:
-                comp_df['skuId'] = comp_df['skuId'].astype(str)
-                comp_df = pd.concat([comp_df, comp_df_full], ignore_index=True).drop_duplicates(subset=['store_id', 'skuId'], keep='first')
-            else: comp_df = comp_df_full
-        elif not comp_df.empty:
-            comp_df['skuId'] = comp_df['skuId'].astype(str)
-            comp_df.drop_duplicates(subset=['store_id', 'skuId'], inplace=True)
-
-        # Add project_assigned columns
-        main_df['project_id'] = self.active_project_id
-        comp_df['project_id'] = self.active_project_id
-        
-        links_df = pd.DataFrame(links)
-        if not links_df.empty:
-            links_df['project_id'] = self.active_project_id
-
+        """
+        New logic:
+        1. main_products: From self.target_file (Source Main Store)
+        2. comp_products: From self.source_files (Source Competitor Stores)
+        3. product_links: From self.output_file (Result File)
+        """
+        # Phase 0: Clear existing data for this project
         with self._db_lock:
             conn = self._get_conn()
             try:
                 with conn:
-                    # Delete existing data for this project
                     conn.execute("DELETE FROM main_products WHERE project_id = ?", (self.active_project_id,))
                     conn.execute("DELETE FROM product_links WHERE project_id = ?", (self.active_project_id,))
                     conn.execute("DELETE FROM comp_products WHERE project_id = ?", (self.active_project_id,))
+            finally:
+                conn.close()
+
+        # Phase 1: Import Main Store Data (Full)
+        if os.path.exists(self.target_file):
+            print(f"Importing Main Store: {self.target_file}")
+            main_data = utils.excel_to_list_dict(self.target_file)
+            main_df = pd.DataFrame(main_data)
+            main_df = self._apply_mappings(main_df, FIELD_MAPPINGS)
+            
+            for c in INTERNAL_COLUMNS:
+                if c not in main_df.columns: main_df[c] = ""
+            
+            # Ensure SKU ID
+            sku_ids = []
+            for idx, row in main_df.iterrows():
+                sid = utils.get_sku_id(row.to_dict())
+                if not sid: sid = f"auto_{idx}"
+                sku_ids.append(sid)
+            main_df['skuId'] = sku_ids
+            main_df['project_id'] = self.active_project_id
+            main_df['_row_orig_idx'] = range(len(main_df))
+            
+            with self._db_lock:
+                conn = self._get_conn()
+                try:
+                    with conn:
+                        main_df.to_sql('main_products', conn, index=False, if_exists='append')
+                finally:
+                    conn.close()
+            self.main_df = main_df
+
+        # Phase 2: Import Competitor Store Data (Full)
+        for i, path in enumerate(self.source_files):
+            if os.path.exists(path):
+                print(f"Importing Competitor Store [{i}]: {path}")
+                comp_data = utils.excel_to_list_dict(path)
+                cdf = pd.DataFrame(comp_data)
+                cdf = self._apply_mappings(cdf, FIELD_MAPPINGS)
+                cdf['store_id'] = str(i)
+                cdf['project_id'] = self.active_project_id
+                
+                sku_ids = []
+                for idx, row in cdf.iterrows():
+                    sid = utils.get_sku_id(row.to_dict())
+                    if not sid: sid = f"auto_{i}_{idx}"
+                    sku_ids.append(sid)
+                cdf['skuId'] = sku_ids
+                
+                with self._db_lock:
+                    conn = self._get_conn()
+                    try:
+                        with conn:
+                            cdf.to_sql('comp_products', conn, index=False, if_exists='append')
+                    finally:
+                        conn.close()
+
+        # Phase 3: Import Product Links (from Result/Output File)
+        if os.path.exists(self.output_file):
+            print(f"Importing Links from Result: {self.output_file}")
+            res_data = utils.excel_to_list_dict(self.output_file)
+            res_df = pd.DataFrame(res_data)
+            
+            # --- Smart Store ID Mapping ---
+            # 1. Build a SKU -> store_id map for all competitor products in this project
+            with self._db_lock:
+                conn = self._get_conn()
+                try:
+                    comp_skus_df = pd.read_sql("SELECT skuId, store_id FROM comp_products WHERE project_id = ?", conn, params=(self.active_project_id,))
+                finally:
+                    conn.close()
+            
+            sku_to_store = {}
+            if not comp_skus_df.empty:
+                for _, row in comp_skus_df.iterrows():
+                    sku_to_store[str(row['skuId'])] = str(row['store_id'])
+            
+            # 2. Detect mapping for each prefix in res_df
+            prefix_to_store_map = {}
+            for i in range(10):
+                p = str(i)
+                col = f"{p}skuId"
+                if col in res_df.columns:
+                    # Sample unique non-empty SKUs from this prefix column
+                    samples = res_df[col].dropna().astype(str).unique().tolist()
+                    hits = {} # store_id -> count
+                    for s in samples[:100]: # Sample first 100 to be efficient
+                        s_clean = ""
+                        try: s_clean = str(int(float(s)))
+                        except: s_clean = s.strip()
+                        
+                        if s_clean in sku_to_store:
+                            sid = sku_to_store[s_clean]
+                            hits[sid] = hits.get(sid, 0) + 1
                     
-                    # Write new data
-                    main_df.to_sql('main_products', conn, index=False, if_exists='append')
-                    if not links_df.empty: 
-                        links_df.to_sql('product_links', conn, index=False, if_exists='append')
-                    
-                    if not comp_df.empty: 
-                        comp_df.to_sql('comp_products', conn, index=False, if_exists='append')
-                    
-                    self.main_df = main_df
-                    
-                    current_mtime = str(os.path.getmtime(self.output_file)) if os.path.exists(self.output_file) else "0"
-                    file_key = f"proj_{self.active_project_id}_file"
-                    mtime_key = f"proj_{self.active_project_id}_mtime"
+                    if hits:
+                        best_sid = max(hits, key=hits.get)
+                        prefix_to_store_map[p] = best_sid
+                        print(f"Detected prefix [{p}] matches store_id [{best_sid}] with {hits[best_sid]} hits")
+                    else:
+                        # Fallback to direct mapping
+                        prefix_to_store_map[p] = p
+            
+            # Apply mappings for column names based on detected prefixes
+            final_mappings = FIELD_MAPPINGS.copy()
+            for p in prefix_to_store_map.keys():
+                for k, v in FIELD_MAPPINGS.items():
+                    final_mappings[p+k] = p+v
+            res_df = self._apply_mappings(res_df, final_mappings)
+            
+            links = []
+            for idx, row in res_df.iterrows():
+                row_dict = row.to_dict()
+                main_sku = utils.get_sku_id(row_dict)
+                if not main_sku: main_sku = f"auto_{idx}"
+
+                for p, sid in prefix_to_store_map.items():
+                    comp_sku_col = f"{p}skuId"
+                    if comp_sku_col in res_df.columns:
+                        comp_sku_val = row_dict.get(comp_sku_col)
+                        comp_sku = ""
+                        if comp_sku_val is not None:
+                            try:
+                                comp_sku = str(int(float(comp_sku_val)))
+                            except:
+                                comp_sku = str(comp_sku_val).strip()
+                        
+                        if comp_sku and comp_sku.lower() not in ["", "nan", "none", "nan.0"]:
+                            links.append({
+                                'project_id': self.active_project_id,
+                                'main_sku_id': str(main_sku),
+                                'store_id': sid, # Use detected store ID
+                                'comp_sku_id': str(comp_sku),
+                                'similarity': row_dict.get(f"{p}相似度", 1.0),
+                                'match_type': row_dict.get(f"{p}匹配", "未知"),
+                                'is_new_add': row_dict.get(f"{p}是否新增", "否")
+                            })
+            
+            if links:
+                links_df = pd.DataFrame(links)
+                with self._db_lock:
+                    conn = self._get_conn()
+                    try:
+                        with conn:
+                            links_df.to_sql('product_links', conn, index=False, if_exists='append')
+                    finally:
+                        conn.close()
+
+        # Phase 4: Update Metadata
+        current_mtime = str(os.path.getmtime(self.output_file)) if os.path.exists(self.output_file) else "0"
+        file_key = f"proj_{self.active_project_id}_file"
+        mtime_key = f"proj_{self.active_project_id}_mtime"
+        with self._db_lock:
+            conn = self._get_conn()
+            try:
+                with conn:
                     conn.execute("REPLACE INTO meta_info (key, value) VALUES (?, ?)", (file_key, self.output_file))
                     conn.execute("REPLACE INTO meta_info (key, value) VALUES (?, ?)", (mtime_key, current_mtime))
             except Exception as e:
-                print("DB Import err:", e)
+                print("DB Metadata Update err:", e)
             finally:
                 conn.close()
 

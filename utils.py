@@ -69,6 +69,28 @@ def write_dict_list_to_excel(data, file_path="output_text.xlsx"):
     print(f"Excel saved to {file_path}")
 
 
+def get_sku_id(item):
+    """
+    Consistent SKU ID extraction from a dictionary item.
+    Handles 'skuid', 'SKUID', and numeric string conversions.
+    """
+    keys = ["skuid", "SKUID", "skuId"]
+    val = None
+    for k in keys:
+        if k in item and item[k] is not None:
+            val = item[k]
+            break
+    
+    if val is None or str(val).strip() == "":
+        return ""
+        
+    try:
+        # Handle float strings like "123.0" and return as "123"
+        return str(int(float(val)))
+    except:
+        return str(val).strip()
+
+
 def write_multisheet_dict_to_excel(sheet_data_dict, file_path="output_multisheet.xlsx"):
     """
     Writes a dictionary of { "Sheet Name": [dict, dict, ...] } to an Excel file with multiple sheets.
