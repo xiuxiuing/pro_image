@@ -15,10 +15,25 @@ INTERNAL_EXPORT_KEYS = ['__idx', '淘汰标记', '_row_orig_idx']
 FIELD_MAPPINGS = {
     '图片': '主图链接', 'SKUID': 'skuId', '商品名称': '商品名称', '菜单名': '商品名称',
     'A商品名称': '商品名称', '规格': '规格名称', '规格名称': '规格名称', '规格名': '规格名称',
-    'A规格': '规格名称', '新售价': '原价', '零售价': '原价', '美团外卖渠道售价': '原价',
+    'A规格': '规格名称', '美团外卖渠道售价': '原价',
+    '活动价': '活动价', '单件折扣价': '活动价',
     '月销量': '销售', '销售': '销售', '条码': '商品条码', '商品条码': '商品条码',
     '美团类目三级': '美团类目三级', '三级类目': '美团类目三级'
 }
+
+# --- Core Database Columns ---
+CORE_MAIN_COLUMNS = [
+    'project_id', 'skuId', '_row_orig_idx', '商品名称', '规格名称', '原价', '活动价', '销售', 
+    '主图链接', '商品条码', 'SPUID', '美团类目三级', '采购价', '采购单价', '采购链接',
+    '淘汰标记', '是否淘汰', '新活动价', '新售价', '跟价店', '现在毛利', '跟价毛利'
+]
+
+CORE_COMP_COLUMNS = [
+    'project_id', 'store_id', 'skuId', '商品名称', '规格名称', '原价', '活动价', '销售', 
+    '主图链接', '商品条码', 'SPUID', '美团类目三级'
+]
+
+MAPPING_VERSION = "3.0" # Bumped to trigger full re-import with structure cleanup
 
 class DataManager:
     def __init__(self, base_dir):
@@ -93,9 +108,13 @@ class DataManager:
                     conn.execute("CREATE TABLE IF NOT EXISTS project_files (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER, type TEXT, local_path TEXT, store_name TEXT, FOREIGN KEY(project_id) REFERENCES projects(id))")
                     
                     # Core Data Tables (with project_id awareness)
-                    conn.execute("CREATE TABLE IF NOT EXISTS main_products (project_id INTEGER, skuId TEXT, _row_orig_idx INT, PRIMARY KEY(project_id, skuId))")
+                    main_cols = ", ".join([f"{c} TEXT" for c in CORE_MAIN_COLUMNS if c not in ['project_id', 'skuId', '_row_orig_idx']])
+                    conn.execute(f"CREATE TABLE IF NOT EXISTS main_products (project_id INTEGER, skuId TEXT, _row_orig_idx INT, {main_cols}, PRIMARY KEY(project_id, skuId))")
+                    
                     conn.execute("CREATE TABLE IF NOT EXISTS product_links (project_id INTEGER, main_sku_id TEXT, store_id TEXT, comp_sku_id TEXT, similarity REAL, match_type TEXT, is_new_add TEXT)")
-                    conn.execute("CREATE TABLE IF NOT EXISTS comp_products (project_id INTEGER, store_id TEXT, skuId TEXT)")
+                    
+                    comp_cols = ", ".join([f"{c} TEXT" for c in CORE_COMP_COLUMNS if c not in ['project_id', 'store_id', 'skuId']])
+                    conn.execute(f"CREATE TABLE IF NOT EXISTS comp_products (project_id INTEGER, store_id TEXT, skuId TEXT, {comp_cols})")
                     
                     # Migration: Add project_id to existing tables if missing
                     tables = ["main_products", "product_links", "comp_products"]
@@ -161,22 +180,45 @@ class DataManager:
                     res_file = cur.fetchone()
                     cur.execute("SELECT value FROM meta_info WHERE key=?", (mtime_key,))
                     res_mtime = cur.fetchone()
+                    cur.execute("SELECT value FROM meta_info WHERE key='mapping_version'")
+                    res_ver = cur.fetchone()
+                    
+                    # Check if products actually exist for this project
+                    cur.execute("SELECT COUNT(*) FROM main_products WHERE project_id=?", (self.active_project_id,))
+                    count_main = cur.fetchone()[0]
+                    cur.execute("SELECT COUNT(*) FROM comp_products WHERE project_id=?", (self.active_project_id,))
+                    count_comp = cur.fetchone()[0]
+                    
                     if res_file and res_file[0] == self.output_file and res_mtime and res_mtime[0] == current_mtime:
-                        needs_import = False
+                        if res_ver and res_ver[0] == MAPPING_VERSION and (count_main > 0 or count_comp > 0):
+                            needs_import = False
                 except: pass
                 
-        if needs_import and os.path.exists(self.output_file):
-            print(f"Importing {self.output_file} to SQLite...")
-            self._import_to_sqlite()
+        if needs_import:
+            # Update metadata
+            with self._db_lock:
+                with self._get_conn() as conn:
+                    with conn:
+                        conn.execute("INSERT OR REPLACE INTO meta_info (key, value) VALUES (?, ?)", (file_key, self.output_file))
+                        conn.execute("INSERT OR REPLACE INTO meta_info (key, value) VALUES (?, ?)", (mtime_key, current_mtime))
+                        conn.execute("INSERT OR REPLACE INTO meta_info (key, value) VALUES ('mapping_version', ?)", (MAPPING_VERSION,))
+            
+            # Re-import from source files if they exist
+            if os.path.exists(self.target_file) or self.source_files:
+                print(f"Triggering Re-import for Project {self.active_project_id}...")
+                self._import_to_sqlite()
         
         self._reconstruct_from_sqlite()
 
     def _apply_mappings(self, df, mappings):
         """Standardizes column names in a DataFrame based on provided mappings."""
+        import numpy as np
         for src, dst in mappings.items():
             if src in df.columns:
                 if dst in df.columns and src != dst:
-                    df[dst] = df[dst].fillna(df[src])
+                    # Treat "" as NaN to allow fillna to work
+                    # Only fill if dst is empty or NaN
+                    df[dst] = df[dst].replace('', np.nan).fillna(df[src].replace('', np.nan))
                     df.drop(columns=[src], inplace=True)
                 else:
                     df.rename(columns={src: dst}, inplace=True)
@@ -207,9 +249,6 @@ class DataManager:
             main_df = pd.DataFrame(main_data)
             main_df = self._apply_mappings(main_df, FIELD_MAPPINGS)
             
-            for c in INTERNAL_COLUMNS:
-                if c not in main_df.columns: main_df[c] = ""
-            
             # Ensure SKU ID
             sku_ids = []
             for idx, row in main_df.iterrows():
@@ -220,10 +259,20 @@ class DataManager:
             main_df['project_id'] = self.active_project_id
             main_df['_row_orig_idx'] = range(len(main_df))
             
+            # Filter and normalize columns
+            for c in CORE_MAIN_COLUMNS:
+                if c not in main_df.columns: main_df[c] = None
+            main_df = main_df[CORE_MAIN_COLUMNS]
+            
+            # Remove duplicates for primary key (project_id, skuId)
+            main_df = main_df.drop_duplicates(subset=['project_id', 'skuId'], keep='first')
+            
+            
             with self._db_lock:
                 conn = self._get_conn()
                 try:
                     with conn:
+                        # Append to existing structure, ensuring columns match
                         main_df.to_sql('main_products', conn, index=False, if_exists='append')
                 finally:
                     conn.close()
@@ -245,6 +294,14 @@ class DataManager:
                     if not sid: sid = f"auto_{i}_{idx}"
                     sku_ids.append(sid)
                 cdf['skuId'] = sku_ids
+                
+                # Filter and normalize columns
+                for c in CORE_COMP_COLUMNS:
+                    if c not in cdf.columns: cdf[c] = None
+                cdf = cdf[CORE_COMP_COLUMNS]
+                
+                # Deduplicate before insert (though comp_products has no PK, it's cleaner)
+                cdf = cdf.drop_duplicates(subset=['project_id', 'store_id', 'skuId'], keep='first')
                 
                 with self._db_lock:
                     conn = self._get_conn()
