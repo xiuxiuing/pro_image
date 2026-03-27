@@ -1,25 +1,35 @@
+# Python
+__pycache__/
 *.pyc
+*.pyo
+
+# Data & exports
 *.xlsx
-*.index
-*.webp
-.idea
 *.zip
-**.pyc
-
-build
-dist
-models
-__pycache__
-
 *.db
 *.db-*
 *.log
+*.index
+*.webp
+
+# Temp files
+_tmp*
+
+# IDE & OS
+.idea/
 .DS_Store
-*.bak
-*.corrupted
-*.old
+
+# Build artifacts
+build/
+dist/
+models/
+
+# Runtime & secrets
 venv/
 license.dat
 uploads/
 node_modules/
 .env
+*.bak
+*.corrupted
+*.old
