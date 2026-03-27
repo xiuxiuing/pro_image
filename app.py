@@ -3,7 +3,6 @@ from data_mgr import DataManager
 from license_utils import LicenseManager
 import os
 import shutil
-import pandas as pd
 import time
 import traceback
 import extract_info_ai2
@@ -170,54 +169,82 @@ def get_store_products(store_id):
 
 @app.route('/api/unlinked_items')
 def get_unlinked_items():
-    return jsonify(dm.get_unlinked_products())
+    page = request.args.get('page', 1, type=int)
+    limit = request.args.get('limit', 30, type=int)
+    search = request.args.get('search', "")
+    category3 = request.args.get('category3', "")
+    sort_store_id = request.args.get('sort_store_id', "")
+    sort_order = request.args.get('sort_order', "desc")
+    return jsonify(dm.get_unlinked_pool_page(page=page, limit=limit, search=search, category3=category3, sort_store_id=sort_store_id, sort_order=sort_order))
+
+@app.route('/api/main_products')
+def get_main_products():
+    page = request.args.get('page', 1, type=int)
+    limit = request.args.get('limit', 50, type=int)
+    search = request.args.get('search', "")
+    return jsonify(dm.get_main_products_page(page=page, limit=limit, search=search))
 
 @app.route('/api/eliminate', methods=['POST'])
 def eliminate():
     d = request.json
-    dm.eliminate_product(d.get('row_idx'), d.get('status', 1))
+    main_sku_id = d.get('main_sku_id')
+    if not main_sku_id:
+        return jsonify({"status": "error", "message": "Missing main_sku_id"}), 400
+    dm.eliminate_product(main_sku_id, d.get('status', 1))
     return jsonify({"status": "success"})
 
 @app.route('/api/toggle_add', methods=['POST'])
 def toggle_add():
     d = request.json
-    ok = dm.mark_as_new(d.get('row_idx'), d.get('store_id'), d.get('is_new', True), sku_id=d.get('sku_id'))
+    store_id = d.get('store_id')
+    comp_sku_id = d.get('sku_id')
+    if store_id is None or not comp_sku_id:
+        return jsonify({"status": "error", "message": "Missing store_id or sku_id"}), 400
+    ok = dm.mark_as_new(store_id, comp_sku_id, d.get('is_new', True))
     if not ok:
-        return jsonify({"status": "error", "message": "未找到可标记的关联商品，请先完成关联"}), 400
+        return jsonify({"status": "error", "message": "未找到可标记的商品"}), 400
     return jsonify({"status": "success"})
 
 @app.route('/api/price_match', methods=['POST'])
 def price_match():
     d = request.json
-    row_idx, store_id = d.get('row_idx'), d.get('store_id')
-    dm.price_match(row_idx, store_id)
-    
-    def f(v):
-        if pd.isna(v) or v == "": return ""
-        try: return float(v)
-        except: return str(v)
-
-    return jsonify({
-        "status": "success", "new_act": f(dm.grid_df.at[row_idx, '新活动价']),
-        "new_orig": f(dm.grid_df.at[row_idx, '新售价']), "store_name": dm.grid_df.at[row_idx, '跟价店']
-    })
+    main_sku_id = d.get('main_sku_id')
+    store_id = d.get('store_id')
+    if not main_sku_id or store_id is None:
+        return jsonify({"status": "error", "message": "Missing params"}), 400
+    result = dm.price_match(main_sku_id, store_id)
+    if not result:
+        return jsonify({"status": "error", "message": "未找到可跟价的商品"}), 400
+    return jsonify({"status": "success", **result})
 
 @app.route('/api/manual_link', methods=['POST'])
 def manual_link():
     d = request.json
-    dm.manual_link(d.get('row_idx'), d.get('store_id'), d.get('product_data'))
+    main_sku_id = d.get('main_sku_id')
+    store_id = d.get('store_id')
+    comp_sku_id = d.get('comp_sku_id')
+    if not main_sku_id or store_id is None or not comp_sku_id:
+        return jsonify({"status": "error", "message": "Missing params"}), 400
+    dm.manual_link(main_sku_id, store_id, comp_sku_id)
     return jsonify({"status": "success"})
 
 @app.route('/api/unlink', methods=['POST'])
 def unlink():
     d = request.json
-    dm.unlink_product(d.get('row_idx'), d.get('store_id'))
+    main_sku_id = d.get('main_sku_id')
+    store_id = d.get('store_id')
+    if not main_sku_id or store_id is None:
+        return jsonify({"status": "error", "message": "Missing params"}), 400
+    dm.unlink_product(main_sku_id, store_id)
     return jsonify({"status": "success"})
 
 @app.route('/api/update_cell', methods=['POST'])
 def update_cell():
     d = request.json
-    dm.update_cell(d.get('row_idx'), {d.get('column'): d.get('value')})
+    main_sku_id = d.get('main_sku_id')
+    if not main_sku_id:
+        return jsonify({"status": "error", "message": "Missing main_sku_id"}), 400
+    dm.update_cell(main_sku_id, {d.get('column'): d.get('value')})
     return jsonify({"status": "success"})
 
 @app.route('/img/<path:filename>')

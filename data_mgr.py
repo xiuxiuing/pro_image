@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+import re
 import zipfile
 import shutil
 import tempfile
@@ -35,6 +36,8 @@ CORE_COMP_COLUMNS = [
 ]
 
 MAPPING_VERSION = "3.0" # Bumped to trigger full re-import with structure cleanup
+
+_SAFE_COL_RE = re.compile(r'^[\w\u4e00-\u9fff]+$')
 
 class DataManager:
     def __init__(self, base_dir):
@@ -215,6 +218,13 @@ class DataManager:
                     count_main = cur.fetchone()[0]
                     cur.execute("SELECT COUNT(*) FROM comp_products WHERE project_id=?", (self.active_project_id,))
                     count_comp = cur.fetchone()[0]
+                    cur.execute("SELECT COUNT(*) FROM product_links WHERE project_id=?", (self.active_project_id,))
+                    count_links = cur.fetchone()[0]
+
+                    # If output file is missing but DB already has links, keep current DB state
+                    # instead of wiping links during re-import.
+                    if (not os.path.exists(self.output_file)) and count_main > 0 and count_comp > 0 and count_links > 0:
+                        needs_import = False
                     
                     if (
                         res_file and res_file[0] == self.output_file and
@@ -223,7 +233,8 @@ class DataManager:
                     ):
                         if res_ver and res_ver[0] == MAPPING_VERSION and (count_main > 0 or count_comp > 0):
                             needs_import = False
-                except: pass
+                except Exception as e:
+                    print(f"Meta check warn (project {self.active_project_id}): {e}")
                 
         if needs_import:
             # Update metadata
@@ -274,13 +285,17 @@ class DataManager:
         3. product_links: From self.output_file (Result File)
         """
         # Phase 0: Clear existing data for this project
+        has_output_file = os.path.exists(self.output_file)
         with self._db_lock:
             conn = self._get_conn()
             try:
                 with conn:
                     conn.execute("DELETE FROM main_products WHERE project_id = ?", (self.active_project_id,))
-                    conn.execute("DELETE FROM product_links WHERE project_id = ?", (self.active_project_id,))
                     conn.execute("DELETE FROM comp_products WHERE project_id = ?", (self.active_project_id,))
+                    # Only clear links when a result file is present for re-import.
+                    # This protects existing manual links if output file is temporarily missing.
+                    if has_output_file:
+                        conn.execute("DELETE FROM product_links WHERE project_id = ?", (self.active_project_id,))
             finally:
                 conn.close()
 
@@ -385,7 +400,7 @@ class DataManager:
                     for s in samples[:100]: # Sample first 100 to be efficient
                         s_clean = ""
                         try: s_clean = str(int(float(s)))
-                        except: s_clean = s.strip()
+                        except (ValueError, TypeError, OverflowError): s_clean = s.strip()
                         
                         if s_clean in sku_to_store:
                             sid = sku_to_store[s_clean]
@@ -420,7 +435,7 @@ class DataManager:
                         if comp_sku_val is not None:
                             try:
                                 comp_sku = str(int(float(comp_sku_val)))
-                            except:
+                            except (ValueError, TypeError, OverflowError):
                                 comp_sku = str(comp_sku_val).strip()
                         
                         if comp_sku and comp_sku.lower() not in ["", "nan", "none", "nan.0"]:
@@ -542,6 +557,19 @@ class DataManager:
 
         self.grid_df = grid
 
+    def _get_spu_count(self):
+        """Count of unique 商品名称 in main_products for the active project."""
+        with self._db_lock:
+            conn = self._get_conn()
+            try:
+                cur = conn.execute(
+                    "SELECT COUNT(DISTINCT 商品名称) FROM main_products WHERE project_id = ? AND 商品名称 IS NOT NULL AND 商品名称 != ''",
+                    (self.active_project_id,)
+                )
+                return cur.fetchone()[0]
+            finally:
+                conn.close()
+
     def get_grid_data(self):
         if self.grid_df is None or self.grid_df.empty: return {"items": [], "total": 0}
         # Backward compatibility for old calls, but returning paginated for safety
@@ -549,7 +577,7 @@ class DataManager:
 
     def get_paginated_grid(self, page=1, limit=50, search="", mode="all"):
         if self.grid_df is None or self.grid_df.empty:
-            return {"items": [], "total": 0, "page": page, "pages": 0}
+            return {"items": [], "total": 0, "page": page, "pages": 0, "spu_count": 0}
 
         df = self.grid_df.copy()
 
@@ -564,14 +592,14 @@ class DataManager:
             def has_diff(row):
                 main_act = 0
                 try: main_act = float(row.get('活动价', 0))
-                except: pass
+                except (ValueError, TypeError): pass
                 if main_act <= 0: return False
                 
                 for i in range(len(self.store_names)):
                     prefix = str(i)
                     comp_act = 0
                     try: comp_act = float(row.get(f"{prefix}活动价", 0))
-                    except: pass
+                    except (ValueError, TypeError): pass
                     if comp_act > 0 and abs(main_act - comp_act) > 0.01:
                         return True
                 return False
@@ -590,7 +618,8 @@ class DataManager:
             "total": total,
             "page": page,
             "limit": limit,
-            "pages": pages
+            "pages": pages,
+            "spu_count": self._get_spu_count()
         }
 
     def get_store_products(self, store_id):
@@ -599,51 +628,269 @@ class DataManager:
         return []
 
     def get_unlinked_products(self):
-        """Find SKUs in comp_products NOT in product_links for each store"""
-        if not self.active_project_id: return {}
-        unlinked = {}
+        """Backward-compatible full fetch for unlinked pool."""
+        if not self.active_project_id:
+            return {}
+        out = {}
         with self._db_lock:
             conn = self._get_conn()
             try:
                 for i, _ in enumerate(self.store_names):
-                    prefix = str(i)
-                    query = """
-                        SELECT * FROM comp_products 
-                        WHERE project_id = ? AND store_id = ?
-                        AND skuId NOT IN (
-                            SELECT comp_sku_id FROM product_links 
-                            WHERE project_id = ? AND store_id = ?
-                        )
+                    sid = str(i)
+                    q = """
+                        SELECT cp.*
+                        FROM comp_products cp
+                        WHERE cp.project_id = ? AND cp.store_id = ?
+                          AND NOT EXISTS (
+                            SELECT 1 FROM product_links pl
+                            WHERE pl.project_id = cp.project_id
+                              AND pl.store_id = cp.store_id
+                              AND pl.comp_sku_id = cp.skuId
+                          )
                     """
-                    df = pd.read_sql(query, conn, params=(self.active_project_id, prefix, self.active_project_id, prefix))
-                    unlinked[prefix] = df.fillna("").to_dict(orient='records')
-            except Exception as e:
-                print("Error fetching unlinked products:", e)
+                    df = pd.read_sql(q, conn, params=(self.active_project_id, sid))
+                    out[sid] = df.fillna("").to_dict(orient='records')
             finally:
                 conn.close()
-        return unlinked
+        return out
+
+    def get_unlinked_pool_page(self, page=1, limit=30, search="", category3="", sort_store_id="", sort_order="desc"):
+        """
+        Returns virtual-row aligned unlinked pool:
+        - first column: main products (sales desc)
+        - following columns: each store's unlinked products (sales desc)
+        """
+        if not self.active_project_id:
+            return {"items": [], "total": 0, "page": page, "limit": limit, "pages": 0}
+
+        page = max(1, int(page))
+        limit = max(1, min(int(limit), 100))
+        offset = (page - 1) * limit
+        search_like = f"%{search.strip()}%" if search else None
+        cat_like = f"%{category3.strip()}%" if category3 else None
+        def _num_expr(col):
+            return f"CAST(COALESCE(NULLIF({col}, ''), '0') AS REAL)"
+
+        with self._db_lock:
+            conn = self._get_conn()
+            try:
+                # Main column
+                main_where = ["project_id = ?"]
+                main_params = [self.active_project_id]
+                if search_like:
+                    main_where.append("(skuId LIKE ? OR 商品名称 LIKE ? OR 规格名称 LIKE ?)")
+                    main_params.extend([search_like, search_like, search_like])
+                if cat_like:
+                    main_where.append("美团类目三级 LIKE ?")
+                    main_params.append(cat_like)
+                main_where_sql = " AND ".join(main_where)
+                main_count = conn.execute(f"SELECT COUNT(*) FROM main_products WHERE {main_where_sql}", tuple(main_params)).fetchone()[0]
+                main_df = pd.read_sql(
+                    f"""
+                    SELECT * FROM main_products
+                    WHERE {main_where_sql}
+                    ORDER BY {_num_expr('销售')} DESC, _row_orig_idx ASC
+                    LIMIT ? OFFSET ?
+                    """,
+                    conn,
+                    params=tuple(main_params + [limit, offset])
+                )
+
+                # Linked count badge for main cards
+                link_cnt = pd.read_sql(
+                    """
+                    SELECT main_sku_id, COUNT(*) AS cnt
+                    FROM product_links
+                    WHERE project_id = ?
+                    GROUP BY main_sku_id
+                    """,
+                    conn,
+                    params=(self.active_project_id,)
+                )
+                link_map = {str(r["main_sku_id"]): int(r["cnt"]) for _, r in link_cnt.iterrows()} if not link_cnt.empty else {}
+
+                store_slices = {}
+                store_counts = []
+                for i, _ in enumerate(self.store_names):
+                    sid = str(i)
+                    where = [
+                        "cp.project_id = ?",
+                        "cp.store_id = ?",
+                        """NOT EXISTS (
+                            SELECT 1 FROM product_links pl
+                            WHERE pl.project_id = cp.project_id
+                              AND pl.store_id = cp.store_id
+                              AND pl.comp_sku_id = cp.skuId
+                        )"""
+                    ]
+                    params = [self.active_project_id, sid]
+                    if search_like:
+                        where.append("(cp.skuId LIKE ? OR cp.商品名称 LIKE ? OR cp.规格名称 LIKE ?)")
+                        params.extend([search_like, search_like, search_like])
+                    if cat_like:
+                        where.append("cp.美团类目三级 LIKE ?")
+                        params.append(cat_like)
+                    where_sql = " AND ".join(where)
+                    count = conn.execute(f"SELECT COUNT(*) FROM comp_products cp WHERE {where_sql}", tuple(params)).fetchone()[0]
+                    store_counts.append(count)
+                    sid_desc = "DESC"
+                    if str(sort_store_id) == sid:
+                        sid_desc = "ASC" if str(sort_order).lower() == "asc" else "DESC"
+                    sdf = pd.read_sql(
+                        f"""
+                        SELECT cp.*
+                        FROM comp_products cp
+                        WHERE {where_sql}
+                        ORDER BY {_num_expr('cp.销售')} {sid_desc}, cp.skuId ASC
+                        LIMIT ? OFFSET ?
+                        """,
+                        conn,
+                        params=tuple(params + [limit, offset])
+                    )
+                    store_slices[sid] = sdf
+
+                total = max([main_count] + store_counts) if (self.store_names or main_count) else 0
+                pages = (total + limit - 1) // limit if total else 0
+                page_rows = max(0, min(limit, total - offset))
+                items = []
+                for idx in range(page_rows):
+                    row = {}
+                    if idx < len(main_df):
+                        m = main_df.iloc[idx].to_dict()
+                        for k, v in m.items():
+                            row[k] = "" if pd.isna(v) else v
+                        sku = str(row.get("skuId", ""))
+                        row["__linked_count"] = link_map.get(sku, 0)
+                    else:
+                        row["__linked_count"] = 0
+                    for i in range(len(self.store_names)):
+                        sid = str(i)
+                        sdf = store_slices[sid]
+                        if idx < len(sdf):
+                            c = sdf.iloc[idx].to_dict()
+                            for k, v in c.items():
+                                row[f"{sid}{k}"] = "" if pd.isna(v) else v
+                            row[f"{sid}是否新增"] = row.get(f"{sid}is_new_add", "否") or "否"
+                            row[f"{sid}__from_pool"] = "1"
+                        else:
+                            row[f"{sid}__from_pool"] = ""
+                    items.append(row)
+            finally:
+                conn.close()
+
+        return {"items": items, "total": total, "page": page, "limit": limit, "pages": pages, "spu_count": self._get_spu_count()}
+
+    def get_main_products_page(self, page=1, limit=50, search=""):
+        if not self.active_project_id:
+            return {"items": [], "total": 0, "page": page, "limit": limit, "pages": 0}
+        page = max(1, int(page))
+        limit = max(1, min(int(limit), 100))
+        offset = (page - 1) * limit
+        like = f"%{search.strip()}%" if search else None
+        where = ["project_id = ?"]
+        params = [self.active_project_id]
+        if like:
+            where.append("(skuId LIKE ? OR 商品名称 LIKE ? OR 规格名称 LIKE ?)")
+            params.extend([like, like, like])
+        where_sql = " AND ".join(where)
+        with self._db_lock:
+            conn = self._get_conn()
+            try:
+                total = conn.execute(f"SELECT COUNT(*) FROM main_products WHERE {where_sql}", tuple(params)).fetchone()[0]
+                df = pd.read_sql(
+                    f"""
+                    SELECT skuId, 商品名称, 规格名称, 主图链接, 活动价, 原价, 销售, 美团类目三级, _row_orig_idx
+                    FROM main_products
+                    WHERE {where_sql}
+                    ORDER BY CAST(COALESCE(NULLIF(销售, ''), '0') AS REAL) DESC, _row_orig_idx ASC
+                    LIMIT ? OFFSET ?
+                    """,
+                    conn,
+                    params=tuple(params + [limit, offset])
+                )
+                link_cnt = pd.read_sql(
+                    """
+                    SELECT main_sku_id, COUNT(*) AS cnt
+                    FROM product_links
+                    WHERE project_id = ?
+                    GROUP BY main_sku_id
+                    """,
+                    conn,
+                    params=(self.active_project_id,)
+                )
+            finally:
+                conn.close()
+        if not df.empty:
+            link_map = {str(r["main_sku_id"]): int(r["cnt"]) for _, r in link_cnt.iterrows()} if not link_cnt.empty else {}
+            df["__linked_count"] = df["skuId"].astype(str).map(lambda x: link_map.get(x, 0))
+        else:
+            df["__linked_count"] = pd.Series(dtype="int64")
+        pages = (total + limit - 1) // limit if total else 0
+        return {"items": df.fillna("").to_dict(orient="records"), "total": total, "page": page, "limit": limit, "pages": pages}
 
     def _ensure_column(self, conn, table, col_name):
         try: conn.execute(f"SELECT `{col_name}` FROM `{table}` LIMIT 1")
         except sqlite3.OperationalError: conn.execute(f"ALTER TABLE `{table}` ADD COLUMN `{col_name}` TEXT")
 
-    def update_cell(self, row_idx, update_data):
-        if self.grid_df is None or row_idx >= len(self.grid_df): return
-        main_sku_id = self.grid_df.loc[row_idx, 'skuId']
+    def _patch_grid_main(self, main_sku_id, updates):
+        """In-place patch of grid_df for a main product row. Avoids full reconstruct."""
+        if self.grid_df is None or self.grid_df.empty:
+            return
+        mask = self.grid_df['skuId'].astype(str) == str(main_sku_id)
+        if not mask.any():
+            return
+        for col, val in updates.items():
+            if col not in self.grid_df.columns:
+                self.grid_df[col] = ""
+            self.grid_df.loc[mask, col] = val
+
+    def _patch_grid_comp(self, store_id, comp_sku_id, updates):
+        """In-place patch of grid_df for a comp product column. Avoids full reconstruct."""
+        if self.grid_df is None or self.grid_df.empty:
+            return
+        prefix = str(store_id)
+        comp_col = f"{prefix}skuId"
+        if comp_col not in self.grid_df.columns:
+            return
+        mask = self.grid_df[comp_col].astype(str) == str(comp_sku_id)
+        if not mask.any():
+            return
+        for col, val in updates.items():
+            target = f"{prefix}{col}"
+            if target not in self.grid_df.columns:
+                self.grid_df[target] = ""
+            self.grid_df.loc[mask, target] = val
+
+    def _get_grid_row_by_main_sku(self, main_sku_id):
+        if self.grid_df is None or main_sku_id in [None, ""]:
+            return None
+        rows = self.grid_df[self.grid_df['skuId'].astype(str) == str(main_sku_id)]
+        if rows.empty:
+            return None
+        return rows.iloc[0]
+
+    def update_cell(self, main_sku_id, update_data):
+        if not main_sku_id:
+            return
+        safe_data = {k: v for k, v in update_data.items() if _SAFE_COL_RE.match(k)}
+        if not safe_data:
+            return
         with self._db_lock:
             conn = self._get_conn()
             try:
                 with conn:
-                    for col, val in update_data.items():
+                    for col, val in safe_data.items():
                         self._ensure_column(conn, "main_products", col)
                         conn.execute(f"UPDATE main_products SET `{col}` = ? WHERE project_id = ? AND skuId = ?", 
                                     (val, self.active_project_id, str(main_sku_id)))
             finally:
                 conn.close()
-        self._reconstruct_from_sqlite()
+        self._patch_grid_main(main_sku_id, safe_data)
 
-    def eliminate_product(self, row_idx, status):
-        main_sku_id = self.grid_df.loc[row_idx, 'skuId']
+    def eliminate_product(self, main_sku_id, status):
+        if not main_sku_id:
+            return False
+        status = int(status) if status else 0
         is_elim = "是" if status == 1 else "否"
         with self._db_lock:
             conn = self._get_conn()
@@ -652,33 +899,21 @@ class DataManager:
                     self._ensure_column(conn, "main_products", "淘汰标记")
                     self._ensure_column(conn, "main_products", "是否淘汰")
                     conn.execute("UPDATE main_products SET `淘汰标记`=?, `是否淘汰`=? WHERE project_id = ? AND skuId=?", 
-                                (status, is_elim, self.active_project_id, str(main_sku_id)))
+                                (str(status), is_elim, self.active_project_id, str(main_sku_id)))
             finally:
                 conn.close()
-        self._reconstruct_from_sqlite()
+        self._patch_grid_main(main_sku_id, {'淘汰标记': str(status), '是否淘汰': is_elim})
+        return True
 
-    def mark_as_new(self, row_idx, store_id, is_new, sku_id=None):
-        is_new_str = "是" if is_new else "否"
-        prefix = str(store_id)
-        main_sku_id = None
-        if row_idx is not None and self.grid_df is not None and row_idx < len(self.grid_df):
-            main_sku_id = self.grid_df.loc[row_idx, 'skuId']
-
-        # If sku_id is provided, use it directly (supports unlinked pool mode).
-        comp_sku_col = f"{prefix}skuId"
-        comp_sku_id = sku_id
-        if not comp_sku_id and row_idx is not None and self.grid_df is not None and row_idx < len(self.grid_df):
-            comp_sku_id = self.grid_df.loc[row_idx, comp_sku_col] if comp_sku_col in self.grid_df.columns else ""
-
+    def mark_as_new(self, store_id, comp_sku_id, is_new):
         if not comp_sku_id:
             return False
-
+        is_new_str = "是" if is_new else "否"
         changed = False
         with self._db_lock:
             conn = self._get_conn()
             try:
                 with conn:
-                    # 1. Update existing links in product_links
                     self._ensure_column(conn, "product_links", "is_new_add")
                     cur = conn.execute(
                         "UPDATE product_links SET is_new_add=? WHERE project_id = ? AND store_id=? AND comp_sku_id=?",
@@ -686,82 +921,66 @@ class DataManager:
                     )
                     changed = cur.rowcount > 0
 
-                    # 2. ALSO update comp_products table if the column exists (for unlinked items)
-                    # We ensure the column exists first
                     self._ensure_column(conn, "comp_products", "is_new_add")
                     comp_cur = conn.execute(
                         "UPDATE comp_products SET is_new_add=? WHERE project_id=? AND store_id=? AND skuId=?",
                         (is_new_str, self.active_project_id, str(store_id), str(comp_sku_id))
                     )
                     changed = changed or (comp_cur.rowcount > 0)
-
-                    # Fallback: when a visible competitor SKU exists but link row is missing,
-                    # create the link so "新增" can be persisted and exported.
-                    if not changed and is_new and main_sku_id not in [None, ""] and comp_sku_id not in [None, ""]:
-                        conn.execute(
-                            """
-                            INSERT INTO product_links (project_id, main_sku_id, store_id, comp_sku_id, similarity, match_type, is_new_add)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
-                            """,
-                            (self.active_project_id, str(main_sku_id), str(store_id), str(comp_sku_id), 1.0, "手动新增", "是")
-                        )
-                        changed = True
             finally:
                 conn.close()
         if changed:
-            self._reconstruct_from_sqlite()
+            self._patch_grid_comp(store_id, comp_sku_id, {'是否新增': is_new_str})
         return changed
 
-    def price_match(self, row_idx, store_id):
-        main_sku_id = self.grid_df.loc[row_idx, 'skuId']
+    def price_match(self, main_sku_id, store_id):
+        if not main_sku_id:
+            return None
         prefix = str(store_id)
         act_col, orig_col = f"{prefix}活动价", f"{prefix}原价"
+        row = self._get_grid_row_by_main_sku(main_sku_id)
+        if row is None:
+            return None
         
-        updated, new_act, new_orig = False, "", ""
+        new_act, new_orig = "", ""
+        updated = False
         if act_col in self.grid_df.columns:
-            val = self.grid_df.loc[row_idx, act_col]
+            val = row.get(act_col)
             try:
                 num_val = float(val)
                 new_act = round(num_val - 0.1, 2) if num_val >= 0.3 else num_val
-            except: new_act = val
+            except (ValueError, TypeError): new_act = val
             updated = True
             
         if orig_col in self.grid_df.columns:
-            new_orig = self.grid_df.loc[row_idx, orig_col]; updated = True
+            new_orig = row.get(orig_col)
+            updated = True
             
-        if updated:
-            store_name = self.store_dfs[str(store_id)]["name"]
-            with self._db_lock:
-                conn = self._get_conn()
-                try:
-                    with conn:
-                        for c in ["新活动价", "新售价", "跟价店"]: self._ensure_column(conn, "main_products", c)
-                        conn.execute("UPDATE main_products SET `新活动价`=?, `新售价`=?, `跟价店`=? WHERE project_id = ? AND skuId=?", 
-                                    (new_act, new_orig, store_name, self.active_project_id, str(main_sku_id)))
-                finally:
-                    conn.close()
-            self._reconstruct_from_sqlite()
-        return updated
+        if not updated:
+            return None
 
-    def manual_add_new(self, row_idx, store_id, comp_sku_id):
-        main_sku_id = self.grid_df.loc[row_idx, 'skuId']
+        store_name = self.store_dfs[str(store_id)]["name"]
         with self._db_lock:
             conn = self._get_conn()
             try:
                 with conn:
-                    conn.execute("DELETE FROM product_links WHERE project_id = ? AND main_sku_id=? AND store_id=?", 
-                                (self.active_project_id, str(main_sku_id), str(store_id)))
-                    conn.execute("INSERT INTO product_links (project_id, main_sku_id, store_id, comp_sku_id, similarity, match_type, is_new_add) VALUES (?, ?, ?, ?, 1.0, '手动新增', '是')",
-                                (self.active_project_id, str(main_sku_id), str(store_id), str(comp_sku_id)))
+                    for c in ["新活动价", "新售价", "跟价店"]: self._ensure_column(conn, "main_products", c)
+                    conn.execute("UPDATE main_products SET `新活动价`=?, `新售价`=?, `跟价店`=? WHERE project_id = ? AND skuId=?", 
+                                (new_act, new_orig, store_name, self.active_project_id, str(main_sku_id)))
             finally:
                 conn.close()
-        self._reconstruct_from_sqlite()
+        self._patch_grid_main(main_sku_id, {'新活动价': new_act, '新售价': new_orig, '跟价店': store_name})
 
-    def manual_link(self, row_idx, store_id, product_data):
-        main_sku_id = self.grid_df.loc[row_idx, 'skuId']
-        comp_sku_id = product_data.get('skuId') or product_data.get('skuid') or product_data.get('SKUID')
-        if not comp_sku_id: return False
-        
+        def fmt(v):
+            if pd.isna(v) or v == "": return ""
+            try: return float(v)
+            except (ValueError, TypeError): return str(v)
+
+        return {"new_act": fmt(new_act), "new_orig": fmt(new_orig), "store_name": store_name}
+
+    def manual_link(self, main_sku_id, store_id, comp_sku_id):
+        if not main_sku_id or not comp_sku_id:
+            return False
         with self._db_lock:
             conn = self._get_conn()
             try:
@@ -774,10 +993,12 @@ class DataManager:
                     """, (self.active_project_id, str(main_sku_id), str(store_id), str(comp_sku_id), 1.0, '手动关联', '否'))
             finally:
                 conn.close()
-        self._reconstruct_from_sqlite(); return True
+        self._reconstruct_from_sqlite()
+        return True
 
-    def unlink_product(self, row_idx, store_id):
-        main_sku_id = self.grid_df.loc[row_idx, 'skuId']
+    def unlink_product(self, main_sku_id, store_id):
+        if not main_sku_id:
+            return False
         with self._db_lock:
             conn = self._get_conn()
             try:
@@ -788,7 +1009,8 @@ class DataManager:
                 print("DB Unlink err:", e)
             finally:
                 conn.close()
-        self._reconstruct_from_sqlite(); return True
+        self._reconstruct_from_sqlite()
+        return True
 
     def _calculate_margins(self):
         if self.grid_df is None or '采购价' not in self.grid_df.columns: return
@@ -797,7 +1019,7 @@ class DataManager:
             try:
                 a, p = float(a), float(p)
                 if a > 0: return f"{round((a - p) / a * 100, 2)}%"
-            except: pass
+            except (ValueError, TypeError): pass
             return "-"
 
         self.grid_df['现在毛利'] = [calc(r.get('活动价'), r.get('采购价')) for _, r in self.grid_df.iterrows()]
@@ -851,7 +1073,7 @@ class DataManager:
 
             # 3. Unlinked pool export
             unlinked_data = []
-            with self._get_conn() as conn:
+            with self._db_lock, self._get_conn() as conn:
                 for i, store_name in list(enumerate(self.store_names)):
                     prefix = str(i)
                     query = """
@@ -867,7 +1089,8 @@ class DataManager:
                         df.insert(0, "竞品店铺", store_name)
                         unlinked_data.append(df)
             
-                if not pool_df.empty:
+                if unlinked_data:
+                    pool_df = pd.concat(unlinked_data, ignore_index=True)
                     pool_df.to_excel(os.path.join(temp_dir, "未关联商品池.xlsx"), index=False)
             
             dirs = self._get_project_dirs(self.active_project_id)
@@ -885,9 +1108,9 @@ class DataManager:
         # Mapping prefix to store name
         store_map = {str(i): name for i, name in enumerate(self.store_names)}
         
-        # 1. Fetch ALL products marked as "New" from comp_products (includes unlinked ones)
+        # 1. Fetch ALL products marked as "New" from comp_products (includes linked + unlinked)
         all_new_data = []
-        with self._get_conn() as conn:
+        with self._db_lock, self._get_conn() as conn:
             query = "SELECT * FROM comp_products WHERE project_id = ? AND is_new_add = '是'"
             all_comp_new_df = pd.read_sql(query, conn, params=(self.active_project_id,))
             if not all_comp_new_df.empty:
@@ -895,15 +1118,21 @@ class DataManager:
                 all_comp_new_df['竞品店铺'] = all_comp_new_df['store_id'].map(store_map)
                 
                 # Fetch links to get Main Store SKU if linked
-                link_query = "SELECT comp_sku_id, main_sku_id FROM product_links WHERE project_id = ?"
+                link_query = "SELECT comp_sku_id, main_sku_id, store_id FROM product_links WHERE project_id = ?"
                 links = pd.read_sql(link_query, conn, params=(self.active_project_id,))
                 
-                # Merge to get Main SKU
-                merged = all_comp_new_df.merge(links, left_on='skuId', right_on='comp_sku_id', how='left')
+                # Merge to get Main SKU (store-aware to avoid cross-store false joins)
+                merged = all_comp_new_df.merge(
+                    links,
+                    left_on=['skuId', 'store_id'],
+                    right_on=['comp_sku_id', 'store_id'],
+                    how='left'
+                )
                 merged.rename(columns={'main_sku_id': '主店SKU'}, inplace=True)
+                merged['来源'] = merged['主店SKU'].apply(lambda v: '已匹配' if str(v).strip() not in ['', 'nan', 'None'] else '未匹配池')
                 
                 # Ensure core columns
-                cols = ['主店SKU', '竞品店铺', 'skuId', '主图链接', '商品名称', '规格名称', '活动价', '原价', '销售', '条码']
+                cols = ['来源', '主店SKU', '竞品店铺', 'skuId', '主图链接', '商品名称', '规格名称', '活动价', '原价', '销售', '条码']
                 final_new_df = merged[[c for c in cols if c in merged.columns]].copy()
                 for c in cols:
                     if c not in final_new_df.columns: final_new_df[c] = ""
@@ -932,18 +1161,22 @@ class DataManager:
         with self._db_lock:
             conn = self._get_conn()
             try:
-                cur = conn.execute("SELECT id, name, created_at, is_active FROM projects ORDER BY created_at DESC")
-                projs = []
-                for row in cur.fetchall():
-                    pid = row[0]
-                    # Count SKUs
-                    count_cur = conn.execute("SELECT COUNT(*) FROM main_products WHERE project_id = ?", (pid,))
-                    sku_count = count_cur.fetchone()[0]
-                    projs.append({
-                        "id": pid, "name": row[1], "created_at": row[2], 
-                        "is_active": row[3], "sku_count": sku_count
-                    })
-                return projs
+                cur = conn.execute("""
+                    SELECT p.id, p.name, p.created_at, p.is_active,
+                           COALESCE(m.cnt, 0) AS sku_count
+                    FROM projects p
+                    LEFT JOIN (
+                        SELECT project_id, COUNT(*) AS cnt
+                        FROM main_products
+                        GROUP BY project_id
+                    ) m ON m.project_id = p.id
+                    ORDER BY p.created_at DESC
+                """)
+                return [
+                    {"id": r[0], "name": r[1], "created_at": r[2],
+                     "is_active": r[3], "sku_count": r[4]}
+                    for r in cur.fetchall()
+                ]
             finally:
                 conn.close()
 
