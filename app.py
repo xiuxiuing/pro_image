@@ -98,7 +98,7 @@ def handle_projects():
                             (f"project_{temp_pid}", f"project_{pid}", pid))
 
         # Update internal DataManager state and paths
-        dm.activate_project(pid)
+        dm.activate_project(pid, skip_load=True)
         
         # Final paths for analysis or manual setup
         # Note: dm.activate_project ensures subfolders exist for the NEW pid

@@ -1204,7 +1204,7 @@ class DataManager:
             finally:
                 conn.close()
 
-    def activate_project(self, project_id):
+    def activate_project(self, project_id, skip_load=False):
         with self._db_lock:
             conn = self._get_conn()
             try:
@@ -1214,7 +1214,8 @@ class DataManager:
             finally:
                 conn.close()
         self._load_active_project()
-        self.load_data()
+        if not skip_load:
+            self.load_data()
         return True
 
     def delete_project(self, project_id):
