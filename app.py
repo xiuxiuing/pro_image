@@ -4,13 +4,30 @@ from license_utils import LicenseManager
 import os
 import shutil
 import time
+import threading
 import traceback
 import extract_info_ai2
 import main_030822
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB
 base_dir = os.path.dirname(os.path.abspath(__file__))
 dm = DataManager(base_dir)
+
+MAX_FILE_SIZE = 80 * 1024 * 1024  # 80MB per file
+ALLOWED_EXTENSIONS = {'.xlsx', '.xls'}
+
+def _validate_upload(file_storage, label):
+    """Validate file extension and size. Returns error message or None."""
+    ext = os.path.splitext(file_storage.filename)[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        return f"{label}：不支持的文件格式 ({ext})，仅支持 .xlsx / .xls"
+    file_storage.seek(0, 2)
+    size = file_storage.tell()
+    file_storage.seek(0)
+    if size > MAX_FILE_SIZE:
+        return f"{label}：文件过大 ({size // 1024 // 1024}MB)，上限 {MAX_FILE_SIZE // 1024 // 1024}MB"
+    return None
 
 # --- License Check Logic ---
 LICENSE_FILE = os.path.join(base_dir, "license.dat")
@@ -20,6 +37,10 @@ def check_license():
     if not os.path.exists(LICENSE_FILE): return False, "License file missing"
     with open(LICENSE_FILE, "r") as f: content = f.read().strip()
     return LicenseManager.verify_license(content, CURRENT_HWID)
+
+@app.errorhandler(413)
+def request_entity_too_large(e):
+    return jsonify({"status": "error", "message": "上传文件总大小超过 100MB 限制"}), 413
 
 @app.route('/api/license_info')
 def get_license_info():
@@ -53,7 +74,17 @@ def handle_projects():
         valid_comp_files = [f for f in comp_files if f.filename]
         if not valid_comp_files:
             return jsonify({"status": "error", "message": "At least one competitor store file is required"}), 400
-        
+
+        err = _validate_upload(main_file, "主店文件")
+        if err: return jsonify({"status": "error", "message": err}), 400
+        for f in valid_comp_files:
+            err = _validate_upload(f, f"竞店文件 ({f.filename})")
+            if err: return jsonify({"status": "error", "message": err}), 400
+        result_file = request.files.get('result_file')
+        if result_file and result_file.filename:
+            err = _validate_upload(result_file, "结果文件")
+            if err: return jsonify({"status": "error", "message": err}), 400
+
         # Temporary PID for directory naming
         temp_pid = int(time.time())
         proj_dir = os.path.join(base_dir, "uploads", f"project_{temp_pid}")
@@ -74,8 +105,6 @@ def handle_projects():
             comp_paths.append(path)
             comp_infos.append({"path": path, "store_name": f.filename.replace(".xlsx", "").replace(".xls", "")})
         
-        # Handle manual result file if Skip Analysis is selected
-        result_file = request.files.get('result_file')
         manual_result_path = None
         if result_file and result_file.filename:
             outputs_dir = os.path.join(proj_dir, "outputs")
@@ -83,62 +112,68 @@ def handle_projects():
             manual_result_path = os.path.join(outputs_dir, result_file.filename)
             result_file.save(manual_result_path)
 
-        # Create project in DB
-        pid = dm.create_project(name, {"path": main_path, "store_name": main_store_name}, comp_infos)
-        
-        # Rename directory to real PID
+        is_manual = bool(manual_result_path)
+        pid = dm.create_project(name, {"path": main_path, "store_name": main_store_name},
+                                comp_infos, status='ready' if is_manual else 'analyzing')
+
+        # Rename temp directory to real PID
         real_proj_dir = os.path.join(base_dir, "uploads", f"project_{pid}")
         if os.path.exists(real_proj_dir): shutil.rmtree(real_proj_dir)
         os.rename(proj_dir, real_proj_dir)
-        
-        # Update paths in DB
+
         with dm._db_lock:
             with dm._get_conn() as conn:
-                conn.execute("UPDATE project_files SET local_path = REPLACE(local_path, ?, ?) WHERE project_id = ?", 
+                conn.execute("UPDATE project_files SET local_path = REPLACE(local_path, ?, ?) WHERE project_id = ?",
                             (f"project_{temp_pid}", f"project_{pid}", pid))
 
-        # Update internal DataManager state and paths
-        dm.activate_project(pid, skip_load=True)
-        
-        # Final paths for analysis or manual setup
-        # Note: dm.activate_project ensures subfolders exist for the NEW pid
-        dirs = dm._get_project_dirs(pid)
+        dirs = dm._ensure_project_dirs(pid)
         final_main_path = main_path.replace(f"project_{temp_pid}", f"project_{pid}")
         final_comp_paths = [p.replace(f"project_{temp_pid}", f"project_{pid}") for p in comp_paths]
         final_manual_result_path = manual_result_path.replace(f"project_{temp_pid}", f"project_{pid}") if manual_result_path else None
 
+        if is_manual:
+            # Sync path: copy result → activate → import → redirect to dashboard
+            output_file = os.path.join(dirs["outputs"], f"output_{pid}.xlsx")
+            shutil.copy(final_manual_result_path, output_file)
+            dm.activate_project(pid)
+            return jsonify({"status": "success", "project_id": pid})
+
+        # Async path: return immediately, run analysis in background thread
         use_ai = request.form.get('use_ai') == 'on'
         api_key = request.form.get('api_key')
 
-        # Initial analysis flow
-        try:
-            if final_manual_result_path:
-                shutil.copy(final_manual_result_path, dm.output_file)
-                dm.load_data() 
-            else:
-                # Optional AI Extraction
+        def _run_analysis_bg():
+            try:
                 if use_ai and api_key:
                     extract_info_ai2.process_file_ai(final_main_path, api_key)
-                    for comp_path in final_comp_paths:
-                        extract_info_ai2.process_file_ai(comp_path, api_key)
-                
-                # Standard AI Analysis
-                output_path = main_030822.run_analysis(
-                    final_main_path, 
-                    final_comp_paths, 
-                    output_name=time.strftime("%y%m%d_%H%M%S"),
-                    output_dir=dirs["outputs"]
+                    for cp in final_comp_paths:
+                        extract_info_ai2.process_file_ai(cp, api_key)
+                main_030822.run_analysis(
+                    final_main_path, final_comp_paths,
+                    output_name=str(pid), output_dir=dirs["outputs"]
                 )
-                dm.update_config(target_file=final_main_path, source_files=final_comp_paths, output_file=output_path)
-        except Exception as e:
-            traceback.print_exc()
-        
+                dm.update_project_status(pid, 'ready')
+                print(f"[BG] Project {pid} analysis complete.")
+            except Exception:
+                traceback.print_exc()
+                dm.update_project_status(pid, 'failed')
+                print(f"[BG] Project {pid} analysis failed.")
+
+        threading.Thread(target=_run_analysis_bg, daemon=True).start()
         return jsonify({"status": "success", "project_id": pid})
         
     return jsonify(dm.list_projects())
 
 @app.route('/api/projects/<int:pid>/activate', methods=['POST'])
 def activate_project(pid):
+    projects = dm.list_projects()
+    proj = next((p for p in projects if p['id'] == pid), None)
+    if not proj:
+        return jsonify({"status": "error", "message": "项目不存在"}), 404
+    if proj.get('status') == 'analyzing':
+        return jsonify({"status": "error", "message": "该项目正在分析中，请等待完成"}), 400
+    if proj.get('status') == 'failed':
+        return jsonify({"status": "error", "message": "该项目分析失败，请删除后重新创建"}), 400
     dm.activate_project(pid)
     return jsonify({"status": "success"})
 
@@ -160,7 +195,15 @@ def get_grid_data():
     limit = request.args.get('limit', 50, type=int)
     search = request.args.get('search', "")
     mode = request.args.get('mode', "all")
-    return jsonify(dm.get_paginated_grid(page=page, limit=limit, search=search, mode=mode))
+    filters_json = request.args.get('filters', "{}")
+    sort_field = request.args.get('sort_field', "")
+    sort_order = request.args.get('sort_order', "desc")
+    negative_sales = request.args.get('negative_sales', "0") == "1"
+    return jsonify(dm.get_paginated_grid(
+        page=page, limit=limit, search=search, mode=mode,
+        filters_json=filters_json, sort_field=sort_field, sort_order=sort_order,
+        negative_sales_only=negative_sales,
+    ))
 
 @app.route('/api/store_products/<store_id>')
 def get_store_products(store_id):
@@ -175,7 +218,13 @@ def get_unlinked_items():
     category3 = request.args.get('category3', "")
     sort_store_id = request.args.get('sort_store_id', "")
     sort_order = request.args.get('sort_order', "desc")
-    return jsonify(dm.get_unlinked_pool_page(page=page, limit=limit, search=search, category3=category3, sort_store_id=sort_store_id, sort_order=sort_order))
+    filters_json = request.args.get('filters', "{}")
+    negative_sales = request.args.get('negative_sales', "0") == "1"
+    return jsonify(dm.get_unlinked_pool_page(
+        page=page, limit=limit, search=search, category3=category3,
+        sort_store_id=sort_store_id, sort_order=sort_order,
+        filters_json=filters_json, negative_sales_only=negative_sales,
+    ))
 
 @app.route('/api/main_products')
 def get_main_products():

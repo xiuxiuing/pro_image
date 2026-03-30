@@ -825,6 +825,25 @@
             object-fit: contain;
         }
 
+        /* 关联弹窗内缩略图：尺寸保持 40×40，与主列表一样支持悬浮放大 */
+        .modal-thumb-zoom {
+            width: 40px;
+            height: 40px;
+            flex-shrink: 0;
+            margin-right: 12px;
+            border-radius: 4px;
+            overflow: hidden;
+            border: 1px solid #f1f5f9;
+            cursor: pointer;
+        }
+
+        .modal-thumb-zoom img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
         .product-list-details {
             flex: 1;
             display: grid;
@@ -1127,7 +1146,6 @@
         let spuCount = 0;
         let currentFilterMode = 'all'; 
         let isUnlinkedMode = false;      // 是否处于“未关联数据池”模式
-        let unlinkedSortStoreId = "";
         let linkModalMode = "store_comp"; // store_comp | main_pool
         let mainProductsCache = [];
 
@@ -1169,7 +1187,18 @@
                 const searchInput = document.getElementById('globalSearch');
                 const searchVal = searchInput ? searchInput.value.trim() : "";
                 
-                const url = `/api/grid_data?page=${currentPage}&limit=${pageSize}&search=${encodeURIComponent(searchVal)}&mode=${currentFilterMode}`;
+                const filtersPayload = {};
+                Object.keys(advancedFilters).forEach(k => {
+                    const v = (advancedFilters[k] || '').trim();
+                    if (v) filtersPayload[k] = v;
+                });
+                const sortField = currentSort.field || '';
+                const sortOrder = currentSort.order || 'desc';
+                const neg = showNegativeSalesOnly ? '1' : '0';
+                let url = `/api/grid_data?page=${currentPage}&limit=${pageSize}&search=${encodeURIComponent(searchVal)}&mode=${currentFilterMode}`;
+                url += `&filters=${encodeURIComponent(JSON.stringify(filtersPayload))}`;
+                url += `&sort_field=${encodeURIComponent(sortField)}&sort_order=${encodeURIComponent(sortOrder)}`;
+                url += `&negative_sales=${neg}`;
                 const response = await fetch(url);
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 
@@ -1217,7 +1246,16 @@
                 const searchVal = (document.getElementById('globalSearch')?.value || "").trim();
                 const categoryVal = (advancedFilters['美团类目三级'] || "").trim();
                 const sortOrder = currentSort.order || 'desc';
-                const url = `/api/unlinked_items?page=${currentPage}&limit=${pageSize}&search=${encodeURIComponent(searchVal)}&category3=${encodeURIComponent(categoryVal)}&sort_store_id=${encodeURIComponent(unlinkedSortStoreId)}&sort_order=${encodeURIComponent(sortOrder)}`;
+                const mSort = /^(\d+)销售$/.exec(currentSort.field || '');
+                const sortStoreIdForApi = mSort ? mSort[1] : '';
+                const filtersPayload = {};
+                Object.keys(advancedFilters).forEach(k => {
+                    const v = (advancedFilters[k] || '').trim();
+                    if (v) filtersPayload[k] = v;
+                });
+                const neg = showNegativeSalesOnly ? '1' : '0';
+                let url = `/api/unlinked_items?page=${currentPage}&limit=${pageSize}&search=${encodeURIComponent(searchVal)}&category3=${encodeURIComponent(categoryVal)}&sort_store_id=${encodeURIComponent(sortStoreIdForApi)}&sort_order=${encodeURIComponent(sortOrder)}`;
+                url += `&filters=${encodeURIComponent(JSON.stringify(filtersPayload))}&negative_sales=${neg}`;
                 const response = await fetch(url);
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 const data = await response.json();
@@ -1339,12 +1377,6 @@
         }
 
         function setSort(field, order) {
-            if (isUnlinkedMode) {
-                const m = /^(\d+)销售$/.exec(field || "");
-                if (m) {
-                    unlinkedSortStoreId = m[1];
-                }
-            }
             if (currentSort.field === field && currentSort.order === order) {
                 currentSort = { field: null, order: null };
             } else {
@@ -2107,7 +2139,7 @@
                         ? `<span style="display:inline-block;background:#10b981;color:#fff;font-size:10px;padding:2px 6px;border-radius:10px;margin-left:8px;">已关联(${linkedCount})</span>`
                         : `<span style="display:inline-block;background:#64748b;color:#fff;font-size:10px;padding:2px 6px;border-radius:10px;margin-left:8px;">无关联</span>`;
                     item.innerHTML = `
-                <img src="${imgSrc}" style="width:40px; height:40px; border-radius:4px; object-fit:cover; margin-right:12px; border:1px solid #f1f5f9;">
+                <span class="modal-thumb-zoom"><img src="${imgSrc}" alt=""></span>
                 <div style="flex:1">
                     <div style="font-weight:600">${p['商品名称'] || '-'}${linkedBadge}</div>
                     <div style="font-size:12px; color:#6b7280; margin-top:2px;">规格: ${p['规格名称'] || '-'}</div>
@@ -2134,7 +2166,7 @@
                 const price = p['活动价'] || p['单件折扣价'] || "-";
                  const imgSrc = p['主图链接'] || p['图片'] || 'https://via.placeholder.com/40';
                  item.innerHTML = `
-             <img src="${imgSrc}" style="width:40px; height:40px; border-radius:4px; object-fit:cover; margin-right:12px; border:1px solid #f1f5f9;">
+             <span class="modal-thumb-zoom"><img src="${imgSrc}" alt=""></span>
              <div style="flex:1">
                  <div style="font-weight:600">${p['商品名称']}</div>
                  <div style="font-size:12px; color:#6b7280; margin-top:2px;">规格: ${p['规格名称'] || p['规格名'] || p['规格'] || '-'}</div>
@@ -2304,8 +2336,10 @@
             const overlay = document.getElementById('image-zoom-overlay');
             const zoomImg = document.getElementById('zoom-img');
             
+            const zoomImgSelector = '.card-top-image img, .product-list-img img, .modal-thumb-zoom img';
+
             document.addEventListener('mouseover', e => {
-                const img = e.target.closest('.card-top-image img, .product-list-img img');
+                const img = e.target.closest(zoomImgSelector);
                 if (img) {
                     zoomImg.src = img.src;
                     overlay.style.display = 'block';
@@ -2318,7 +2352,7 @@
             });
 
             document.addEventListener('mouseout', e => {
-                if (e.target.closest('.card-top-image img, .product-list-img img')) {
+                if (e.target.closest(zoomImgSelector)) {
                     overlay.style.display = 'none';
                 }
             });

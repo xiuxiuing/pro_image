@@ -223,6 +223,73 @@
             border: 1px solid #fee2e2;
         }
 
+        .project-card.card-analyzing {
+            border-color: #fbbf24;
+            background: rgba(255, 251, 235, 0.7);
+            cursor: default;
+        }
+        .project-card.card-analyzing:hover {
+            transform: none;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+        }
+
+        .project-card.card-failed {
+            border-color: #fca5a5;
+            background: rgba(254, 242, 242, 0.7);
+        }
+
+        .card-spinner {
+            width: 28px;
+            height: 28px;
+            border: 3px solid #fde68a;
+            border-top: 3px solid #f59e0b;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 8px;
+        }
+
+        .card-status-text {
+            font-size: 13px;
+            font-weight: 700;
+            margin-top: 4px;
+        }
+        .card-status-text.analyzing { color: #b45309; }
+        .card-status-text.failed { color: #dc2626; }
+
+        .warning-banner {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 3000;
+            background: linear-gradient(90deg, #fef3c7, #fffbeb);
+            border-bottom: 2px solid #fbbf24;
+            padding: 10px 24px;
+            text-align: center;
+            font-size: 13px;
+            font-weight: 700;
+            color: #92400e;
+            display: none;
+        }
+
+        .toast-msg {
+            position: fixed;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1e293b;
+            color: #fff;
+            padding: 12px 28px;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            z-index: 4000;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+        .toast-msg.show { opacity: 1; }
+
         .project-card.new-card {
             border: 2px dashed #cbd5e1;
             background: rgba(255, 255, 255, 0.3);
@@ -401,9 +468,14 @@
         </video>
     </div>
 
+    <div id="warning-banner" class="warning-banner">
+        本地分析任务运行中，请保持电脑运行状态，避免断网或锁屏
+    </div>
+    <div id="toast" class="toast-msg"></div>
+
     <div id="loading-overlay">
         <div class="planet-spinner"></div>
-        <p id="loading-title" style="margin-top: 24px; font-weight: 700; color: #64748b; font-size: 20px;">正在部署分析环境...</p>
+        <p id="loading-title" style="margin-top: 24px; font-weight: 700; color: #64748b; font-size: 20px;">正在导入数据...</p>
         <div class="progress-wrapper">
             <div class="progress-track">
                 <div class="progress-fill" id="progress-fill"></div>
@@ -434,6 +506,10 @@
     <div id="createModal" class="modal-backdrop">
         <div class="modal-content">
             <div class="modal-title">✨ 初始化分析项目</div>
+
+            <div id="modal-analyzing-warn" style="display:none; background:#fef3c7; border:1px solid #fbbf24; border-radius:12px; padding:12px 16px; margin-bottom:20px; font-size:12px; font-weight:600; color:#92400e;">
+                当前有项目正在分析中，同时运行多个分析会影响速度
+            </div>
 
             <div class="mode-toggle">
                 <div class="mode-btn active" id="mode-auto" onclick="switchMode('auto')">🤖 自动 AI 分析</div>
@@ -496,6 +572,8 @@
     <script>
         function openModal() {
             document.getElementById('createModal').style.display = 'flex';
+            const warn = document.getElementById('modal-analyzing-warn');
+            if (warn) warn.style.display = _hasAnalyzing ? 'block' : 'none';
         }
 
         function closeModal() {
@@ -528,6 +606,109 @@
             document.getElementById('api-key-input').required = useAi;
         }
 
+        let _pollTimer = null;
+        let _hasAnalyzing = false;
+        let _analyzingIds = new Set();
+
+        function requestNotifyPermission() {
+            if ('Notification' in window && Notification.permission === 'default') {
+                Notification.requestPermission();
+            }
+        }
+
+        function notifyAnalysisComplete(name, success) {
+            if ('Notification' in window && Notification.permission === 'granted') {
+                new Notification(success ? '分析完成' : '分析失败', {
+                    body: `项目「${name}」${success ? '已就绪，可进入工作台' : '分析异常，请删除后重试'}`,
+                    icon: '/static/bg_meituan.jpg'
+                });
+            }
+        }
+
+        function showToast(msg, duration = 2500) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.classList.add('show');
+            setTimeout(() => t.classList.remove('show'), duration);
+        }
+
+        function updateWarningBanner(projects) {
+            _hasAnalyzing = projects.some(p => p.status === 'analyzing');
+            document.getElementById('warning-banner').style.display = _hasAnalyzing ? 'block' : 'none';
+        }
+
+        function startPolling() {
+            stopPolling();
+            _pollTimer = setInterval(() => loadProjects(), 5000);
+        }
+
+        function stopPolling() {
+            if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+        }
+
+        function renderCard(p) {
+            const card = document.createElement('div');
+            const status = p.status || 'ready';
+
+            if (status === 'analyzing') {
+                card.className = 'project-card card-analyzing';
+                let elapsedText = '';
+                let isTimeout = false;
+                if (p.analysis_started_at) {
+                    const started = new Date(p.analysis_started_at.replace(' ', 'T'));
+                    const mins = Math.floor((Date.now() - started.getTime()) / 60000);
+                    isTimeout = mins >= 30;
+                    elapsedText = mins < 1 ? '刚刚开始' : `已运行 ${mins} 分钟`;
+                }
+                const statusLabel = isTimeout ? '分析超时，建议删除后重试' : 'AI 分析中...';
+                card.innerHTML = `
+                    <div class="project-name">${p.name}</div>
+                    <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+                        <div class="card-spinner"></div>
+                        <div class="card-status-text analyzing">${statusLabel}</div>
+                        ${elapsedText ? `<div style="font-size:11px; color:#94a3b8; margin-top:4px;">${elapsedText}</div>` : ''}
+                    </div>
+                    <div class="card-actions">
+                        <button class="btn-card btn-delete" onclick="deleteProject(${p.id}, event, true)" style="width: 100%;">取消并删除</button>
+                    </div>
+                `;
+                card.onclick = (e) => {
+                    if (!e.target.closest('button')) showToast('该项目正在分析中，请等待完成');
+                };
+            } else if (status === 'failed') {
+                card.className = 'project-card card-failed';
+                card.innerHTML = `
+                    <div class="project-name">${p.name}</div>
+                    <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+                        <div class="card-status-text failed">分析失败</div>
+                    </div>
+                    <div class="card-actions">
+                        <button class="btn-card btn-delete" onclick="deleteProject(${p.id}, event)">删除</button>
+                    </div>
+                `;
+                card.onclick = (e) => {
+                    if (!e.target.closest('button')) showToast('该项目分析失败，请删除后重新创建');
+                };
+            } else {
+                card.className = 'project-card';
+                card.innerHTML = `
+                    <div class="project-name">${p.name}</div>
+                    <div class="project-meta">
+                        创建: ${p.created_at || '-'}<br>
+                        SKU 数量: ${p.sku_count || 0}
+                    </div>
+                    <div class="card-actions">
+                        <button class="btn-card btn-enter" onclick="activateProject(${p.id})">进入工作台</button>
+                        <button class="btn-card btn-delete" onclick="deleteProject(${p.id}, event)">删除</button>
+                    </div>
+                `;
+                card.onclick = (e) => {
+                    if (!e.target.closest('button')) activateProject(p.id);
+                };
+            }
+            return card;
+        }
+
         async function loadProjects() {
             try {
                 const resp = await fetch('/api/projects');
@@ -536,39 +717,35 @@
                 list.innerHTML = '';
 
                 projects.forEach(p => {
-                    const card = document.createElement('div');
-                    card.className = 'project-card';
-                    card.innerHTML = `
-                        <div class="project-name">${p.name}</div>
-                        <div class="project-meta">
-                            📅 创建: ${p.created_at || '2026-03-25'}<br>
-                            📦 SKU 数量: ${p.sku_count || 0}
-                        </div>
-                        <div class="card-actions">
-                            <button class="btn-card btn-enter" onclick="activateProject(${p.id})">进入工作台</button>
-                            <button class="btn-card btn-delete" onclick="deleteProject(${p.id}, event)">删除</button>
-                        </div>
-                    `;
-                    card.onclick = (e) => {
-                        if (!e.target.closest('button')) {
-                            activateProject(p.id);
-                        }
-                    };
-                    list.appendChild(card);
+                    list.appendChild(renderCard(p));
+                    const s = p.status || 'ready';
+                    if (_analyzingIds.has(p.id) && s !== 'analyzing') {
+                        _analyzingIds.delete(p.id);
+                        notifyAnalysisComplete(p.name, s === 'ready');
+                        showToast(s === 'ready' ? `项目「${p.name}」分析完成` : `项目「${p.name}」分析失败`);
+                    }
+                    if (s === 'analyzing') _analyzingIds.add(p.id);
                 });
 
-                // Add "+" Card
                 const addCard = document.createElement('div');
                 addCard.className = 'project-card new-card';
                 addCard.onclick = openModal;
                 addCard.innerHTML = `<div class="plus-icon">+</div>`;
                 list.appendChild(addCard);
 
+                updateWarningBanner(projects);
+
+                if (_hasAnalyzing) {
+                    if (!_pollTimer) startPolling();
+                } else {
+                    stopPolling();
+                }
             } catch (err) {
                 console.error('Projects load error:', err);
             }
         }
 
+        // --- Progress bar (for manual upload sync path) ---
         const PROGRESS_STAGES = [
             { pct: 8,  label: '正在初始化项目...',     delay: 1500 },
             { pct: 18, label: '正在加载分析模型...',    delay: 3000 },
@@ -579,7 +756,6 @@
             { pct: 90, label: '正在写入分析结果...',    delay: 5000 },
             { pct: 95, label: '即将完成...',           delay: 8000 },
         ];
-
         let _progressTimer = null;
 
         function startProgress() {
@@ -589,7 +765,6 @@
             fill.style.width = '0%';
             stage.textContent = '准备中...';
             pct.textContent = '0%';
-
             let idx = 0;
             function next() {
                 if (idx >= PROGRESS_STAGES.length) return;
@@ -609,44 +784,70 @@
             const stage = document.getElementById('progress-stage');
             const pct = document.getElementById('progress-pct');
             fill.style.width = '100%';
-            stage.textContent = '分析完成!';
+            stage.textContent = '导入完成!';
             pct.textContent = '100%';
             setTimeout(cb, 600);
         }
 
         document.getElementById('create-project-form').onsubmit = async (e) => {
             e.preventDefault();
-            document.getElementById('loading-overlay').style.display = 'flex';
-            startProgress();
-            closeModal();
+            const submitBtn = document.getElementById('submit-btn');
+            submitBtn.disabled = true;
+            submitBtn.style.opacity = '0.5';
 
             const formData = new FormData(e.target);
+            const isManual = formData.get('skip_analysis') === 'true';
+
+            if (isManual) {
+                document.getElementById('loading-overlay').style.display = 'flex';
+                startProgress();
+            }
+            closeModal();
+
             try {
                 const resp = await fetch('/api/projects', { method: 'POST', body: formData });
                 const res = await resp.json();
                 if (res.status === 'success') {
-                    finishProgress(() => {
-                        location.href = `/dashboard?project_id=${res.project_id}`;
-                    });
+                    e.target.reset();
+                    switchMode('auto');
+                    if (isManual) {
+                        finishProgress(() => {
+                            location.href = `/dashboard?project_id=${res.project_id}`;
+                        });
+                    } else {
+                        showToast('分析任务已启动，可在列表中查看进度');
+                        loadProjects();
+                    }
                     return;
                 } else {
                     alert('错误: ' + res.message);
                 }
             } catch (err) {
                 alert('请求失败');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.style.opacity = '1';
             }
             clearTimeout(_progressTimer);
             document.getElementById('loading-overlay').style.display = 'none';
         };
 
         async function activateProject(id) {
-            await fetch(`/api/projects/${id}/activate`, { method: 'POST' });
-            location.href = '/dashboard';
+            const resp = await fetch(`/api/projects/${id}/activate`, { method: 'POST' });
+            const res = await resp.json();
+            if (res.status === 'success') {
+                location.href = '/dashboard';
+            } else {
+                showToast(res.message || '无法进入该项目');
+            }
         }
 
-        async function deleteProject(id, event) {
+        async function deleteProject(id, event, isAnalyzing = false) {
             if (event) event.stopPropagation();
-            if (!confirm('确定要删除该项目吗？所有关联数据都将丢失！')) return;
+            const msg = isAnalyzing
+                ? '该项目正在分析中，删除后分析任务将中止，确定继续吗？'
+                : '确定要删除该项目吗？所有关联数据都将丢失！';
+            if (!confirm(msg)) return;
             await fetch(`/api/projects/${id}`, { method: 'DELETE' });
             loadProjects();
         }
@@ -656,6 +857,7 @@
             if (event.target == modal) closeModal();
         }
 
+        requestNotifyPermission();
         loadProjects();
     </script>
 </body>

@@ -8,6 +8,8 @@ import time
 import threading
 import sqlite3
 import hashlib
+import gc
+import json
 import utils
 
 # --- Constants ---
@@ -130,7 +132,7 @@ class DataManager:
                 with conn:
                     # Meta and Project Management
                     conn.execute("CREATE TABLE IF NOT EXISTS meta_info (key TEXT PRIMARY KEY, value TEXT)")
-                    conn.execute("CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, is_active INTEGER DEFAULT 0)")
+                    conn.execute("CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, is_active INTEGER DEFAULT 0, status TEXT DEFAULT 'ready', analysis_started_at TEXT)")
                     conn.execute("CREATE TABLE IF NOT EXISTS project_files (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER, type TEXT, local_path TEXT, store_name TEXT, FOREIGN KEY(project_id) REFERENCES projects(id))")
                     
                     # Core Data Tables (with project_id awareness)
@@ -151,11 +153,32 @@ class DataManager:
                             conn.execute(f"ALTER TABLE {table} ADD COLUMN project_id INTEGER DEFAULT 1")
                             print(f"Added project_id to {table}")
                     
+                    # Migration: Add status / analysis_started_at columns to projects if missing
+                    cursor = conn.execute("PRAGMA table_info(projects)")
+                    proj_cols = [c[1] for c in cursor.fetchall()]
+                    if "status" not in proj_cols:
+                        conn.execute("ALTER TABLE projects ADD COLUMN status TEXT DEFAULT 'ready'")
+                        print("Added status column to projects")
+                    if "analysis_started_at" not in proj_cols:
+                        conn.execute("ALTER TABLE projects ADD COLUMN analysis_started_at TEXT")
+                        print("Added analysis_started_at column to projects")
+
                     # Initialize default project if none exist
                     cursor = conn.execute("SELECT COUNT(*) FROM projects")
                     if cursor.fetchone()[0] == 0:
                         conn.execute("INSERT INTO projects (id, name, is_active) VALUES (1, '默认项目', 1)")
                         print("Created default project.")
+
+                    # Startup recovery: fix orphaned 'analyzing' status from crashed runs
+                    for row in conn.execute("SELECT id FROM projects WHERE status = 'analyzing'").fetchall():
+                        orphan_pid = row[0]
+                        output_path = os.path.join(self.base_dir, "uploads",
+                                                   f"project_{orphan_pid}", "outputs",
+                                                   f"output_{orphan_pid}.xlsx")
+                        new_status = 'ready' if os.path.exists(output_path) else 'failed'
+                        conn.execute("UPDATE projects SET status = ?, analysis_started_at = NULL WHERE id = ?",
+                                     (new_status, orphan_pid))
+                        print(f"Startup recovery: project {orphan_pid} → {new_status}")
             finally:
                 conn.close()
 
@@ -279,63 +302,37 @@ class DataManager:
 
     def _import_to_sqlite(self):
         """
-        New logic:
-        1. main_products: From self.target_file (Source Main Store)
-        2. comp_products: From self.source_files (Source Competitor Stores)
-        3. product_links: From self.output_file (Result File)
+        Transactional import: prepare all data in memory first, then write in a
+        single atomic transaction. If any step fails, nothing is changed in DB.
         """
-        # Phase 0: Clear existing data for this project
+        pid = self.active_project_id
         has_output_file = os.path.exists(self.output_file)
-        with self._db_lock:
-            conn = self._get_conn()
-            try:
-                with conn:
-                    conn.execute("DELETE FROM main_products WHERE project_id = ?", (self.active_project_id,))
-                    conn.execute("DELETE FROM comp_products WHERE project_id = ?", (self.active_project_id,))
-                    # Only clear links when a result file is present for re-import.
-                    # This protects existing manual links if output file is temporarily missing.
-                    if has_output_file:
-                        conn.execute("DELETE FROM product_links WHERE project_id = ?", (self.active_project_id,))
-            finally:
-                conn.close()
 
-        # Phase 1: Import Main Store Data (Full)
+        # ── Phase 1: Prepare main store data (memory only) ──
+        main_df = None
         if os.path.exists(self.target_file):
             print(f"Importing Main Store: {self.target_file}")
             main_data = utils.excel_to_list_dict(self.target_file)
             main_df = pd.DataFrame(main_data)
             main_df = self._apply_mappings(main_df, FIELD_MAPPINGS)
-            
-            # Ensure SKU ID
+
             sku_ids = []
             for idx, row in main_df.iterrows():
                 sid = utils.get_sku_id(row.to_dict())
                 if not sid: sid = f"auto_{idx}"
                 sku_ids.append(sid)
             main_df['skuId'] = sku_ids
-            main_df['project_id'] = self.active_project_id
+            main_df['project_id'] = pid
             main_df['_row_orig_idx'] = range(len(main_df))
-            
-            # Filter and normalize columns
+
             for c in CORE_MAIN_COLUMNS:
                 if c not in main_df.columns: main_df[c] = None
             main_df = main_df[CORE_MAIN_COLUMNS]
-            
-            # Remove duplicates for primary key (project_id, skuId)
             main_df = main_df.drop_duplicates(subset=['project_id', 'skuId'], keep='first')
-            
-            
-            with self._db_lock:
-                conn = self._get_conn()
-                try:
-                    with conn:
-                        # Append to existing structure, ensuring columns match
-                        main_df.to_sql('main_products', conn, index=False, if_exists='append')
-                finally:
-                    conn.close()
-            self.main_df = main_df
 
-        # Phase 2: Import Competitor Store Data (Full)
+        # ── Phase 2: Prepare competitor store data (memory only) ──
+        comp_dfs = []
+        sku_to_store = {}
         for i, path in enumerate(self.source_files):
             if os.path.exists(path):
                 print(f"Importing Competitor Store [{i}]: {path}")
@@ -343,84 +340,58 @@ class DataManager:
                 cdf = pd.DataFrame(comp_data)
                 cdf = self._apply_mappings(cdf, FIELD_MAPPINGS)
                 cdf['store_id'] = str(i)
-                cdf['project_id'] = self.active_project_id
-                
+                cdf['project_id'] = pid
+
                 sku_ids = []
                 for idx, row in cdf.iterrows():
                     sid = utils.get_sku_id(row.to_dict())
                     if not sid: sid = f"auto_{i}_{idx}"
                     sku_ids.append(sid)
                 cdf['skuId'] = sku_ids
-                
-                # Filter and normalize columns
+
                 for c in CORE_COMP_COLUMNS:
                     if c not in cdf.columns: cdf[c] = None
                 cdf = cdf[CORE_COMP_COLUMNS]
-                
-                # Deduplicate before insert (though comp_products has no PK, it's cleaner)
                 cdf = cdf.drop_duplicates(subset=['project_id', 'store_id', 'skuId'], keep='first')
-                
-                with self._db_lock:
-                    conn = self._get_conn()
-                    try:
-                        with conn:
-                            cdf.to_sql('comp_products', conn, index=False, if_exists='append')
-                    finally:
-                        conn.close()
+                comp_dfs.append(cdf)
 
-        # Phase 3: Import Product Links (from Result/Output File)
-        if os.path.exists(self.output_file):
+                for _, row in cdf.iterrows():
+                    sku_to_store[str(row['skuId'])] = str(row['store_id'])
+
+        # ── Phase 3: Prepare links data (memory only, uses sku_to_store from Phase 2) ──
+        links_df = None
+        if has_output_file:
             print(f"Importing Links from Result: {self.output_file}")
             res_data = utils.excel_to_list_dict(self.output_file)
             res_df = pd.DataFrame(res_data)
-            
-            # --- Smart Store ID Mapping ---
-            # 1. Build a SKU -> store_id map for all competitor products in this project
-            with self._db_lock:
-                conn = self._get_conn()
-                try:
-                    comp_skus_df = pd.read_sql("SELECT skuId, store_id FROM comp_products WHERE project_id = ?", conn, params=(self.active_project_id,))
-                finally:
-                    conn.close()
-            
-            sku_to_store = {}
-            if not comp_skus_df.empty:
-                for _, row in comp_skus_df.iterrows():
-                    sku_to_store[str(row['skuId'])] = str(row['store_id'])
-            
-            # 2. Detect mapping for each prefix in res_df
+
             prefix_to_store_map = {}
             for i in range(10):
                 p = str(i)
                 col = f"{p}skuId"
                 if col in res_df.columns:
-                    # Sample unique non-empty SKUs from this prefix column
                     samples = res_df[col].dropna().astype(str).unique().tolist()
-                    hits = {} # store_id -> count
-                    for s in samples[:100]: # Sample first 100 to be efficient
+                    hits = {}
+                    for s in samples[:100]:
                         s_clean = ""
                         try: s_clean = str(int(float(s)))
                         except (ValueError, TypeError, OverflowError): s_clean = s.strip()
-                        
                         if s_clean in sku_to_store:
                             sid = sku_to_store[s_clean]
                             hits[sid] = hits.get(sid, 0) + 1
-                    
                     if hits:
                         best_sid = max(hits, key=hits.get)
                         prefix_to_store_map[p] = best_sid
                         print(f"Detected prefix [{p}] matches store_id [{best_sid}] with {hits[best_sid]} hits")
                     else:
-                        # Fallback to direct mapping
                         prefix_to_store_map[p] = p
-            
-            # Apply mappings for column names based on detected prefixes
+
             final_mappings = FIELD_MAPPINGS.copy()
             for p in prefix_to_store_map.keys():
                 for k, v in FIELD_MAPPINGS.items():
                     final_mappings[p+k] = p+v
             res_df = self._apply_mappings(res_df, final_mappings)
-            
+
             links = []
             for idx, row in res_df.iterrows():
                 row_dict = row.to_dict()
@@ -433,44 +404,48 @@ class DataManager:
                         comp_sku_val = row_dict.get(comp_sku_col)
                         comp_sku = ""
                         if comp_sku_val is not None:
-                            try:
-                                comp_sku = str(int(float(comp_sku_val)))
-                            except (ValueError, TypeError, OverflowError):
-                                comp_sku = str(comp_sku_val).strip()
-                        
+                            try: comp_sku = str(int(float(comp_sku_val)))
+                            except (ValueError, TypeError, OverflowError): comp_sku = str(comp_sku_val).strip()
                         if comp_sku and comp_sku.lower() not in ["", "nan", "none", "nan.0"]:
                             links.append({
-                                'project_id': self.active_project_id,
+                                'project_id': pid,
                                 'main_sku_id': str(main_sku),
-                                'store_id': sid, # Use detected store ID
+                                'store_id': sid,
                                 'comp_sku_id': str(comp_sku),
                                 'similarity': row_dict.get(f"{p}相似度", 1.0),
                                 'match_type': row_dict.get(f"{p}匹配", "未知"),
                                 'is_new_add': row_dict.get(f"{p}是否新增", "否")
                             })
-            
             if links:
                 links_df = pd.DataFrame(links)
-                with self._db_lock:
-                    conn = self._get_conn()
-                    try:
-                        with conn:
-                            links_df.to_sql('product_links', conn, index=False, if_exists='append')
-                    finally:
-                        conn.close()
 
-        # Phase 4: Update Metadata
-        current_mtime = str(os.path.getmtime(self.output_file)) if os.path.exists(self.output_file) else "0"
-        file_key = f"proj_{self.active_project_id}_file"
-        mtime_key = f"proj_{self.active_project_id}_mtime"
+        # ── Phase 4: Atomic DB write — single transaction ──
         with self._db_lock:
             conn = self._get_conn()
             try:
                 with conn:
+                    conn.execute("DELETE FROM main_products WHERE project_id = ?", (pid,))
+                    conn.execute("DELETE FROM comp_products WHERE project_id = ?", (pid,))
+                    if has_output_file:
+                        conn.execute("DELETE FROM product_links WHERE project_id = ?", (pid,))
+
+                    if main_df is not None:
+                        main_df.to_sql('main_products', conn, index=False, if_exists='append')
+                        self.main_df = main_df
+                    for cdf in comp_dfs:
+                        cdf.to_sql('comp_products', conn, index=False, if_exists='append')
+                    if links_df is not None and not links_df.empty:
+                        links_df.to_sql('product_links', conn, index=False, if_exists='append')
+
+                    current_mtime = str(os.path.getmtime(self.output_file)) if has_output_file else "0"
+                    file_key = f"proj_{pid}_file"
+                    mtime_key = f"proj_{pid}_mtime"
                     conn.execute("REPLACE INTO meta_info (key, value) VALUES (?, ?)", (file_key, self.output_file))
                     conn.execute("REPLACE INTO meta_info (key, value) VALUES (?, ?)", (mtime_key, current_mtime))
+                print(f"Import complete for project {pid} (atomic transaction).")
             except Exception as e:
-                print("DB Metadata Update err:", e)
+                print(f"Import FAILED for project {pid}, transaction rolled back: {e}")
+                raise
             finally:
                 conn.close()
 
@@ -575,7 +550,47 @@ class DataManager:
         # Backward compatibility for old calls, but returning paginated for safety
         return self.get_paginated_grid(page=1, limit=50)
 
-    def get_paginated_grid(self, page=1, limit=50, search="", mode="all"):
+    def _grid_filter_col_mask(self, df, col, needle):
+        """Substring match on col and optional prefixed columns (0col, 1col, ...)."""
+        needle = str(needle).strip().lower()
+        if not needle:
+            return pd.Series(True, index=df.index)
+        parts = []
+        if col in df.columns:
+            parts.append(df[col].astype(str).str.lower().str.contains(needle, regex=False, na=False))
+        for p in range(len(self.store_names) + 5):
+            pc = f"{p}{col}"
+            if pc in df.columns:
+                parts.append(df[pc].astype(str).str.lower().str.contains(needle, regex=False, na=False))
+        if not parts:
+            return pd.Series(True, index=df.index)
+        m = parts[0]
+        for q in parts[1:]:
+            m = m | q
+        return m
+
+    def _grid_negative_sales_mask(self, df):
+        """竞店销量 > 主店销量 — 任一侧满足即保留该行。"""
+
+        def row_ok(row):
+            try:
+                main_s = float(row.get("销售", 0) or 0)
+            except (ValueError, TypeError):
+                main_s = 0.0
+            for i in range(len(self.store_names)):
+                p = str(i)
+                try:
+                    cs = float(row.get(f"{p}销售", 0) or 0)
+                except (ValueError, TypeError):
+                    cs = 0.0
+                if cs > main_s:
+                    return True
+            return False
+
+        return df.apply(row_ok, axis=1)
+
+    def get_paginated_grid(self, page=1, limit=50, search="", mode="all", filters_json=None,
+                           sort_field="", sort_order="desc", negative_sales_only=False):
         if self.grid_df is None or self.grid_df.empty:
             return {"items": [], "total": 0, "page": page, "pages": 0, "spu_count": 0}
 
@@ -594,7 +609,7 @@ class DataManager:
                 try: main_act = float(row.get('活动价', 0))
                 except (ValueError, TypeError): pass
                 if main_act <= 0: return False
-                
+
                 for i in range(len(self.store_names)):
                     prefix = str(i)
                     comp_act = 0
@@ -603,16 +618,46 @@ class DataManager:
                     if comp_act > 0 and abs(main_act - comp_act) > 0.01:
                         return True
                 return False
-            
+
             df = df[df.apply(has_diff, axis=1)]
 
+        # 3. Advanced filters (per-column 筛选 in filter popup)
+        if filters_json:
+            try:
+                filters = json.loads(filters_json) if isinstance(filters_json, str) else (filters_json or {})
+            except json.JSONDecodeError:
+                filters = {}
+            if isinstance(filters, dict):
+                for col, raw in filters.items():
+                    if not col or not isinstance(col, str):
+                        continue
+                    if not re.match(r"^[\w\u4e00-\u9fff]+$", col):
+                        continue
+                    val = (raw or "").strip()
+                    if not val:
+                        continue
+                    df = df[self._grid_filter_col_mask(df, col, val)]
+
+        # 4. 负销量：竞店销量 > 主店销量
+        if negative_sales_only:
+            df = df[self._grid_negative_sales_mask(df)]
+
+        # 5. Sort (e.g. 销售, 0销售, 1销售)
+        sf = (sort_field or "").strip()
+        if sf and sf in df.columns:
+            asc = str(sort_order).lower() == "asc"
+            num = pd.to_numeric(df[sf], errors="coerce").fillna(0)
+            df = df.assign(__sort_k=num).sort_values("__sort_k", ascending=asc).drop(columns=["__sort_k"])
+
         total = len(df)
-        pages = (total + limit - 1) // limit
+        pages = (total + limit - 1) // limit if limit else 0
+        page = max(1, int(page))
+        limit = max(1, int(limit))
         start = (page - 1) * limit
         end = start + limit
 
         items = df.iloc[start:end].fillna("").to_dict(orient='records')
-        
+
         return {
             "items": items,
             "total": total,
@@ -654,7 +699,80 @@ class DataManager:
                 conn.close()
         return out
 
-    def get_unlinked_pool_page(self, page=1, limit=30, search="", category3="", sort_store_id="", sort_order="desc"):
+    def _build_unlinked_virtual_row(self, idx, main_df, store_slices, link_map):
+        row = {}
+        if idx < len(main_df):
+            m = main_df.iloc[idx].to_dict()
+            for k, v in m.items():
+                row[k] = "" if pd.isna(v) else v
+            sku = str(row.get("skuId", ""))
+            row["__linked_count"] = link_map.get(sku, 0)
+        else:
+            row["__linked_count"] = 0
+        for i in range(len(self.store_names)):
+            sid = str(i)
+            sdf = store_slices[sid]
+            if idx < len(sdf):
+                c = sdf.iloc[idx].to_dict()
+                for k, v in c.items():
+                    row[f"{sid}{k}"] = "" if pd.isna(v) else v
+                row[f"{sid}是否新增"] = row.get(f"{sid}is_new_add", "否") or "否"
+                row[f"{sid}__from_pool"] = "1"
+            else:
+                row[f"{sid}__from_pool"] = ""
+        return row
+
+    def _unlinked_row_passes_filters(self, row, filters_dict):
+        for col, raw in (filters_dict or {}).items():
+            if not col or not isinstance(col, str):
+                continue
+            if not re.match(r"^[\w\u4e00-\u9fff]+$", col):
+                continue
+            val = (raw or "").strip()
+            if not val:
+                continue
+            val = val.lower()
+            ok = False
+            if col in row and val in str(row.get(col, "")).lower():
+                ok = True
+            else:
+                for p in range(len(self.store_names) + 5):
+                    pc = f"{p}{col}"
+                    if pc in row and val in str(row.get(pc, "")).lower():
+                        ok = True
+                        break
+            if not ok:
+                return False
+        return True
+
+    def _unlinked_row_negative_sales(self, row):
+        try:
+            main_s = float(row.get("销售", 0) or 0)
+        except (ValueError, TypeError):
+            main_s = 0.0
+        for i in range(len(self.store_names)):
+            p = str(i)
+            try:
+                cs = float(row.get(f"{p}销售", 0) or 0)
+            except (ValueError, TypeError):
+                cs = 0.0
+            if cs > main_s:
+                return True
+        return False
+
+    def _unlinked_need_full_scan(self, filters_dict, negative_sales_only):
+        if negative_sales_only:
+            return True
+        for k, v in (filters_dict or {}).items():
+            if not (v or "").strip():
+                continue
+            if k == "美团类目三级":
+                continue
+            return True
+        return False
+
+    def get_unlinked_pool_page(self, page=1, limit=30, search="", category3="", sort_store_id="", sort_order="desc",
+                               filters_json=None, negative_sales_only=False):
         """
         Returns virtual-row aligned unlinked pool:
         - first column: main products (sales desc)
@@ -667,14 +785,21 @@ class DataManager:
         limit = max(1, min(int(limit), 100))
         offset = (page - 1) * limit
         search_like = f"%{search.strip()}%" if search else None
-        cat_like = f"%{category3.strip()}%" if category3 else None
+        try:
+            filters_dict = json.loads(filters_json) if (filters_json and str(filters_json).strip()) else {}
+        except json.JSONDecodeError:
+            filters_dict = {}
+        if not isinstance(filters_dict, dict):
+            filters_dict = {}
+        cat_from_filter = (filters_dict.get("美团类目三级") or "").strip()
+        cat_like = f"%{(category3 or cat_from_filter).strip()}%" if (category3 or cat_from_filter) else None
+
         def _num_expr(col):
             return f"CAST(COALESCE(NULLIF({col}, ''), '0') AS REAL)"
 
         with self._db_lock:
             conn = self._get_conn()
             try:
-                # Main column
                 main_where = ["project_id = ?"]
                 main_params = [self.active_project_id]
                 if search_like:
@@ -684,19 +809,7 @@ class DataManager:
                     main_where.append("美团类目三级 LIKE ?")
                     main_params.append(cat_like)
                 main_where_sql = " AND ".join(main_where)
-                main_count = conn.execute(f"SELECT COUNT(*) FROM main_products WHERE {main_where_sql}", tuple(main_params)).fetchone()[0]
-                main_df = pd.read_sql(
-                    f"""
-                    SELECT * FROM main_products
-                    WHERE {main_where_sql}
-                    ORDER BY {_num_expr('销售')} DESC, _row_orig_idx ASC
-                    LIMIT ? OFFSET ?
-                    """,
-                    conn,
-                    params=tuple(main_params + [limit, offset])
-                )
 
-                # Linked count badge for main cards
                 link_cnt = pd.read_sql(
                     """
                     SELECT main_sku_id, COUNT(*) AS cnt
@@ -705,14 +818,13 @@ class DataManager:
                     GROUP BY main_sku_id
                     """,
                     conn,
-                    params=(self.active_project_id,)
+                    params=(self.active_project_id,),
                 )
                 link_map = {str(r["main_sku_id"]): int(r["cnt"]) for _, r in link_cnt.iterrows()} if not link_cnt.empty else {}
 
-                store_slices = {}
-                store_counts = []
-                for i, _ in enumerate(self.store_names):
-                    sid = str(i)
+                need_full = self._unlinked_need_full_scan(filters_dict, negative_sales_only)
+
+                def load_store_slice(sid, lim, off):
                     where = [
                         "cp.project_id = ?",
                         "cp.store_id = ?",
@@ -721,7 +833,7 @@ class DataManager:
                             WHERE pl.project_id = cp.project_id
                               AND pl.store_id = cp.store_id
                               AND pl.comp_sku_id = cp.skuId
-                        )"""
+                        )""",
                     ]
                     params = [self.active_project_id, sid]
                     if search_like:
@@ -731,50 +843,97 @@ class DataManager:
                         where.append("cp.美团类目三级 LIKE ?")
                         params.append(cat_like)
                     where_sql = " AND ".join(where)
-                    count = conn.execute(f"SELECT COUNT(*) FROM comp_products cp WHERE {where_sql}", tuple(params)).fetchone()[0]
-                    store_counts.append(count)
                     sid_desc = "DESC"
                     if str(sort_store_id) == sid:
                         sid_desc = "ASC" if str(sort_order).lower() == "asc" else "DESC"
-                    sdf = pd.read_sql(
+                    lim_sql = f"LIMIT {int(lim)} OFFSET {int(off)}" if lim is not None else ""
+                    return pd.read_sql(
                         f"""
                         SELECT cp.*
                         FROM comp_products cp
                         WHERE {where_sql}
                         ORDER BY {_num_expr('cp.销售')} {sid_desc}, cp.skuId ASC
+                        {lim_sql}
+                        """,
+                        conn,
+                        params=tuple(params),
+                    )
+
+                if need_full:
+                    main_df = pd.read_sql(
+                        f"""
+                        SELECT * FROM main_products
+                        WHERE {main_where_sql}
+                        ORDER BY {_num_expr('销售')} DESC, _row_orig_idx ASC
+                        """,
+                        conn,
+                        params=tuple(main_params),
+                    )
+                    store_slices = {}
+                    for i, _ in enumerate(self.store_names):
+                        sid = str(i)
+                        store_slices[sid] = load_store_slice(sid, None, None)
+
+                    lens = [len(main_df)] + [len(store_slices[str(i)]) for i in range(len(self.store_names))]
+                    raw_total = max(lens) if lens else 0
+                    indices = []
+                    for idx in range(raw_total):
+                        row = self._build_unlinked_virtual_row(idx, main_df, store_slices, link_map)
+                        if not self._unlinked_row_passes_filters(row, filters_dict):
+                            continue
+                        if negative_sales_only and not self._unlinked_row_negative_sales(row):
+                            continue
+                        indices.append(idx)
+                    total = len(indices)
+                    pages = (total + limit - 1) // limit if total else 0
+                    page_indices = indices[offset : offset + limit]
+                    items = []
+                    for idx in page_indices:
+                        items.append(self._build_unlinked_virtual_row(idx, main_df, store_slices, link_map))
+                else:
+                    main_count = conn.execute(f"SELECT COUNT(*) FROM main_products WHERE {main_where_sql}", tuple(main_params)).fetchone()[0]
+                    main_df = pd.read_sql(
+                        f"""
+                        SELECT * FROM main_products
+                        WHERE {main_where_sql}
+                        ORDER BY {_num_expr('销售')} DESC, _row_orig_idx ASC
                         LIMIT ? OFFSET ?
                         """,
                         conn,
-                        params=tuple(params + [limit, offset])
+                        params=tuple(main_params + [limit, offset]),
                     )
-                    store_slices[sid] = sdf
-
-                total = max([main_count] + store_counts) if (self.store_names or main_count) else 0
-                pages = (total + limit - 1) // limit if total else 0
-                page_rows = max(0, min(limit, total - offset))
-                items = []
-                for idx in range(page_rows):
-                    row = {}
-                    if idx < len(main_df):
-                        m = main_df.iloc[idx].to_dict()
-                        for k, v in m.items():
-                            row[k] = "" if pd.isna(v) else v
-                        sku = str(row.get("skuId", ""))
-                        row["__linked_count"] = link_map.get(sku, 0)
-                    else:
-                        row["__linked_count"] = 0
-                    for i in range(len(self.store_names)):
+                    store_slices = {}
+                    store_counts = []
+                    for i, _ in enumerate(self.store_names):
                         sid = str(i)
-                        sdf = store_slices[sid]
-                        if idx < len(sdf):
-                            c = sdf.iloc[idx].to_dict()
-                            for k, v in c.items():
-                                row[f"{sid}{k}"] = "" if pd.isna(v) else v
-                            row[f"{sid}是否新增"] = row.get(f"{sid}is_new_add", "否") or "否"
-                            row[f"{sid}__from_pool"] = "1"
-                        else:
-                            row[f"{sid}__from_pool"] = ""
-                    items.append(row)
+                        where = [
+                            "cp.project_id = ?",
+                            "cp.store_id = ?",
+                            """NOT EXISTS (
+                                SELECT 1 FROM product_links pl
+                                WHERE pl.project_id = cp.project_id
+                                  AND pl.store_id = cp.store_id
+                                  AND pl.comp_sku_id = cp.skuId
+                            )""",
+                        ]
+                        params = [self.active_project_id, sid]
+                        if search_like:
+                            where.append("(cp.skuId LIKE ? OR cp.商品名称 LIKE ? OR cp.规格名称 LIKE ?)")
+                            params.extend([search_like, search_like, search_like])
+                        if cat_like:
+                            where.append("cp.美团类目三级 LIKE ?")
+                            params.append(cat_like)
+                        where_sql = " AND ".join(where)
+                        count = conn.execute(f"SELECT COUNT(*) FROM comp_products cp WHERE {where_sql}", tuple(params)).fetchone()[0]
+                        store_counts.append(count)
+                        store_slices[sid] = load_store_slice(sid, limit, offset)
+
+                    total = max([main_count] + store_counts) if (self.store_names or main_count) else 0
+                    pages = (total + limit - 1) // limit if total else 0
+                    page_rows = max(0, min(limit, total - offset))
+                    items = []
+                    for idx in range(page_rows):
+                        items.append(self._build_unlinked_virtual_row(idx, main_df, store_slices, link_map))
             finally:
                 conn.close()
 
@@ -1163,7 +1322,8 @@ class DataManager:
             try:
                 cur = conn.execute("""
                     SELECT p.id, p.name, p.created_at, p.is_active,
-                           COALESCE(m.cnt, 0) AS sku_count
+                           COALESCE(m.cnt, 0) AS sku_count, p.status,
+                           p.analysis_started_at
                     FROM projects p
                     LEFT JOIN (
                         SELECT project_id, COUNT(*) AS cnt
@@ -1174,13 +1334,15 @@ class DataManager:
                 """)
                 return [
                     {"id": r[0], "name": r[1], "created_at": r[2],
-                     "is_active": r[3], "sku_count": r[4]}
+                     "is_active": r[3], "sku_count": r[4],
+                     "status": r[5] or "ready",
+                     "analysis_started_at": r[6]}
                     for r in cur.fetchall()
                 ]
             finally:
                 conn.close()
 
-    def create_project(self, name, main_file_info, comp_files_info):
+    def create_project(self, name, main_file_info, comp_files_info, status='ready'):
         """
         main_file_info: {'path': ..., 'store_name': ...}
         comp_files_info: [{'path': ..., 'store_name': ...}, ...]
@@ -1189,8 +1351,9 @@ class DataManager:
             conn = self._get_conn()
             try:
                 with conn:
-                    # Create project
-                    cur = conn.execute("INSERT INTO projects (name) VALUES (?)", (name,))
+                    analysis_started = time.strftime('%Y-%m-%d %H:%M:%S') if status == 'analyzing' else None
+                    cur = conn.execute("INSERT INTO projects (name, status, analysis_started_at) VALUES (?, ?, ?)",
+                                       (name, status, analysis_started))
                     pid = cur.lastrowid
                     
                     # Add files
@@ -1204,7 +1367,23 @@ class DataManager:
             finally:
                 conn.close()
 
+    def update_project_status(self, project_id, status):
+        """Thread-safe status update using an independent connection (safe for background threads)."""
+        conn = sqlite3.connect(self.db_path, timeout=10)
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("UPDATE projects SET status = ?, analysis_started_at = NULL WHERE id = ?",
+                         (status, project_id))
+            conn.commit()
+        finally:
+            conn.close()
+
     def activate_project(self, project_id, skip_load=False):
+        self.grid_df = None
+        self.main_df = None
+        self.store_dfs = {}
+        gc.collect()
+
         with self._db_lock:
             conn = self._get_conn()
             try:
