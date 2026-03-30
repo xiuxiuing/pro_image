@@ -2,6 +2,9 @@ from flask import Flask, render_template, request, jsonify, send_file, send_from
 from data_mgr import DataManager
 from license_utils import LicenseManager
 import os
+import sys
+import signal
+import faulthandler
 import shutil
 import time
 import threading
@@ -9,10 +12,47 @@ import traceback
 import extract_info_ai2
 import main_030822
 
+faulthandler.register(signal.SIGUSR1, all_threads=True, chain=False)
+
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB
 base_dir = os.path.dirname(os.path.abspath(__file__))
 dm = DataManager(base_dir)
+
+# ── Analysis progress tracking ──
+_analysis_progress = {}
+_progress_lock = threading.Lock()
+
+def _init_progress(pid, use_ai, main_name, comp_names):
+    steps = []
+    if use_ai:
+        steps.append({"label": f"AI提取 {main_name}", "status": "pending", "detail": ""})
+        for cn in comp_names:
+            steps.append({"label": f"AI提取 {cn}", "status": "pending", "detail": ""})
+    for cn in comp_names:
+        steps.append({"label": f"向量分析 {cn}", "status": "pending", "detail": ""})
+    steps.append({"label": f"查询匹配 {main_name}", "status": "pending", "detail": ""})
+    prog = {"started_at": time.time(), "steps": steps}
+    with _progress_lock:
+        _analysis_progress[pid] = prog
+    return prog
+
+def _update_step(pid, step_idx, status, detail=""):
+    with _progress_lock:
+        prog = _analysis_progress.get(pid)
+        if not prog or step_idx >= len(prog["steps"]):
+            return
+        step = prog["steps"][step_idx]
+        step["status"] = status
+        step["detail"] = detail
+        if status == "running" and not step.get("started_at"):
+            step["started_at"] = time.time()
+        if status == "done" and not step.get("ended_at"):
+            step["ended_at"] = time.time()
+
+def _clear_progress(pid):
+    with _progress_lock:
+        _analysis_progress.pop(pid, None)
 
 MAX_FILE_SIZE = 80 * 1024 * 1024  # 80MB per file
 ALLOWED_EXTENSIONS = {'.xlsx', '.xls'}
@@ -142,22 +182,55 @@ def handle_projects():
         use_ai = request.form.get('use_ai') == 'on'
         api_key = request.form.get('api_key')
 
+        main_name = os.path.basename(final_main_path).replace('.xlsx','').replace('.xls','')
+        comp_names = [os.path.basename(p).replace('.xlsx','').replace('.xls','') for p in final_comp_paths]
+
         def _run_analysis_bg():
+            _t0 = time.time()
+            print(f"[BG] Project {pid} thread started at {time.strftime('%H:%M:%S')}", flush=True)
+            has_ai = bool(use_ai and api_key)
+            prog = _init_progress(pid, has_ai, main_name, comp_names)
+            ai_file_count = (1 + len(comp_names)) if has_ai else 0
             try:
-                if use_ai and api_key:
-                    extract_info_ai2.process_file_ai(final_main_path, api_key)
-                    for cp in final_comp_paths:
-                        extract_info_ai2.process_file_ai(cp, api_key)
+                if has_ai:
+                    all_ai_paths = [final_main_path] + final_comp_paths
+                    for fi, fp in enumerate(all_ai_paths):
+                        _update_step(pid, fi, "running")
+                        def _ai_cb(batch, total, _fi=fi):
+                            _update_step(pid, _fi, "running", f"batch {batch}/{total}")
+                        extract_info_ai2.process_file_ai(fp, api_key, progress_cb=_ai_cb)
+                        _update_step(pid, fi, "done")
+                    print(f"[BG] Project {pid} AI extraction done in {time.time()-_t0:.1f}s", flush=True)
+
+                analysis_base = ai_file_count
+                def _analysis_cb(event, idx=0, detail=""):
+                    if event == "source_start":
+                        _update_step(pid, analysis_base + idx, "running", detail)
+                    elif event == "source_done":
+                        _update_step(pid, analysis_base + idx, "done")
+                    elif event == "query_start":
+                        _update_step(pid, len(prog["steps"]) - 1, "running", detail)
+                    elif event == "query_progress":
+                        _update_step(pid, len(prog["steps"]) - 1, "running", detail)
+
+                print(f"[BG] Project {pid} starting run_analysis...", flush=True)
                 main_030822.run_analysis(
                     final_main_path, final_comp_paths,
-                    output_name=str(pid), output_dir=dirs["outputs"]
+                    output_name=str(pid), output_dir=dirs["outputs"],
+                    progress_cb=_analysis_cb
                 )
+                _update_step(pid, len(prog["steps"]) - 1, "done")
                 dm.update_project_status(pid, 'ready')
-                print(f"[BG] Project {pid} analysis complete.")
-            except Exception:
+                print(f"[BG] Project {pid} analysis complete in {time.time()-_t0:.1f}s", flush=True)
+            except BaseException as e:
                 traceback.print_exc()
-                dm.update_project_status(pid, 'failed')
-                print(f"[BG] Project {pid} analysis failed.")
+                try:
+                    dm.update_project_status(pid, 'failed')
+                except Exception:
+                    pass
+                print(f"[BG] Project {pid} FAILED ({type(e).__name__}: {e}) after {time.time()-_t0:.1f}s", flush=True)
+            finally:
+                _clear_progress(pid)
 
         threading.Thread(target=_run_analysis_bg, daemon=True).start()
         return jsonify({"status": "success", "project_id": pid})
@@ -314,6 +387,59 @@ def export_new_data():
     resp = send_file(p, as_attachment=True)
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"; resp.headers["Pragma"] = "no-cache"; resp.headers["Expires"] = "0"
     return resp
+
+@app.route('/api/projects/<int:pid>/progress')
+def get_analysis_progress(pid):
+    with _progress_lock:
+        prog = _analysis_progress.get(pid)
+    if not prog:
+        return jsonify({"available": False})
+    steps = prog["steps"]
+    elapsed = time.time() - prog["started_at"]
+    done_count = sum(1 for s in steps if s["status"] == "done")
+    total = len(steps)
+    pct = int(done_count / total * 100) if total else 0
+    running_idx = next((i for i, s in enumerate(steps) if s["status"] == "running"), -1)
+    if running_idx >= 0:
+        pct = int((done_count + 0.5) / total * 100)
+    done_durations = [s["ended_at"] - s["started_at"] for s in steps
+                      if s.get("started_at") and s.get("ended_at")]
+    avg_step = (sum(done_durations) / len(done_durations)) if done_durations else 0
+    remaining_steps = total - done_count - (1 if running_idx >= 0 else 0)
+    running_elapsed = (time.time() - steps[running_idx]["started_at"]) if running_idx >= 0 and steps[running_idx].get("started_at") else 0
+    est_remaining = max(0, avg_step - running_elapsed) + remaining_steps * avg_step if avg_step > 0 else 0
+    out_steps = []
+    for s in steps:
+        item = {"label": s["label"], "status": s["status"], "detail": s.get("detail", "")}
+        if s.get("started_at") and s.get("ended_at"):
+            item["duration_s"] = round(s["ended_at"] - s["started_at"], 1)
+        elif s.get("started_at"):
+            item["running_s"] = round(time.time() - s["started_at"], 1)
+        out_steps.append(item)
+    return jsonify({
+        "available": True, "elapsed_s": round(elapsed, 1),
+        "pct": pct, "estimated_remaining_s": round(est_remaining, 1),
+        "done_count": done_count, "total_steps": total,
+        "steps": out_steps,
+    })
+
+@app.route('/api/debug/threads')
+def debug_threads():
+    import io
+    buf = io.StringIO()
+    buf.write(f"Time: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+    buf.write(f"Active threads: {threading.active_count()}\n\n")
+    frames = sys._current_frames()
+    for tid, frame in frames.items():
+        tname = "unknown"
+        for t in threading.enumerate():
+            if t.ident == tid:
+                tname = t.name
+                break
+        buf.write(f"--- Thread {tid} ({tname}) ---\n")
+        traceback.print_stack(frame, file=buf)
+        buf.write("\n")
+    return buf.getvalue(), 200, {'Content-Type': 'text/plain; charset=utf-8'}
 
 if __name__ == '__main__':
     app.run(debug=False, port=5001)

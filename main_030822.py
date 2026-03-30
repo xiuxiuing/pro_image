@@ -121,30 +121,51 @@ def build_index(data, mode="img", folder="img", path="index"):
     faiss.write_index(index, path)
 
 # --- Analysis Pipeline ---
-def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir="."):
+def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", progress_cb=None):
     os.makedirs(output_dir, exist_ok=True)
     cache_dir = os.path.join(output_dir, "..", "cache") if output_dir != "." else "."
     os.makedirs(cache_dir, exist_ok=True)
 
     sources = []
     for idx, xlsx in enumerate(source_xlsxs):
-        print(f"Loading source: {xlsx}"); data = utils.excel_to_list_dict(xlsx, "Sheet1")
+        fname = os.path.basename(xlsx)
+        print(f"Loading source: {xlsx}")
+        if progress_cb:
+            progress_cb("source_start", idx, f"加载 {fname}")
+        data = utils.excel_to_list_dict(xlsx, "Sheet1")
+        if progress_cb:
+            progress_cb("source_start", idx, f"下载图片 ({len(data)} 件)")
         download_imgs(data)
         
         i_path = os.path.join(cache_dir, f"img_{output_name}{idx}.index")
         t_path = os.path.join(cache_dir, f"txt_{output_name}{idx}.index")
         
-        if not os.path.exists(i_path): build_index(data, "img", "img", i_path)
-        if not os.path.exists(t_path): build_index(data, "text", "", t_path)
+        if not os.path.exists(i_path):
+            if progress_cb:
+                progress_cb("source_start", idx, f"图片向量 ({len(data)} 件)")
+            build_index(data, "img", "img", i_path)
+        if not os.path.exists(t_path):
+            if progress_cb:
+                progress_cb("source_start", idx, f"文本向量 ({len(data)} 件)")
+            build_index(data, "text", "", t_path)
+        if progress_cb:
+            progress_cb("source_done", idx)
         sources.append({
             "sku_dict": {get_sku_id(i): i for i in data}, "tiaoma_dict": {get_条码(i): i for i in data if get_条码(i)},
             "i_idx": faiss.read_index(i_path) if os.path.exists(i_path) else None,
             "t_idx": faiss.read_index(t_path) if os.path.exists(t_path) else None
         })
 
-    print(f"Loading query: {target_xlsx}"); query_data = utils.excel_to_list_dict(target_xlsx, "Sheet1")
-    download_imgs(query_data, "query_img"); res_data = []
-    for item in query_data:
+    print(f"Loading query: {target_xlsx}")
+    query_data = utils.excel_to_list_dict(target_xlsx, "Sheet1")
+    if progress_cb:
+        progress_cb("query_start", 0, f"下载查询图片 ({len(query_data)} 件)")
+    download_imgs(query_data, "query_img")
+    total_q = len(query_data)
+    res_data = []
+    for qi, item in enumerate(query_data):
+        if progress_cb and qi % 50 == 0:
+            progress_cb("query_progress", 0, f"匹配中 {qi}/{total_q}")
         try:
             sid = get_sku_id(item); i_vec, t_vec = image_to_embedding(f"query_img/{sid}.webp"), text_to_embedding(get_text(item))
             res_item = build_match_item(item)

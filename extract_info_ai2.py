@@ -87,7 +87,7 @@ def safe_save(df, file_path):
         return False
 
 
-def process_file_ai(file_path, api_key, batch_size=110):  # Reduced batch size for more complex extraction
+def process_file_ai(file_path, api_key, batch_size=110, progress_cb=None):
     print(f"Loading {file_path}...")
     try:
         df = pd.read_excel(file_path, engine='openpyxl')
@@ -131,8 +131,11 @@ def process_file_ai(file_path, api_key, batch_size=110):  # Reduced batch size f
             combined = f"{name} {spec}".strip() if spec and spec.lower() != 'nan' else name
             batch_inputs.append(combined)
 
-        print(
-            f"Processing batch {i // batch_size + 1}/{(total_to_process - 1) // batch_size + 1} ({len(batch_indices)} rows)...")
+        batch_num = i // batch_size + 1
+        total_batches = (total_to_process - 1) // batch_size + 1
+        print(f"Processing batch {batch_num}/{total_batches} ({len(batch_indices)} rows)...")
+        if progress_cb:
+            progress_cb(batch_num, total_batches)
 
         results = extract_batch_ai(batch_inputs, api_key=api_key)
 
