@@ -17,8 +17,8 @@ if os.path.isdir('models'):
     _datas.append(('models', 'models'))
 
 a = Analysis(
-    ['app.py'],
-    pathex=[os.path.abspath('.')],
+    ['dist/obfuscated/app.py'],
+    pathex=[os.path.abspath('dist/obfuscated')],
     binaries=[],
     datas=_datas,
     hiddenimports=[
@@ -26,8 +26,10 @@ a = Analysis(
         'openpyxl', 'PIL', 'PIL.Image', 'sentence_transformers', 'faiss',
         'transformers', 'google.genai', 'pydantic', 'cryptography',
         'data_mgr', 'license_utils', 'main_030822', 'extract_info_ai2', 'utils',
-        'werkzeug', 'jinja2', 'markupsafe', 'itsdangerous', 'click',
-        'tqdm', 'requests', 'filelock', 'regex', 'safetensors',
+        'merge_sku_data', 'werkzeug', 'jinja2', 'markupsafe', 'itsdangerous', 
+        'click', 'tqdm', 'requests', 'filelock', 'regex', 'safetensors',
+        'scipy', 'sklearn', 'sklearn.utils._cython_blas', 'sklearn.neighbors.typedefs',
+        'sklearn.neighbors.quad_tree', 'sklearn.tree._utils',
     ],
     hookspath=[],
     hooksconfig={},

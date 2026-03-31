@@ -4,12 +4,20 @@ a = Analysis(
     ['dist/obfuscated/app.py'],
     pathex=[os.path.abspath('dist/obfuscated')],
     binaries=[],
-    datas=[('templates', 'templates'), ('models', 'models')],
+    datas=[
+        ('templates', 'templates'), 
+        ('static', 'static'),
+        ('models', 'models')
+    ],
     hiddenimports=[
         'flask', 'pandas', 'numpy', 'torch', 'torchvision', 'torchaudio', 
-        'openpyxl', 'PIL', 'sentence_transformers', 'faiss', 'transformers', 
-        'google.genai', 'pydantic', 'cryptography',
-        'data_mgr', 'license_utils', 'main_030822', 'extract_info_ai2', 'utils'
+        'openpyxl', 'PIL', 'PIL.Image', 'sentence_transformers', 'faiss', 
+        'transformers', 'google.genai', 'pydantic', 'cryptography',
+        'data_mgr', 'license_utils', 'main_030822', 'extract_info_ai2', 'utils',
+        'merge_sku_data', 'werkzeug', 'jinja2', 'markupsafe', 'itsdangerous', 
+        'click', 'tqdm', 'requests', 'filelock', 'regex', 'safetensors',
+        'scipy', 'sklearn', 'sklearn.utils._cython_blas', 'sklearn.neighbors.typedefs',
+        'sklearn.neighbors.quad_tree', 'sklearn.tree._utils',
     ],
     hookspath=[],
     hooksconfig={},

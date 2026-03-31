@@ -14,41 +14,31 @@
 pip install pyarmor pyinstaller
 ```
 
-## 第一步：代码混淆 (PyArmor)
-PyArmor 会对 Python 字节码进行混淆，使人类和反编译器无法读取。
-
 1.  **混淆核心逻辑**:
     ```bash
-    pyarmor gen -O dist/obfuscated app.py data_mgr.py license_utils.py main_030822.py extract_info_ai2.py utils.py
+    pyarmor gen -O dist/obfuscated app.py data_mgr.py license_utils.py main_030822.py extract_info_ai2.py utils.py merge_sku_data.py
     ```
-    执行后会生成一个 `obfuscated` 目录，其中包含受保护的文件以及 `pyarmor_runtime` 运行库。
+    执行后会生成一个 `dist/obfuscated` 目录，其中包含受保护的文件以及 `pyarmor_runtime` 运行库。
 
 ## 第二步：打包 (PyInstaller)
-使用 PyInstaller 将所有内容打包。
+由于代码经过 PyArmor 混淆，PyInstaller 无法自动识别依赖包，因此**必须使用预配置好的 `.spec` 文件**进行打包。
 
 ### Windows 系统打包 (生成 EXE)
-```bash
-pyinstaller --onefile --noconsole \
-    --add-data "templates;templates" \
-    --hidden-import cryptography \
-    --name "ProImage_AI" \
-    dist/obfuscated/app.py
-```
-> [!NOTE]
-> 在 Windows 下，`--add-data` 的路径分隔符是分号 `;`。
-
-PyInstaller ProImage_AI.spec
+1.  确保已完成“第一步”生成了 `dist/obfuscated` 目录。
+2.  执行打包命令：
+    ```bash
+    pyinstaller ProImage_Windows.spec
+    ```
+> [!IMPORTANT]
+> `ProImage_Windows.spec` 已预配置了 `static`、`templates` 资源目录以及 `flask`、`torch`、`pandas` 等 30 多个 `hiddenimports`。手动执行命令行参数极易导致依赖缺失。
 
 ### macOS 系统打包 (生成 .app)
-```bash
-pyinstaller --windowed \
-    --add-data "templates:templates" \
-    --hidden-import cryptography \
-    --name "ProImage_AI" \
-    dist/obfuscated/app.py
-```
-> [!NOTE]
-> 在 macOS 下，`--add-data` 的路径分隔符是冒号 `:`，且使用 `--windowed` 代替 `--noconsole`。
+1.  确保已完成“第一步”生成了 `dist/obfuscated` 目录。
+2.  执行打包命令：
+    ```bash
+    pyinstaller ProImage_macOS.spec
+    ```
+
 
 ## 第三步：软件分发
 分发软件时：
