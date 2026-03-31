@@ -6,8 +6,8 @@ import time
 import json
 import shutil
 
-# API key is now passed from the frontend
-MODEL_NAME = "models/gemini-3.1-flash-lite-preview"  # Using requested model
+# API key / model name are passed from the frontend
+DEFAULT_MODEL_NAME = "models/gemini-3.1-flash-lite-preview"
 
 class ProductInfo(BaseModel):
     brand: str
@@ -20,8 +20,9 @@ class ProductInfo(BaseModel):
 class BatchResponse(BaseModel):
     items: list[ProductInfo]
 
-def extract_batch_ai(names, api_key, max_retries=5):
+def extract_batch_ai(names, api_key, model_name=None, max_retries=5):
     client = genai.Client(api_key=api_key)
+    model_name = (model_name or DEFAULT_MODEL_NAME).strip() or DEFAULT_MODEL_NAME
     prompt = f"""
     Extract high-accuracy details from the following product descriptions.
     
@@ -42,7 +43,7 @@ def extract_batch_ai(names, api_key, max_retries=5):
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
-                model=MODEL_NAME,
+                model=model_name,
                 contents=prompt,
                 config={
                     'response_mime_type': 'application/json',
@@ -87,7 +88,7 @@ def safe_save(df, file_path):
         return False
 
 
-def process_file_ai(file_path, api_key, batch_size=110, progress_cb=None):
+def process_file_ai(file_path, api_key, batch_size=110, progress_cb=None, model_name=None):
     print(f"Loading {file_path}...")
     try:
         df = pd.read_excel(file_path, engine='openpyxl')
@@ -137,7 +138,7 @@ def process_file_ai(file_path, api_key, batch_size=110, progress_cb=None):
         if progress_cb:
             progress_cb(batch_num, total_batches)
 
-        results = extract_batch_ai(batch_inputs, api_key=api_key)
+        results = extract_batch_ai(batch_inputs, api_key=api_key, model_name=model_name)
 
         df.loc[batch_indices, 'A品牌'] = [item.brand for item in results]
         df.loc[batch_indices, 'A商品名称'] = [item.product_name for item in results]

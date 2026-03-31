@@ -1,0 +1,2 @@
+# 仅用于在 Windows 上打包 .exe（与 requirements.txt 分开，避免生产环境误装）
+pyinstaller>=6.0

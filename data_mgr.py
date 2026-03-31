@@ -545,6 +545,14 @@ class DataManager:
             finally:
                 conn.close()
 
+    def _spu_count_from_grid_df(self, df):
+        """当前筛选结果中不重复「商品名称」数量，与 total（行数）同一套过滤条件。"""
+        if df is None or df.empty or '商品名称' not in df.columns:
+            return 0
+        s = df['商品名称'].astype(str).str.strip()
+        s = s[(s != '') & (s.str.lower() != 'nan')]
+        return int(s.nunique())
+
     def get_grid_data(self):
         if self.grid_df is None or self.grid_df.empty: return {"items": [], "total": 0}
         # Backward compatibility for old calls, but returning paginated for safety
@@ -664,7 +672,7 @@ class DataManager:
             "page": page,
             "limit": limit,
             "pages": pages,
-            "spu_count": self._get_spu_count()
+            "spu_count": self._spu_count_from_grid_df(df),
         }
 
     def get_store_products(self, store_id):
@@ -779,7 +787,7 @@ class DataManager:
         - following columns: each store's unlinked products (sales desc)
         """
         if not self.active_project_id:
-            return {"items": [], "total": 0, "page": page, "limit": limit, "pages": 0}
+            return {"items": [], "total": 0, "page": page, "limit": limit, "pages": 0, "spu_count": 0}
 
         page = max(1, int(page))
         limit = max(1, min(int(limit), 100))
@@ -823,6 +831,7 @@ class DataManager:
                 link_map = {str(r["main_sku_id"]): int(r["cnt"]) for _, r in link_cnt.iterrows()} if not link_cnt.empty else {}
 
                 need_full = self._unlinked_need_full_scan(filters_dict, negative_sales_only)
+                spu_count = self._get_spu_count()
 
                 def load_store_slice(sid, lim, off):
                     where = [
@@ -877,6 +886,7 @@ class DataManager:
                     lens = [len(main_df)] + [len(store_slices[str(i)]) for i in range(len(self.store_names))]
                     raw_total = max(lens) if lens else 0
                     indices = []
+                    spu_names = set()
                     for idx in range(raw_total):
                         row = self._build_unlinked_virtual_row(idx, main_df, store_slices, link_map)
                         if not self._unlinked_row_passes_filters(row, filters_dict):
@@ -884,7 +894,13 @@ class DataManager:
                         if negative_sales_only and not self._unlinked_row_negative_sales(row):
                             continue
                         indices.append(idx)
+                        nm = row.get('商品名称')
+                        if nm is not None:
+                            t = str(nm).strip()
+                            if t and t.lower() != 'nan':
+                                spu_names.add(t)
                     total = len(indices)
+                    spu_count = len(spu_names)
                     pages = (total + limit - 1) // limit if total else 0
                     page_indices = indices[offset : offset + limit]
                     items = []
@@ -937,7 +953,7 @@ class DataManager:
             finally:
                 conn.close()
 
-        return {"items": items, "total": total, "page": page, "limit": limit, "pages": pages, "spu_count": self._get_spu_count()}
+        return {"items": items, "total": total, "page": page, "limit": limit, "pages": pages, "spu_count": spu_count}
 
     def get_main_products_page(self, page=1, limit=50, search=""):
         if not self.active_project_id:

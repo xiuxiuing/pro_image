@@ -12,12 +12,42 @@ import traceback
 import extract_info_ai2
 import main_030822
 
-faulthandler.register(signal.SIGUSR1, all_threads=True, chain=False)
+if hasattr(signal, 'SIGUSR1'):
+    faulthandler.register(signal.SIGUSR1, all_threads=True, chain=False)
 
-app = Flask(__name__)
+
+def _resolve_app_paths():
+    """
+    PyInstaller 打包后：只读资源在 sys._MEIPASS；数据库/上传/缓存必须写在 exe 旁可写目录，
+    否则写入 _MEIPASS 会失败或无法持久化。
+    """
+    if getattr(sys, 'frozen', False):
+        resource_root = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+        exe_dir = os.path.dirname(sys.executable)
+        data_root = os.path.join(exe_dir, 'ProImage_data')
+        os.makedirs(data_root, exist_ok=True)
+        os.makedirs(os.path.join(data_root, 'uploads'), exist_ok=True)
+        os.makedirs(os.path.join(data_root, 'img'), exist_ok=True)
+    else:
+        resource_root = os.path.dirname(os.path.abspath(__file__))
+        data_root = resource_root
+    return resource_root, data_root
+
+
+resource_root, data_root = _resolve_app_paths()
+# 冻结版：分析线程里相对路径 img/、query_img/ 与 DataManager 使用同一根目录
+if getattr(sys, 'frozen', False):
+    os.chdir(data_root)
+
+_template = os.path.join(resource_root, 'templates')
+_static = os.path.join(resource_root, 'static')
+if os.path.isdir(_static):
+    app = Flask(__name__, template_folder=_template, static_folder=_static, static_url_path='/static')
+else:
+    app = Flask(__name__, template_folder=_template)
+
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB
-base_dir = os.path.dirname(os.path.abspath(__file__))
-dm = DataManager(base_dir)
+dm = DataManager(data_root)
 
 # ── Analysis progress tracking ──
 _analysis_progress = {}
@@ -70,7 +100,7 @@ def _validate_upload(file_storage, label):
     return None
 
 # --- License Check Logic ---
-LICENSE_FILE = os.path.join(base_dir, "license.dat")
+LICENSE_FILE = os.path.join(data_root, "license.dat")
 CURRENT_HWID = LicenseManager.get_hwid()
 
 def check_license():
@@ -127,7 +157,7 @@ def handle_projects():
 
         # Temporary PID for directory naming
         temp_pid = int(time.time())
-        proj_dir = os.path.join(base_dir, "uploads", f"project_{temp_pid}")
+        proj_dir = os.path.join(data_root, "uploads", f"project_{temp_pid}")
         sources_dir = os.path.join(proj_dir, "sources")
         os.makedirs(sources_dir, exist_ok=True)
         
@@ -157,7 +187,7 @@ def handle_projects():
                                 comp_infos, status='ready' if is_manual else 'analyzing')
 
         # Rename temp directory to real PID
-        real_proj_dir = os.path.join(base_dir, "uploads", f"project_{pid}")
+        real_proj_dir = os.path.join(data_root, "uploads", f"project_{pid}")
         if os.path.exists(real_proj_dir): shutil.rmtree(real_proj_dir)
         os.rename(proj_dir, real_proj_dir)
 
@@ -181,6 +211,7 @@ def handle_projects():
         # Async path: return immediately, run analysis in background thread
         use_ai = request.form.get('use_ai') == 'on'
         api_key = request.form.get('api_key')
+        ai_model_name = (request.form.get('ai_model_name') or "").strip()
 
         main_name = os.path.basename(final_main_path).replace('.xlsx','').replace('.xls','')
         comp_names = [os.path.basename(p).replace('.xlsx','').replace('.xls','') for p in final_comp_paths]
@@ -198,7 +229,7 @@ def handle_projects():
                         _update_step(pid, fi, "running")
                         def _ai_cb(batch, total, _fi=fi):
                             _update_step(pid, _fi, "running", f"batch {batch}/{total}")
-                        extract_info_ai2.process_file_ai(fp, api_key, progress_cb=_ai_cb)
+                        extract_info_ai2.process_file_ai(fp, api_key, progress_cb=_ai_cb, model_name=ai_model_name)
                         _update_step(pid, fi, "done")
                     print(f"[BG] Project {pid} AI extraction done in {time.time()-_t0:.1f}s", flush=True)
 
@@ -371,7 +402,7 @@ def update_cell():
 
 @app.route('/img/<path:filename>')
 def serve_img(filename):
-    return send_from_directory(os.path.join(base_dir, "img"), filename)
+    return send_from_directory(os.path.join(data_root, "img"), filename)
 
 
 @app.route('/api/export')
