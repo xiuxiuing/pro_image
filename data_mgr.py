@@ -379,8 +379,9 @@ class DataManager:
                     hits = {}
                     for s in samples[:100]:
                         s_clean = ""
-                        try: s_clean = str(int(float(s)))
-                        except (ValueError, TypeError, OverflowError): s_clean = s.strip()
+                        if s is not None:
+                            s_str = str(s).strip()
+                            s_clean = s_str[:-2] if s_str.endswith(".0") else s_str
                         if s_clean in sku_to_store:
                             sid = sku_to_store[s_clean]
                             hits[sid] = hits.get(sid, 0) + 1
@@ -409,8 +410,8 @@ class DataManager:
                         comp_sku_val = row_dict.get(comp_sku_col)
                         comp_sku = ""
                         if comp_sku_val is not None:
-                            try: comp_sku = str(int(float(comp_sku_val)))
-                            except (ValueError, TypeError, OverflowError): comp_sku = str(comp_sku_val).strip()
+                            s_str = str(comp_sku_val).strip()
+                            comp_sku = s_str[:-2] if s_str.endswith(".0") else s_str
                         if comp_sku and comp_sku.lower() not in ["", "nan", "none", "nan.0"]:
                             links.append({
                                 'project_id': pid,

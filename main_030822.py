@@ -85,36 +85,88 @@ def download_imgs(data, folder="img", workers=30):
         [ex.submit(download_img, (item.get("图片") or "").strip(), get_sku_id(item), folder) for item in data]
 
 # --- Embedding & Index ---
+def images_to_embeddings(paths, batch_size=32):
+    all_embeddings = []
+    for i in range(0, len(paths), batch_size):
+        batch_paths = paths[i:i + batch_size]
+        batch_images = []
+        valid_indices = []
+        for idx, p in enumerate(batch_paths):
+            try:
+                if os.path.exists(p):
+                    with Image.open(p) as img:
+                        batch_images.append(img.convert("RGB"))
+                        valid_indices.append(idx)
+            except: pass
+        
+        if not batch_images:
+            all_embeddings.extend([None] * len(batch_paths))
+            continue
+            
+        try:
+            inputs = img_processor(images=batch_images, return_tensors="pt").to(device)
+            with torch.no_grad():
+                outputs = img_model(**inputs)
+                embeddings = outputs.last_hidden_state[:, 0]
+                embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
+                embeddings = embeddings.cpu().numpy().astype("float32")
+                
+            batch_out = [None] * len(batch_paths)
+            for vi, embed in zip(valid_indices, embeddings):
+                batch_out[vi] = embed
+            all_embeddings.extend(batch_out)
+        except:
+            all_embeddings.extend([None] * len(batch_paths))
+    return all_embeddings
+
+def texts_to_embeddings(texts, batch_size=32):
+    all_embeddings = []
+    for i in range(0, len(texts), batch_size):
+        batch_texts = texts[i:i + batch_size]
+        try:
+            inputs = text_tokenizer(batch_texts, padding=True, truncation=True, max_length=512, return_tensors="pt").to(device)
+            with torch.no_grad():
+                outputs = text_model(**inputs)
+                embeddings = outputs.last_hidden_state[:, 0]
+                embeddings = torch.nn.functional.normalize(embeddings, dim=1).cpu().numpy().astype("float32")
+            all_embeddings.extend([embeddings[j] for j in range(len(batch_texts))])
+        except:
+            all_embeddings.extend([None] * len(batch_texts))
+    return all_embeddings
+
 def image_to_embedding(path):
-    try:
-        with Image.open(path) as img: i = img_processor(images=img.convert("RGB"), return_tensors="pt").to(device)
-        with torch.no_grad(): o = img_model(**i); e = o.last_hidden_state[:, 0]
-        e = e / e.norm(dim=-1, keepdim=True)
-        return e.cpu().numpy().astype("float32")
-    except: return None
+    res = images_to_embeddings([path])
+    return res[0]
 
 def text_to_embedding(text):
-    i = text_tokenizer(text, padding=True, truncation=True, max_length=512, return_tensors="pt").to(device)
-    with torch.no_grad(): o = text_model(**i); e = o.last_hidden_state[:, 0]
-    return torch.nn.functional.normalize(e, dim=1).cpu().numpy().astype("float32")
+    res = texts_to_embeddings([text])
+    return res[0]
 
-def build_index(data, mode="img", folder="img", path="index"):
+def build_index(data, mode="img", folder="img", path="index", batch_size=32):
     vecs, ids = [], []
+    valid_items = []
     for item in data:
         sid = get_sku_id(item)
-        if not sid: continue
-        try:
-            v = image_to_embedding(f"{folder}/{sid}.webp") if mode == "img" else text_to_embedding(get_text(item))
+        if sid: valid_items.append((sid, item))
+        
+    for i in range(0, len(valid_items), batch_size):
+        batch = valid_items[i:i + batch_size]
+        sids = [b[0] for b in batch]
+        
+        if mode == "img":
+            paths = [f"{folder}/{sid}.webp" for sid in sids]
+            batch_vecs = images_to_embeddings(paths, batch_size=batch_size)
+        else:
+            texts = [get_text(b[1]) for b in batch]
+            batch_vecs = texts_to_embeddings(texts, batch_size=batch_size)
+            
+        for (sid, item), v in zip(batch, batch_vecs):
             if v is not None:
                 try:
-                    # FAISS IndexIDMap2 requires int64 IDs
                     numeric_id = int(float(sid))
                     vecs.append(v)
                     ids.append(numeric_id)
-                except:
-                    # Skip non-numeric IDs for FAISS index, but they will still be in tiaoma_dict
-                    continue
-        except Exception as e: print(f"Embedding err {sid}: {e}")
+                except: continue
     if not vecs: return
     v_stack = np.vstack(vecs); id_arr = np.array(ids, dtype="int64")
     index = faiss.IndexIDMap2(faiss.IndexFlatIP(dim)); index.add_with_ids(v_stack, id_arr)
@@ -161,29 +213,85 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
     if progress_cb:
         progress_cb("query_start", 0, f"下载查询图片 ({len(query_data)} 件)")
     download_imgs(query_data, "query_img")
+    
     total_q = len(query_data)
-    res_data = []
-    for qi, item in enumerate(query_data):
-        if progress_cb and qi % 50 == 0:
-            progress_cb("query_progress", 0, f"匹配中 {qi}/{total_q}")
-        try:
-            sid = get_sku_id(item); i_vec, t_vec = image_to_embedding(f"query_img/{sid}.webp"), text_to_embedding(get_text(item))
-            res_item = build_match_item(item)
-            for idx, src in enumerate(sources):
-                hit = src["tiaoma_dict"].get(get_条码(item))
-                if hit: append_match_result(res_item, hit, 1, "条码匹配", str(idx)); continue
+    if progress_cb:
+        progress_cb("query_progress", 0, f"生成查询向量 0/{total_q}")
+    
+    # Pre-compute all query embeddings in batches
+    query_img_paths = [f"query_img/{get_sku_id(item)}.webp" for item in query_data]
+    query_texts = [get_text(item) for item in query_data]
+    
+    query_img_vecs = images_to_embeddings(query_img_paths, batch_size=32)
+    query_txt_vecs = texts_to_embeddings(query_texts, batch_size=32)
+    
+    res_data = [build_match_item(item) for item in query_data]
+    
+    for idx, src in enumerate(sources):
+        print(f"Analyzing source {idx}...")
+        if progress_cb:
+            progress_cb("query_progress", 0, f"分析来源 {idx+1}/{len(sources)}")
+            
+        # 1. Barcode match (fast)
+        for qi, item in enumerate(query_data):
+            hit = src["tiaoma_dict"].get(get_条码(item))
+            if hit:
+                append_match_result(res_data[qi], hit, 1, "条码匹配", str(idx))
                 
-                s_id, score, match = -1, 0, ""
-                if i_vec is not None and src["i_idx"] is not None:
-                    sc, ids = src["i_idx"].search(i_vec, 1); s_id, score, match = ids[0][0], float(sc[0][0]), "图片匹配"
-                if score < 0.9 and t_vec is not None and src["t_idx"] is not None:
-                    sc, ids = src["t_idx"].search(t_vec, 1)
-                    if float(sc[0][0]) > score: s_id, score, match = ids[0][0], float(sc[0][0]), "文本匹配"
+        # 2. Batch vector search for items not yet matched by barcode in this source
+        unmatched_indices = [i for i, rd in enumerate(res_data) if f"{idx}匹配" not in rd]
+        if not unmatched_indices: continue
+        
+        # Prepare vectors for Faiss batch search
+        search_img_vecs = []
+        search_img_map = [] # idx in unmatched_indices
+        search_txt_vecs = []
+        search_txt_map = []
+        
+        for ui in unmatched_indices:
+            iv, tv = query_img_vecs[ui], query_txt_vecs[ui]
+            if iv is not None and src["i_idx"] is not None:
+                search_img_vecs.append(iv)
+                search_img_map.append(ui)
+            if tv is not None and src["t_idx"] is not None:
+                search_txt_vecs.append(tv)
+                search_txt_map.append(ui)
                 
+        # Image search
+        img_hits = {} # ui -> (s_id, score)
+        if search_img_vecs:
+            v_block = np.vstack(search_img_vecs)
+            scores, ids = src["i_idx"].search(v_block, 1)
+            for i, ui in enumerate(search_img_map):
+                img_hits[ui] = (ids[i][0], float(scores[i][0]))
+                
+        # Text search
+        txt_hits = {}
+        if search_txt_vecs:
+            v_block = np.vstack(search_txt_vecs)
+            scores, ids = src["t_idx"].search(v_block, 1)
+            for i, ui in enumerate(search_txt_map):
+                txt_hits[ui] = (ids[i][0], float(scores[i][0]))
+                
+        # Merge results with threshholds and category check
+        for ui in unmatched_indices:
+            item = query_data[ui]
+            s_id, score, match = -1, 0, ""
+            
+            i_hit = img_hits.get(ui)
+            if i_hit:
+                s_id, score, match = i_hit[0], i_hit[1], "图片匹配"
+                
+            t_hit = txt_hits.get(ui)
+            if t_hit:
+                if score < 0.9 or (t_hit[1] > score):
+                    if t_hit[1] > score:
+                        s_id, score, match = t_hit[0], t_hit[1], "文本匹配"
+            
+            if s_id != -1:
                 hit = src["sku_dict"].get(str(int(s_id)))
-                if hit and get_美团类名3(item) == get_美团类名3(hit): append_match_result(res_item, hit, score, match, str(idx))
-            res_data.append(res_item)
-        except: traceback.print_exc()
+                if hit and get_美团类名3(item) == get_美团类名3(hit):
+                    append_match_result(res_data[ui], hit, score, match, str(idx))
 
     out_path = os.path.join(output_dir, f"output_{output_name}.xlsx")
     utils.write_dict_list_to_excel(res_data, out_path)

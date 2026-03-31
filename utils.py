@@ -84,11 +84,10 @@ def get_sku_id(item):
     if val is None or str(val).strip() == "":
         return ""
         
-    try:
-        # Handle float strings like "123.0" and return as "123"
-        return str(int(float(val)))
-    except:
-        return str(val).strip()
+    s_val = str(val).strip()
+    if s_val.endswith(".0"):
+        return s_val[:-2]
+    return s_val
 
 
 def write_multisheet_dict_to_excel(sheet_data_dict, file_path="output_multisheet.xlsx"):

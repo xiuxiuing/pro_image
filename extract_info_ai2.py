@@ -105,55 +105,73 @@ def process_file_ai(file_path, api_key, batch_size=110, progress_cb=None, model_
         print(f"Required columns not found in {file_path}. Available: {cols}")
         return
 
-    # Initialize/Clear columns to ensure full re-extraction
+    # Initialize target columns if they don't exist
     target_cols = ['A品牌', 'A商品名称', 'A规格', 'A材质口味', 'A使用场景', 'A功能标签']
-    
     for col in target_cols:
-        df[col] = ""  # Clear old data
+        if col not in df.columns:
+            df[col] = ""
+        else:
+            df[col] = df[col].fillna("")
 
-    # Identify rows that need processing
-    rows_to_process = df.index.tolist()
+    # 1. Identify rows that need processing (where 'A商品名称' is empty)
+    # We also combine Name + Spec for matching
+    df['_temp_input'] = df.apply(lambda r: f"{str(r[name_col]).strip()} {str(r[spec_col]).strip()}".strip() 
+                               if str(r[spec_col]).lower() != 'nan' else str(r[name_col]).strip(), axis=1)
+    
+    mask_to_process = (df['A商品名称'] == "") | (df['A商品名称'].isna())
+    rows_to_process = df[mask_to_process]
+    
+    if rows_to_process.empty:
+        print(f"All rows in {file_path} are already processed. Skipping AI extraction.")
+        df.drop(columns=['_temp_input'], inplace=True)
+        return
 
-    total_to_process = len(rows_to_process)
-    print(f"Total rows in file: {len(df)}")
-    print(f"Processing all {total_to_process} rows...")
+    # 2. Get unique inputs from those rows
+    unique_inputs = rows_to_process['_temp_input'].unique().tolist()
+    total_unique = len(unique_inputs)
+    print(f"Total rows to process: {len(rows_to_process)}")
+    print(f"Unique items to process via AI: {total_unique}")
 
-    # Process in batches
-    for i in range(0, total_to_process, batch_size):
-
-        batch_indices = rows_to_process[i:i + batch_size]
-
-        # Concatenate '商品名称' and '规格' as input for AI
-        batch_inputs = []
-        for idx in batch_indices:
-            name = str(df.loc[idx, name_col]).strip()
-            spec = str(df.loc[idx, spec_col]).strip()
-            # Combine them if both exist, otherwise use what's available
-            combined = f"{name} {spec}".strip() if spec and spec.lower() != 'nan' else name
-            batch_inputs.append(combined)
-
+    # 3. Process unique items in batches
+    results_map = {} # combined_name -> ProductInfo
+    
+    for i in range(0, total_unique, batch_size):
+        batch_inputs = unique_inputs[i:i + batch_size]
         batch_num = i // batch_size + 1
-        total_batches = (total_to_process - 1) // batch_size + 1
-        print(f"Processing batch {batch_num}/{total_batches} ({len(batch_indices)} rows)...")
+        total_batches = (total_unique - 1) // batch_size + 1
+        print(f"Processing batch {batch_num}/{total_batches} ({len(batch_inputs)} unique items)...")
+        
         if progress_cb:
             progress_cb(batch_num, total_batches)
 
-        results = extract_batch_ai(batch_inputs, api_key=api_key, model_name=model_name)
+        batch_results = extract_batch_ai(batch_inputs, api_key=api_key, model_name=model_name)
+        
+        for name, res in zip(batch_inputs, batch_results):
+            results_map[name] = res
+        
+        # We don't save every batch anymore to save time, but we could save every N batches if needed.
+        # For now, let's keep it simple and save once at the end or every 5 batches.
+        if (batch_num % 5 == 0) or (i + batch_size >= total_unique):
+             # Sync back to main DF for rows in THIS batch (optional, but good for "safe" intermediate state)
+             pass
 
-        df.loc[batch_indices, 'A品牌'] = [item.brand for item in results]
-        df.loc[batch_indices, 'A商品名称'] = [item.product_name for item in results]
-        df.loc[batch_indices, 'A规格'] = [item.spec for item in results]
-        df.loc[batch_indices, 'A材质口味'] = [item.material_flavor for item in results]
-        df.loc[batch_indices, 'A使用场景'] = [item.usage_scenario for item in results]
-        df.loc[batch_indices, 'A功能标签'] = [item.functional_tags for item in results]
+    # 4. Map results back to the original DataFrame
+    for name, res in results_map.items():
+        row_mask = (df['_temp_input'] == name) & mask_to_process
+        df.loc[row_mask, 'A品牌'] = res.brand
+        df.loc[row_mask, 'A商品名称'] = res.product_name
+        df.loc[row_mask, 'A规格'] = res.spec
+        df.loc[row_mask, 'A材质口味'] = res.material_flavor
+        df.loc[row_mask, 'A使用场景'] = res.usage_scenario
+        df.loc[row_mask, 'A功能标签'] = res.functional_tags
 
-        # Save progress every batch
-        if safe_save(df, file_path):
-            print(f"Saved progress to {file_path} (Safe)")
+    df.drop(columns=['_temp_input'], inplace=True)
 
-        time.sleep(1)
-
-    print(f"Finished processing {file_path}")
+    # 5. Final Save
+    if safe_save(df, file_path):
+        print(f"Finished processing {file_path} and saved results.")
+    else:
+        print(f"CRITICAL: Failed to save results for {file_path}")
 
 
 if __name__ == "__main__":
