@@ -30,7 +30,7 @@ def generate_keys():
         ))
     print("Keys generated: private_key.pem, public_key.pem")
 
-def create_license(hwids, expires_days=365):
+def create_license(hwids, expires_days=30):
     """Signs a license for the given HWIDs."""
     if not os.path.exists("private_key.pem"):
         print("Error: private_key.pem not found. Run generate_keys first.")
@@ -41,6 +41,7 @@ def create_license(hwids, expires_days=365):
         private_key = serialization.load_pem_private_key(f.read(), password=None)
     
     # License Data
+    # 默认有效期：1 个月（30 天）
     expires = (datetime.datetime.now() + datetime.timedelta(days=expires_days)).strftime("%Y-%m-%d")
     data = {
         "hwids": hwids if isinstance(hwids, list) else [hwids],
@@ -74,8 +75,13 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage:")
         print("  python keygen_tool.py init         # Generate RSA keys")
-        print("  python keygen_tool.py sign <HWID>  # Create 1-year license for HWID")
+        print("  python keygen_tool.py sign <HWID> [days]  # Create license for HWID (default 30 days)")
     elif sys.argv[1] == "init":
         generate_keys()
     elif sys.argv[1] == "sign":
-        create_license(sys.argv[2:])
+        args = sys.argv[2:]
+        days = 30
+        if len(args) >= 2 and args[-1].isdigit():
+            days = int(args[-1])
+            args = args[:-1]
+        create_license(args, expires_days=days)

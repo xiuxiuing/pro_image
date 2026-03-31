@@ -33,3 +33,5 @@ node_modules/
 *.bak
 *.corrupted
 *.old
+vendor/private_key.pem
+vendor/public_key.pem

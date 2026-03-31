@@ -163,6 +163,11 @@ class DataManager:
                         conn.execute("ALTER TABLE projects ADD COLUMN analysis_started_at TEXT")
                         print("Added analysis_started_at column to projects")
 
+                    # Performance indexes for unlinked-pool / grid queries
+                    conn.execute("CREATE INDEX IF NOT EXISTS idx_product_links_lookup ON product_links(project_id, store_id, comp_sku_id)")
+                    conn.execute("CREATE INDEX IF NOT EXISTS idx_comp_products_store ON comp_products(project_id, store_id)")
+                    conn.execute("CREATE INDEX IF NOT EXISTS idx_product_links_main ON product_links(project_id, main_sku_id)")
+
                     # Initialize default project if none exist
                     cursor = conn.execute("SELECT COUNT(*) FROM projects")
                     if cursor.fetchone()[0] == 0:

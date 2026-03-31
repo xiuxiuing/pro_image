@@ -9,8 +9,8 @@ import shutil
 import time
 import threading
 import traceback
-import extract_info_ai2
-import main_030822
+
+_single_instance_lock_fh = None
 
 if hasattr(signal, 'SIGUSR1'):
     faulthandler.register(signal.SIGUSR1, all_threads=True, chain=False)
@@ -24,7 +24,32 @@ def _resolve_app_paths():
     if getattr(sys, 'frozen', False):
         resource_root = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
         exe_dir = os.path.dirname(sys.executable)
-        data_root = os.path.join(exe_dir, 'ProImage_data')
+        # macOS .app：sys.executable 通常在 .../ProImage_AI.app/Contents/MacOS/
+        # 交付时更希望把可写数据放在 .app 同级目录：<folder>/ProImage_data
+        bundle_dir = None
+        try:
+            p = exe_dir
+            if p.endswith(os.path.join('Contents', 'MacOS')):
+                bundle_dir = os.path.dirname(os.path.dirname(p))  # .../ProImage_AI.app
+        except Exception:
+            bundle_dir = None
+
+        external_data_root = None
+        if bundle_dir:
+            external_data_root = os.path.join(os.path.dirname(bundle_dir), 'ProImage_data')
+
+        candidate_roots = [r for r in [external_data_root, os.path.join(exe_dir, 'ProImage_data')] if r]
+        data_root = None
+        for r in candidate_roots:
+            try:
+                os.makedirs(r, exist_ok=True)
+                data_root = r
+                break
+            except Exception:
+                continue
+        if not data_root:
+            data_root = os.path.join(exe_dir, 'ProImage_data')
+            os.makedirs(data_root, exist_ok=True)
         os.makedirs(data_root, exist_ok=True)
         os.makedirs(os.path.join(data_root, 'uploads'), exist_ok=True)
         os.makedirs(os.path.join(data_root, 'img'), exist_ok=True)
@@ -39,6 +64,40 @@ resource_root, data_root = _resolve_app_paths()
 if getattr(sys, 'frozen', False):
     os.chdir(data_root)
 
+
+def _acquire_single_instance_lock():
+    """
+    防止 macOS 启动很慢时被多次双击，导致同时启动多个实例。
+    仅在 frozen（.app）模式启用。
+    """
+    global _single_instance_lock_fh
+    if not getattr(sys, 'frozen', False):
+        return True
+
+    try:
+        import fcntl  # macOS/Linux
+    except Exception:
+        return True
+
+    lock_path = os.path.join(data_root, "ProImage_AI.lock")
+    try:
+        fh = open(lock_path, "w")
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fh.write(str(os.getpid()))
+        fh.flush()
+        _single_instance_lock_fh = fh
+        return True
+    except Exception:
+        try:
+            fh.close()
+        except Exception:
+            pass
+        return False
+
+
+if not _acquire_single_instance_lock():
+    raise SystemExit(0)
+
 _template = os.path.join(resource_root, 'templates')
 _static = os.path.join(resource_root, 'static')
 if os.path.isdir(_static):
@@ -48,6 +107,10 @@ else:
 
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB
 dm = DataManager(data_root)
+
+# 放在单实例锁之后，避免多次双击时重复触发重依赖初始化
+import extract_info_ai2  # noqa: E402
+import main_030822  # noqa: E402
 
 # ── Analysis progress tracking ──
 _analysis_progress = {}

@@ -57,6 +57,15 @@ pyinstaller --windowed \
 3.  **绝对不要**分发 `private_key.pem` 或 `vendor/keygen_tool.py`。
 4.  引导用户运行程序，复制他们的**机器指纹 (HWID)** 并发送给您。
 5.  在您的电脑上使用 `vendor/keygen_tool.py sign <HWID>` 生成 `license.dat` 并发送给用户。用户将其放在程序根目录下（或者 macOS 下的 `.app` 同级目录）即可激活。
+--在项目根目录执行下面两步：
+### 1) 先生成密钥（只需一次）
+'cd vendor'
+'python3 keygen_tool.py init'
+会生成 `vendor/private_key.pem` 和 `vendor/public_key.pem`。
+### 2) 再签发 license.dat（默认 30 天）
+'python3 keygen_tool.py sign <HWID>''
+如果你要指定天数：
+'python3 keygen_tool.py sign <HWID> 30'
 
 ## 常见问题排查 (Troubleshooting)
 
