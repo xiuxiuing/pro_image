@@ -418,6 +418,17 @@ def toggle_handled():
     dm.toggle_handled(sku_id, d.get('handled', True))
     return jsonify({"status": "success"})
 
+@app.route('/api/toggle_ref', methods=['POST'])
+def toggle_ref():
+    d = request.json
+    sku_id = d.get('main_sku_id')
+    field = d.get('field')  # 'name' or 'image'
+    store_id = d.get('store_id', '')
+    if not sku_id or field not in ('name', 'image'):
+        return jsonify({"status": "error", "message": "Missing params"}), 400
+    dm.set_ref(sku_id, field, store_id)
+    return jsonify({"status": "success"})
+
 @app.route('/api/toggle_add', methods=['POST'])
 def toggle_add():
     d = request.json
@@ -441,6 +452,15 @@ def price_match():
     if not result:
         return jsonify({"status": "error", "message": "未找到可跟价的商品"}), 400
     return jsonify({"status": "success", **result})
+
+@app.route('/api/clear_price_match', methods=['POST'])
+def clear_price_match():
+    d = request.json
+    main_sku_id = d.get('main_sku_id')
+    if not main_sku_id:
+        return jsonify({"status": "error", "message": "Missing main_sku_id"}), 400
+    dm.clear_price_match(main_sku_id)
+    return jsonify({"status": "success"})
 
 @app.route('/api/manual_link', methods=['POST'])
 def manual_link():

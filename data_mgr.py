@@ -14,7 +14,7 @@ import utils
 
 # --- Constants ---
 INTERNAL_COLUMNS = ['淘汰标记', '是否淘汰', '新活动价', '新售价', '跟价店']
-INTERNAL_EXPORT_KEYS = ['__idx', '淘汰标记', '_row_orig_idx']
+INTERNAL_EXPORT_KEYS = ['__idx', '淘汰标记', '_row_orig_idx', 'ref_name_store', 'ref_image_store']
 
 FIELD_MAPPINGS = {
     '图片': '主图链接', 'SKUID': 'skuId', '商品名称': '商品名称', '菜单名': '商品名称',
@@ -156,6 +156,11 @@ class DataManager:
                     if "is_handled" not in existing_main:
                         conn.execute("ALTER TABLE main_products ADD COLUMN is_handled TEXT DEFAULT '0'")
                         print("Migration: Added is_handled column to main_products")
+
+                    for ref_col in ("ref_name_store", "ref_image_store"):
+                        if ref_col not in existing_main:
+                            conn.execute(f"ALTER TABLE main_products ADD COLUMN {ref_col} TEXT DEFAULT ''")
+                            print(f"Migration: Added {ref_col} column to main_products")
 
                     # 2. Check comp_products
                     cursor = conn.execute("PRAGMA table_info(comp_products)")
@@ -1135,6 +1140,24 @@ class DataManager:
             mask = self.grid_df['skuId'] == str(sku_id)
             self.grid_df.loc[mask, 'is_handled'] = val
 
+    def set_ref(self, sku_id, field, store_id):
+        """Set or clear a reference mark. field is 'name' or 'image'. store_id='' to clear."""
+        col = 'ref_name_store' if field == 'name' else 'ref_image_store'
+        val = str(store_id) if store_id else ''
+        with self._db_lock:
+            conn = self._get_conn()
+            try:
+                with conn:
+                    conn.execute(
+                        f"UPDATE main_products SET {col}=? WHERE project_id=? AND skuId=?",
+                        (val, self.active_project_id, str(sku_id)),
+                    )
+            finally:
+                conn.close()
+        if self.grid_df is not None and 'skuId' in self.grid_df.columns:
+            mask = self.grid_df['skuId'] == str(sku_id)
+            self.grid_df.loc[mask, col] = val
+
     def mark_as_new(self, store_id, comp_sku_id, is_new):
         if not comp_sku_id:
             return False
@@ -1207,6 +1230,22 @@ class DataManager:
             except (ValueError, TypeError): return str(v)
 
         return {"new_act": fmt(new_act), "new_orig": fmt(new_orig), "store_name": store_name}
+
+    def clear_price_match(self, main_sku_id):
+        if not main_sku_id:
+            return False
+        with self._db_lock:
+            conn = self._get_conn()
+            try:
+                with conn:
+                    conn.execute(
+                        "UPDATE main_products SET `新活动价`='', `新售价`='', `跟价店`='' WHERE project_id=? AND skuId=?",
+                        (self.active_project_id, str(main_sku_id)),
+                    )
+            finally:
+                conn.close()
+        self._patch_grid_main(main_sku_id, {'新活动价': '', '新售价': '', '跟价店': ''})
+        return True
 
     def manual_link(self, main_sku_id, store_id, comp_sku_id):
         if not main_sku_id or not comp_sku_id:
@@ -1288,8 +1327,23 @@ class DataManager:
                 self.grid_df[summ_col] = self.grid_df[new_col] if new_col in self.grid_df.columns else ""
 
             # 1. Main store export
+            store_id_to_name = {str(i): name for i, name in enumerate(self.store_names)}
             main_cols = [c for c in self.grid_df.columns if (not c or not c[0].isdigit()) and c not in INTERNAL_EXPORT_KEYS]
-            self.grid_df[main_cols].to_excel(os.path.join(temp_dir, f"主店_{self.main_store_name}.xlsx"), index=False)
+            main_export = self.grid_df[main_cols].copy()
+            ref_name_col = self.grid_df['ref_name_store'].fillna('') if 'ref_name_store' in self.grid_df.columns else pd.Series('', index=self.grid_df.index)
+            ref_image_col = self.grid_df['ref_image_store'].fillna('') if 'ref_image_store' in self.grid_df.columns else pd.Series('', index=self.grid_df.index)
+
+            main_export['名称参考店铺'] = ref_name_col.map(lambda v: store_id_to_name.get(str(v), '') if v else '')
+            main_export['参考商品名称'] = [
+                self.grid_df.at[i, str(v) + '商品名称'] if v and (str(v) + '商品名称') in self.grid_df.columns else ''
+                for i, v in ref_name_col.items()
+            ]
+            main_export['图片参考店铺'] = ref_image_col.map(lambda v: store_id_to_name.get(str(v), '') if v else '')
+            main_export['参考图片链接'] = [
+                self.grid_df.at[i, str(v) + '主图链接'] if v and (str(v) + '主图链接') in self.grid_df.columns else ''
+                for i, v in ref_image_col.items()
+            ]
+            main_export.to_excel(os.path.join(temp_dir, f"主店_{self.main_store_name}.xlsx"), index=False)
 
             # 2. Linked competitor store exports
             for i, store_name in enumerate(self.store_names):
@@ -1371,15 +1425,31 @@ class DataManager:
         final_df = pd.DataFrame(all_new_data) if all_new_data else pd.DataFrame(columns=["主店SKU", "竞品店铺", "skuId", "主图链接", "商品名称", "规格名称", "活动价", "原价", "销售", "条码"])
         final_df["操作时间"] = op_time
 
-        # 2. Main store eliminated items
+        # 2. Main store: eliminated / price-matched / ref-marked items
         mask = pd.Series(False, index=self.grid_df.index)
         if '是否淘汰' in self.grid_df.columns: mask |= (self.grid_df['是否淘汰'] == "是")
         if '跟价店' in self.grid_df.columns: mask |= (self.grid_df['跟价店'].notna() & (self.grid_df['跟价店'] != ""))
+        if 'ref_name_store' in self.grid_df.columns: mask |= (self.grid_df['ref_name_store'].fillna('') != '')
+        if 'ref_image_store' in self.grid_df.columns: mask |= (self.grid_df['ref_image_store'].fillna('') != '')
             
         elim_df = self.grid_df[mask].copy()
         if not elim_df.empty:
             main_cols = [c for c in elim_df.columns if (not c or not c[0].isdigit()) and c not in INTERNAL_EXPORT_KEYS]
-            elim_df = elim_df[main_cols].copy(); elim_df["操作时间"] = op_time
+            elim_export = elim_df[main_cols].copy()
+            ref_name_s = elim_df['ref_name_store'].fillna('') if 'ref_name_store' in elim_df.columns else pd.Series('', index=elim_df.index)
+            ref_image_s = elim_df['ref_image_store'].fillna('') if 'ref_image_store' in elim_df.columns else pd.Series('', index=elim_df.index)
+            elim_export['名称参考店铺'] = ref_name_s.map(lambda v: store_map.get(str(v), '') if v else '')
+            elim_export['参考商品名称'] = [
+                elim_df.at[i, str(v) + '商品名称'] if v and (str(v) + '商品名称') in elim_df.columns else ''
+                for i, v in ref_name_s.items()
+            ]
+            elim_export['图片参考店铺'] = ref_image_s.map(lambda v: store_map.get(str(v), '') if v else '')
+            elim_export['参考图片链接'] = [
+                elim_df.at[i, str(v) + '主图链接'] if v and (str(v) + '主图链接') in elim_df.columns else ''
+                for i, v in ref_image_s.items()
+            ]
+            elim_export["操作时间"] = op_time
+            elim_df = elim_export
         else: elim_df = pd.DataFrame(columns=["skuId", "主图链接", "商品名称", "规格名称", "活动价", "原价", "销售", "条码", "操作时间"])
 
         dirs = self._get_project_dirs(self.active_project_id)

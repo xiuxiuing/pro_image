@@ -438,6 +438,81 @@
             transform: translateY(-1px);
         }
 
+        .ref-icon-btn {
+            width: 28px;
+            height: 28px;
+            min-width: 28px;
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+            padding: 0;
+            line-height: 1;
+        }
+        .ref-icon-btn.ref-btn-image {
+            background: #fff;
+            border: 1.5px solid #ea580c;
+        }
+        .ref-icon-btn.ref-btn-image:hover {
+            background: #fff7ed;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(234, 88, 12, 0.2);
+        }
+        .ref-icon-btn.ref-active-image {
+            background: #ea580c !important;
+            border-color: #ea580c !important;
+            box-shadow: 0 2px 8px rgba(234, 88, 12, 0.3);
+        }
+        .ref-icon-btn.ref-btn-name {
+            background: #fff;
+            border: 1.5px solid #7c3aed;
+        }
+        .ref-icon-btn.ref-btn-name:hover {
+            background: #f5f3ff;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(124, 58, 237, 0.2);
+        }
+        .ref-icon-btn.ref-active-name {
+            background: #7c3aed !important;
+            border-color: #7c3aed !important;
+            box-shadow: 0 2px 8px rgba(124, 58, 237, 0.3);
+        }
+        .ref-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: 600;
+            cursor: default;
+            white-space: nowrap;
+        }
+        .ref-tag-image {
+            background: #fff7ed;
+            color: #ea580c;
+            border: 1px solid #fed7aa;
+        }
+        .ref-tag-name {
+            background: #f5f3ff;
+            color: #7c3aed;
+            border: 1px solid #ddd6fe;
+        }
+        .ref-tag .ref-tag-close {
+            cursor: pointer;
+            font-size: 12px;
+            line-height: 1;
+            opacity: 0.6;
+            margin-left: 2px;
+        }
+        .ref-tag .ref-tag-close:hover {
+            opacity: 1;
+        }
+
         /* Dropdown Styles */
         .dropdown {
             position: relative;
@@ -1570,7 +1645,26 @@
             });
             const row = gridData.find(r => r.skuId === mainSkuId);
             if (row) row.is_handled = handled ? '1' : '0';
-            renderGrid(false);
+            if (showUnhandledOnly && handled) {
+                refreshSingleRow(mainSkuId, { remove: true });
+            } else {
+                refreshSingleRow(mainSkuId);
+            }
+        }
+
+        async function toggleRef(mainSkuId, storeId, field) {
+            const row = gridData.find(r => String(r.skuId) === String(mainSkuId));
+            if (!row) return;
+            const key = field === 'name' ? 'ref_name_store' : 'ref_image_store';
+            const current = row[key] || '';
+            const newVal = (current === storeId || !storeId) ? '' : storeId;
+            await fetch('/api/toggle_ref', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ main_sku_id: mainSkuId, store_id: newVal, field })
+            });
+            row[key] = newVal;
+            refreshSingleRow(mainSkuId);
         }
 
         function toggleFilter() {
@@ -1648,7 +1742,10 @@
             gridData.forEach((row, displayIdx) => {
                 const rowDiv = document.createElement('div');
                 rowDiv.className = 'products-row';
-                rowDiv.style.animationDelay = `${displayIdx * 0.05}s`;
+                rowDiv.dataset.skuId = String(row.skuId || '');
+                if (resetScroll) {
+                    rowDiv.style.animationDelay = `${displayIdx * 0.05}s`;
+                }
 
                 rowDiv.appendChild(createProductCard(row, null));
                 storeSources.forEach(s => {
@@ -1663,6 +1760,29 @@
             if (resetScroll) {
                 document.getElementById('scroller').scrollTop = 0;
             }
+        }
+
+        function refreshSingleRow(mainSkuId, { remove = false } = {}) {
+            const gridBodyEl = document.getElementById('gridBody');
+            if (!gridBodyEl) return;
+            const rowDiv = gridBodyEl.querySelector(`.products-row[data-sku-id="${mainSkuId}"]`);
+            if (!rowDiv) return;
+
+            if (remove) {
+                rowDiv.remove();
+                const idx = gridData.findIndex(r => String(r.skuId) === String(mainSkuId));
+                if (idx !== -1) gridData.splice(idx, 1);
+                return;
+            }
+
+            const row = gridData.find(r => String(r.skuId) === String(mainSkuId));
+            if (!row) return;
+            rowDiv.innerHTML = '';
+            rowDiv.style.animation = 'none';
+            rowDiv.appendChild(createProductCard(row, null));
+            storeSources.forEach(s => {
+                rowDiv.appendChild(createProductCard(row, s.id));
+            });
         }
 
         function escAttr(s) {
@@ -1965,6 +2085,18 @@
             ${imageContent}
         </div>
 
+        ${isMain ? (() => {
+            const refImageStore = row['ref_image_store'] || '';
+            const refNameStore = row['ref_name_store'] || '';
+            const imgStoreName = refImageStore ? (storeSources.find(s => s.id === refImageStore) || {}).name || refImageStore : '';
+            const nameStoreName = refNameStore ? (storeSources.find(s => s.id === refNameStore) || {}).name || refNameStore : '';
+            if (!refImageStore && !refNameStore) return '';
+            return `<div style="display:flex; gap:6px; flex-wrap:wrap; padding:6px 10px; border-bottom:1px solid rgba(0,0,0,0.05);">
+                ${refImageStore ? `<span class="ref-tag ref-tag-image">📷 图片参考: ${imgStoreName}<span class="ref-tag-close" onclick="toggleRef('${mainSkuId}', '', 'image')">×</span></span>` : ''}
+                ${refNameStore ? `<span class="ref-tag ref-tag-name">✏️ 名称参考: ${nameStoreName}<span class="ref-tag-close" onclick="toggleRef('${mainSkuId}', '', 'name')">×</span></span>` : ''}
+            </div>`;
+        })() : ''}
+
         <div class="card-info" style="padding:10px 12px;">${restOfContent}</div>
         
         <div class="card-actions">
@@ -1979,6 +2111,8 @@
                 </button>
             ` : `
                 ${!isUnlinkedMode ? `
+                    <button class="ref-icon-btn ref-btn-image ${row['ref_image_store'] === storeId ? 'ref-active-image' : ''}" onclick="toggleRef('${mainSkuId}', '${storeId}', 'image')" title="用此图片">📷</button>
+                    <button class="ref-icon-btn ref-btn-name ${row['ref_name_store'] === storeId ? 'ref-active-name' : ''}" onclick="toggleRef('${mainSkuId}', '${storeId}', 'name')" title="用此名称">✏️</button>
                     <div class="dropdown" id="dropdown-${mainSkuId}-${storeId}">
                         <button class="action-btn" onclick="toggleActionDropdown(event, '${mainSkuId}', '${storeId}')">手动选择 ▼</button>
                         <div class="dropdown-content">
@@ -1986,7 +2120,7 @@
                             <a href="javascript:void(0)" onclick="unlinkProduct('${storeId}', '${mainSkuId}')" style="color: #ef4444;">取消关联</a>
                         </div>
                     </div>
-                    <button class="action-btn" onclick="priceMatch('${storeId}', '${mainSkuId}')">智能跟价</button>
+                    <button class="action-btn" onclick="priceMatch('${storeId}', '${mainSkuId}')">${(() => { const s = (storeSources.find(x => x.id === storeId) || {}).name || ''; return (row['跟价店'] && String(row['跟价店']).trim() === s) ? '取消跟价' : '智能跟价'; })()}</button>
                 ` : ''}
                 ${isUnlinkedMode && row[prefix + '__from_pool'] ? `
                     <button class="action-btn" style="background:#fecaca !important; color:#ef4444 !important; border-color:#ef4444 !important;" onclick="performLinkFromPool('${storeId}', '${compSkuId}')">关联商品</button>
@@ -2019,7 +2153,7 @@
                         }
                     }
                 }
-                renderGrid(false);
+                refreshSingleRow(mainSkuId);
             }
         }
 
@@ -2042,7 +2176,11 @@
                 body: JSON.stringify({ main_sku_id: mainSkuId, handled })
             });
             row['is_handled'] = handled ? '1' : '0';
-            renderGrid(false);
+            if (showUnhandledOnly && handled) {
+                refreshSingleRow(mainSkuId, { remove: true });
+            } else {
+                refreshSingleRow(mainSkuId);
+            }
         }
 
         async function toggleAdd(storeId, compSkuId) {
@@ -2061,13 +2199,15 @@
                 });
                 if (response.ok) {
                     const newStatusStr = newStatus ? '是' : '否';
+                    const affectedSkuIds = [];
                     gridData.forEach(r => {
                         if (String(r[prefix + 'skuId']) === String(compSkuId)) {
                             r[prefix + '是否新增'] = newStatusStr;
                             r[prefix + 'is_new_add'] = newStatusStr;
+                            if (r.skuId) affectedSkuIds.push(String(r.skuId));
                         }
                     });
-                    renderGrid(false);
+                    affectedSkuIds.forEach(id => refreshSingleRow(id));
                 }
             } catch (e) {
                 console.error("Toggle add failed:", e);
@@ -2077,20 +2217,33 @@
 
         async function priceMatch(storeId, mainSkuId) {
             if (!mainSkuId) return;
-            const res = await fetch('/api/price_match', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ main_sku_id: mainSkuId, store_id: storeId })
-            });
-            const result = await res.json();
-            if (result.status === 'success') {
-                const row = getRowBySku(mainSkuId);
-                if (row) {
+            const row = getRowBySku(mainSkuId);
+            if (!row) return;
+            const currentStore = String(row['跟价店'] || '').trim();
+            const clickedStoreName = (storeSources.find(s => s.id === storeId) || {}).name || '';
+            if (currentStore && currentStore === clickedStoreName) {
+                await fetch('/api/clear_price_match', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ main_sku_id: mainSkuId })
+                });
+                row['新活动价'] = '';
+                row['新售价'] = '';
+                row['跟价店'] = '';
+                refreshSingleRow(mainSkuId);
+            } else {
+                const res = await fetch('/api/price_match', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ main_sku_id: mainSkuId, store_id: storeId })
+                });
+                const result = await res.json();
+                if (result.status === 'success') {
                     row['新活动价'] = result.new_act;
                     row['新售价'] = result.new_orig;
                     row['跟价店'] = result.store_name;
+                    refreshSingleRow(mainSkuId);
                 }
-                renderGrid(false);
             }
         }
 
