@@ -12,8 +12,14 @@ from transformers import AutoImageProcessor, AutoModel, AutoTokenizer
 
 # --- Environment & Setup ---
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-os.environ["OMP_NUM_THREADS"] = "1"
-device = "cuda" if torch.cuda.is_available() else "cpu"
+# os.environ["OMP_NUM_THREADS"] = "1"  # 已解除线程限制以提升多核使用率
+if torch.cuda.is_available():
+    device = "cuda"
+elif torch.backends.mps.is_available():
+    device = "mps"
+else:
+    device = "cpu"
+print(f"Using device: {device}")
 dim = 768
 
 # Define model paths with frozen/MEIPASS support

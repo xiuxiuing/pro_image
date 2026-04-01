@@ -144,24 +144,39 @@ class DataManager:
                     comp_cols = ", ".join([f"{c} TEXT" for c in CORE_COMP_COLUMNS if c not in ['project_id', 'store_id', 'skuId']])
                     conn.execute(f"CREATE TABLE IF NOT EXISTS comp_products (project_id INTEGER, store_id TEXT, skuId TEXT, {comp_cols})")
                     
-                    # Migration: Add project_id to existing tables if missing
-                    tables = ["main_products", "product_links", "comp_products"]
-                    for table in tables:
+                    # --- Robust Migration: Add missing columns to all core tables ---
+                    # 1. Check main_products
+                    cursor = conn.execute("PRAGMA table_info(main_products)")
+                    existing_main = [c[1] for c in cursor.fetchall()]
+                    for col in CORE_MAIN_COLUMNS:
+                        if col not in existing_main:
+                            conn.execute(f"ALTER TABLE main_products ADD COLUMN {col} TEXT")
+                            print(f"Migration: Added missing column [{col}] to main_products")
+
+                    # 2. Check comp_products
+                    cursor = conn.execute("PRAGMA table_info(comp_products)")
+                    existing_comp = [c[1] for c in cursor.fetchall()]
+                    for col in CORE_COMP_COLUMNS:
+                        if col not in existing_comp:
+                            conn.execute(f"ALTER TABLE comp_products ADD COLUMN {col} TEXT")
+                            print(f"Migration: Added missing column [{col}] to comp_products")
+
+                    # 3. Check extra columns (status, project_id etc)
+                    tables_to_check = ["main_products", "product_links", "comp_products"]
+                    for table in tables_to_check:
                         cursor = conn.execute(f"PRAGMA table_info({table})")
                         cols = [c[1] for c in cursor.fetchall()]
                         if "project_id" not in cols:
                             conn.execute(f"ALTER TABLE {table} ADD COLUMN project_id INTEGER DEFAULT 1")
-                            print(f"Added project_id to {table}")
-                    
-                    # Migration: Add status / analysis_started_at columns to projects if missing
+                            print(f"Migration: Added project_id to {table}")
+
+                    # 4. Check projects table extra columns
                     cursor = conn.execute("PRAGMA table_info(projects)")
                     proj_cols = [c[1] for c in cursor.fetchall()]
                     if "status" not in proj_cols:
                         conn.execute("ALTER TABLE projects ADD COLUMN status TEXT DEFAULT 'ready'")
-                        print("Added status column to projects")
                     if "analysis_started_at" not in proj_cols:
                         conn.execute("ALTER TABLE projects ADD COLUMN analysis_started_at TEXT")
-                        print("Added analysis_started_at column to projects")
 
                     # Performance indexes for unlinked-pool / grid queries
                     conn.execute("CREATE INDEX IF NOT EXISTS idx_product_links_lookup ON product_links(project_id, store_id, comp_sku_id)")
