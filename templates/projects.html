@@ -552,6 +552,33 @@
         .progress-info .stage {
             color: #475569;
         }
+
+        .license-days-badge-fixed {
+            position: fixed;
+            top: 16px;
+            right: 20px;
+            z-index: 100;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 8px 14px;
+            border-radius: 999px;
+            white-space: nowrap;
+            border: 1px solid #bbf7d0;
+            background: rgba(236, 253, 245, 0.95);
+            color: #047857;
+            backdrop-filter: blur(8px);
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+        }
+        .license-days-badge-fixed.warn {
+            border-color: #fecaca;
+            background: rgba(254, 242, 242, 0.95);
+            color: #b91c1c;
+        }
+        .license-days-badge-fixed.caution {
+            border-color: #fde68a;
+            background: rgba(255, 251, 235, 0.95);
+            color: #b45309;
+        }
     </style>
 </head>
 
@@ -566,6 +593,7 @@
         本地分析任务运行中，请保持电脑运行状态，避免断网或锁屏
     </div>
     <div id="toast" class="toast-msg"></div>
+    <div id="licenseDaysBadge" class="license-days-badge-fixed" style="display:none;" title=""></div>
 
     <!-- Analysis Progress Modal -->
     <div id="progressModal" class="progress-modal-backdrop">
@@ -1049,8 +1077,33 @@
             }
         }
 
+        async function refreshLicenseDaysBadge() {
+            const el = document.getElementById('licenseDaysBadge');
+            if (!el) return;
+            try {
+                const r = await fetch('/api/license_info');
+                const d = await r.json();
+                el.classList.remove('warn', 'caution');
+                if (d.is_valid && d.days_remaining != null) {
+                    el.textContent = `授权剩余 ${d.days_remaining} 天`;
+                    el.title = d.expires ? `到期日：${d.expires}` : '';
+                    el.style.display = '';
+                    if (d.days_remaining <= 3) el.classList.add('warn');
+                    else if (d.days_remaining <= 7) el.classList.add('caution');
+                } else {
+                    el.textContent = '授权异常';
+                    el.title = d.message || '';
+                    el.style.display = '';
+                    el.classList.add('warn');
+                }
+            } catch (e) {
+                el.style.display = 'none';
+            }
+        }
+
         requestNotifyPermission();
         loadProjects();
+        refreshLicenseDaysBadge();
     </script>
 </body>
 

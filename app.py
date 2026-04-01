@@ -171,14 +171,32 @@ def check_license():
     with open(LICENSE_FILE, "r") as f: content = f.read().strip()
     return LicenseManager.verify_license(content, CURRENT_HWID)
 
+def get_license_details():
+    if not os.path.exists(LICENSE_FILE):
+        return {
+            "valid": False,
+            "message": "License file missing",
+            "expires": None,
+            "days_remaining": None,
+        }
+    with open(LICENSE_FILE, "r") as f:
+        content = f.read().strip()
+    return LicenseManager.verify_license_detailed(content, CURRENT_HWID)
+
 @app.errorhandler(413)
 def request_entity_too_large(e):
     return jsonify({"status": "error", "message": "上传文件总大小超过 100MB 限制"}), 413
 
 @app.route('/api/license_info')
 def get_license_info():
-    is_valid, msg = check_license()
-    return jsonify({"hwid": CURRENT_HWID, "is_valid": is_valid, "message": msg})
+    d = get_license_details()
+    return jsonify({
+        "hwid": CURRENT_HWID,
+        "is_valid": d["valid"],
+        "message": d["message"],
+        "expires": d.get("expires"),
+        "days_remaining": d.get("days_remaining"),
+    })
 
 @app.route('/')
 def projects_page():

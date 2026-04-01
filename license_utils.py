@@ -52,22 +52,25 @@ nTsQck+U8NXCoiCbWJVt6EcCAwEAAQ==
         return hashlib.sha256(raw_id.encode()).hexdigest().upper()
 
     @staticmethod
-    def verify_license(license_content, current_hwid):
-        """Verifies an RSA-signed license file."""
+    def verify_license_detailed(license_content, current_hwid):
+        """
+        Verifies license and returns structured info for UI.
+        Returns dict: valid (bool), message (str), expires (str|None), days_remaining (int|None).
+        days_remaining is calendar days from today to expiry date (inclusive of expiry day as last valid day).
+        """
+        import datetime
+        err = {"valid": False, "message": "", "expires": None, "days_remaining": None}
         try:
-            # Load Public Key
             public_key = serialization.load_pem_public_key(LicenseManager.PUBLIC_KEY_PEM)
-            
-            # Decode license (format: BASE64(JSON_DATA) + "." + BASE64(SIGNATURE))
             parts = license_content.split(".")
             if len(parts) != 2:
-                return False, "Invalid license format"
-            
+                err["message"] = "Invalid license format"
+                return err
+
             data_b64, sig_b64 = parts
             data_json = base64.b64decode(data_b64).decode()
             signature = base64.b64decode(sig_b64)
-            
-            # Verify Signature
+
             public_key.verify(
                 signature,
                 data_json.encode(),
@@ -75,27 +78,42 @@ nTsQck+U8NXCoiCbWJVt6EcCAwEAAQ==
                     mgf=padding.MGF1(hashes.SHA256()),
                     salt_length=padding.PSS.MAX_LENGTH
                 ),
-                hashes.SHA256()
+                hashes.SHA256(),
             )
-            
-            # Signature OK, now check data
+
             data = json.loads(data_json)
-            
-            # 1. Check HWID (Supports multiple IDs)
             allowed_hwids = data.get("hwids", [])
             if current_hwid not in allowed_hwids:
-                return False, "This license is not for this machine"
-            
-            # 2. Check Expiration
-            import datetime
-            exp_date = datetime.datetime.strptime(data.get("expires", "2099-12-31"), "%Y-%m-%d")
-            if datetime.datetime.now() > exp_date:
-                return False, "License has expired"
-            
-            return True, "Valid License"
-            
+                err["message"] = "This license is not for this machine"
+                return err
+
+            exp_str = data.get("expires", "2099-12-31")
+            exp_dt = datetime.datetime.strptime(exp_str, "%Y-%m-%d")
+            exp_date = exp_dt.date()
+            today = datetime.date.today()
+            days_remaining = (exp_date - today).days
+
+            if datetime.datetime.now() > exp_dt:
+                err["message"] = "License has expired"
+                err["expires"] = exp_str
+                err["days_remaining"] = max(0, days_remaining)
+                return err
+
+            return {
+                "valid": True,
+                "message": "Valid License",
+                "expires": exp_str,
+                "days_remaining": days_remaining,
+            }
         except Exception as e:
-            return False, f"Verification failed: {str(e)}"
+            err["message"] = f"Verification failed: {str(e)}"
+            return err
+
+    @staticmethod
+    def verify_license(license_content, current_hwid):
+        """Verifies an RSA-signed license file."""
+        d = LicenseManager.verify_license_detailed(license_content, current_hwid)
+        return d["valid"], d["message"]
 
     @staticmethod
     def check_anti_debug():

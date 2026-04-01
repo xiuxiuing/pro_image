@@ -13,7 +13,7 @@
         :root {
             --bg-color: #f8fafc;
             --sidebar-width: 120px;
-            --min-card-width: 300px;
+            --min-card-width: 220px;
             --card-gap: 16px;
             --primary-color: #6366f1;
             /* Indigo */
@@ -185,10 +185,13 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            flex-wrap: wrap;
+            gap: 4px;
+            min-width: 0;
             border-radius: var(--radius-md);
             padding: 8px 12px;
             font-weight: 700;
-            font-size: 14px;
+            font-size: 13px;
             color: var(--text-main);
             box-shadow: var(--shadow-sm);
             border: 1px solid rgba(0, 0, 0, 0.05);
@@ -208,7 +211,8 @@
             grid-template-columns: repeat(var(--col-count, 4), 1fr);
             gap: var(--card-gap);
             min-width: calc(var(--min-card-width) * var(--col-count, 4));
-            margin-bottom: 16px;
+            padding: 0 16px;
+            margin: 0 -16px 16px;
             animation: slideUp 0.3s ease-out backwards;
         }
 
@@ -407,9 +411,10 @@
         }
 
         .card-actions {
-            padding: 8px 12px;
+            padding: 8px 10px;
             display: flex;
-            gap: 6px;
+            flex-wrap: wrap;
+            gap: 5px;
             background: rgba(0, 0, 0, 0.03);
             border-top: 1px solid rgba(0, 0, 0, 0.05);
         }
@@ -602,8 +607,8 @@
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%) rotate(-15deg);
-            width: 140px;
-            height: 140px;
+            width: 100px;
+            height: 100px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -617,7 +622,7 @@
         .status-badge .stamp-inner {
             position: absolute;
             inset: 0;
-            border: 3px solid currentColor;
+            border: 2px solid currentColor;
             border-radius: 50%;
             display: flex;
             align-items: center;
@@ -634,9 +639,9 @@
 
         .status-badge .stamp-text {
             background: #fff;
-            border: 3px solid currentColor;
-            padding: 4px 12px;
-            font-size: 18px;
+            border: 2px solid currentColor;
+            padding: 3px 8px;
+            font-size: 13px;
             font-weight: 900;
             color: currentColor;
             position: relative;
