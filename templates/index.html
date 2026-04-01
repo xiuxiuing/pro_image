@@ -124,12 +124,18 @@
         .btn-unlinked { background: #6366f1; }
         .btn-unlinked:hover { background: #4f46e5; }
         .btn-unlinked.active {
-            background: #4338ca;
-            box-shadow: inset 0 2px 6px rgba(0,0,0,0.3);
+            background: #60a5fa;
+        }
+        .btn-unlinked.active:hover {
+            background: #3b82f6;
         }
 
-        .btn-primary img, .btn-unlinked img {
+        .btn-primary img {
              filter: brightness(0) invert(1);
+        }
+        .btn-unlinked svg {
+            vertical-align: middle;
+            margin-right: 2px;
         }
 
         /* ---------------------------------------------------------
@@ -1075,7 +1081,8 @@
                 </div>
             </div>
             <button class="btn btn-unlinked" id="unlinkedToggleBtn" onclick="toggleUnlinkedMode()" title="显示所有未关联的竞店数据池">
-                <img src="https://img.icons8.com/material-outlined/20/ffffff/link-off.png" /> 未关联数据
+                <svg id="unlinkedIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                <span id="unlinkedBtnText">未关联数据</span>
             </button>
             <button class="btn btn-primary" id="exportBtn" onclick="exportExcel()">
                 <img src="https://img.icons8.com/material-outlined/20/ffffff/download.png" /> 全部数据
@@ -1139,6 +1146,8 @@
         let advancedFilters = {};        // 高级筛选条件 (字段: 关键字)
         let currentSort = { field: null, order: null }; // 当前排序状态
         let showNegativeSalesOnly = false; // 是否只显示负销量 (竞店销量 > 主店销量)
+        let showNoLinkOnly = false;        // 是否只显示无关联商品
+        let showUnhandledOnly = false;     // 是否只显示未处理商品
         let currentPage = 1;             // 当前页码
         let pageSize = 50;               // 每页显示条数
         let totalItems = 0;
@@ -1316,7 +1325,7 @@
 
             // Inject Gross Margin fields if 采购价 exists
             if (allKeys.has('采购价')) {
-                allKeys.add('现在毛利');
+                allKeys.add('现价毛利');
                 allKeys.add('跟价毛利');
             }
 
@@ -1332,7 +1341,7 @@
             } else {
                 // Default priority sort
                 allBaseColumns = currentKeys;
-                const priority = ['条码', '商品名称', '规格', '品牌', '采购价', '现在毛利', '跟价毛利', '活动价', '原价', '销售', 'A品牌', 'A商品名称', 'A规格', 'A材质口味'];
+                const priority = ['条码', '商品名称', '规格', '品牌', '采购价', '跟价毛利', '现价毛利', '活动价', '原价', '销售', 'A品牌', 'A商品名称', 'A规格', 'A材质口味'];
                 allBaseColumns.sort((a, b) => {
                     const idxA = priority.indexOf(a);
                     const idxB = priority.indexOf(b);
@@ -1345,7 +1354,7 @@
 
             // Determine visibleColumns
             const defaultVisible = [
-                "商品条码", "商品名称", "规格名称", "现在毛利", "跟价毛利", "采购价",
+                "商品条码", "商品名称", "规格名称", "跟价毛利", "现价毛利", "采购价",
                 "活动价", "美团类目三级", "skuId", "主图链接", "原价", "销售"
             ];
 
@@ -1534,9 +1543,34 @@
             renderGrid();
         }
 
-        function toggleNegativeSalesFilter() {
-            showNegativeSalesOnly = !showNegativeSalesOnly;
+        // function toggleNegativeSalesFilter() {
+        //     showNegativeSalesOnly = !showNegativeSalesOnly;
+        //     filterData();
+        // }
+
+        function toggleNoLinkFilter() {
+            showNoLinkOnly = !showNoLinkOnly;
+            showUnhandledOnly = false;
+            currentFilterMode = showNoLinkOnly ? 'no_link' : 'all';
             filterData();
+        }
+
+        function toggleUnhandledFilter() {
+            showUnhandledOnly = !showUnhandledOnly;
+            showNoLinkOnly = false;
+            currentFilterMode = showUnhandledOnly ? 'unhandled' : 'all';
+            filterData();
+        }
+
+        async function toggleHandled(mainSkuId, handled) {
+            await fetch('/api/toggle_handled', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ main_sku_id: mainSkuId, handled })
+            });
+            const row = gridData.find(r => r.skuId === mainSkuId);
+            if (row) row.is_handled = handled ? '1' : '0';
+            renderGrid(false);
         }
 
         function toggleFilter() {
@@ -1578,11 +1612,15 @@
             mainHeader.className = 'store-tab tab-main';
             mainHeader.innerHTML = `
         <span>${mainStoreName} (主店)</span>
-        <div style="display: flex; gap: 4px; align-items: center;">
-            <span style="font-size: 10px; opacity: 0.8; font-weight: 500;">负销量:</span>
-            <button class="sort-mini-btn ${showNegativeSalesOnly ? 'active' : ''}" 
+        <div style="display: flex; gap: 6px; align-items: center;">
+            <span style="font-size: 10px; opacity: 0.8; font-weight: 500;">无关联:</span>
+            <button class="sort-mini-btn ${showNoLinkOnly ? 'active' : ''}" 
                     style="width: auto; padding: 0 6px; font-size: 10px;"
-                    onclick="toggleNegativeSalesFilter()">开/关</button>
+                    onclick="toggleNoLinkFilter()">开/关</button>
+            <span style="font-size: 10px; opacity: 0.8; font-weight: 500; margin-left: 6px;">未处理:</span>
+            <button class="sort-mini-btn ${showUnhandledOnly ? 'active' : ''}" 
+                    style="width: auto; padding: 0 6px; font-size: 10px;"
+                    onclick="toggleUnhandledFilter()">开/关</button>
         </div>
     `;
             mainHeader.style.backgroundColor = getStoreColor(null);
@@ -1736,6 +1774,7 @@
             }
 
             if (isMain && isEliminatedRow(row)) card.classList.add('eliminated');
+            if (isMain && row['is_handled'] === '1') card.style.opacity = '0.6';
 
             let linkedBadgeHtml = '';
             if (isMain && isUnlinkedMode) {
@@ -1773,23 +1812,28 @@
                 const isPriceField = ['原价', '活动价'].includes(col);
                 const isSuggestionField = ['新售价', '新活动价'].includes(col);
                 const isSalesField = (col === '销售');
-                const isMarginField = ['现在毛利', '跟价毛利'].includes(col);
+                const isMarginField = ['现价毛利', '跟价毛利'].includes(col);
+                if (!isMain && isMarginField) return;
 
                 if (isMarginField) {
                     let displayVal = "-";
                     let isNegative = false;
-                    if (col === '现在毛利') {
-                        const actPrice = parseFloat(row[prefix + '活动价']) || 0;
+                    const mainSellPrice = parseFloat(row['活动价']) || parseFloat(row['原价']) || 0;
+                    if (col === '现价毛利') {
+                        const actPrice = parseFloat(row[prefix + '活动价']) || parseFloat(row[prefix + '原价']) || 0;
                         if (actPrice > 0 && mainPurchPrice > 0) {
-                            const numMargin = (actPrice - mainPurchPrice) / actPrice;
-                            displayVal = (numMargin * 100).toFixed(2) + "%";
-                            isNegative = numMargin < 0;
+                            const diff = (actPrice - mainPurchPrice).toFixed(2);
+                            const pct = ((actPrice - mainPurchPrice) / actPrice * 100).toFixed(2);
+                            isNegative = parseFloat(diff) < 0 || (mainSellPrice > 12.9 && parseFloat(diff) < 5.5);
+                            displayVal = `${diff}（${pct}%）`;
                         }
                     } else if (col === '跟价毛利') {
-                        if (mainNewActPrice > 0 && mainPurchPrice > 0) {
-                            const numMargin = (mainNewActPrice - mainPurchPrice) / mainNewActPrice;
-                            displayVal = (numMargin * 100).toFixed(2) + "%";
-                            isNegative = numMargin < 0;
+                        const newAct = mainNewActPrice || parseFloat(row['新售价']) || 0;
+                        if (newAct > 0 && mainPurchPrice > 0) {
+                            const diff = (newAct - mainPurchPrice).toFixed(2);
+                            const pct = ((newAct - mainPurchPrice) / newAct * 100).toFixed(2);
+                            isNegative = parseFloat(diff) < 0 || (newAct > 12.9 && parseFloat(diff) < 5.5);
+                            displayVal = `${diff}（${pct}%）`;
                         }
                     }
 
@@ -1911,7 +1955,7 @@
 
             card.innerHTML = `
         ${linkedBadgeHtml}
-        ${isMain && isEliminatedRow(row) ? `<div class="inline-status-flag">已淘汰</div><div class="status-badge badge-eliminated"><div class="stamp-inner"><div class="stamp-text">标记淘汰</div></div></div>` : ''}
+        ${isMain && isEliminatedRow(row) ? `<div class="status-badge badge-eliminated"><div class="stamp-inner"><div class="stamp-text">标记淘汰</div></div></div>` : ''}
         ${!isMain && row[`${prefix}是否新增`] === '是' ? `<div class="status-badge badge-new"><div class="stamp-inner"><div class="stamp-text">商品新增</div></div></div>` : ''}
         
         <div class="card-top-section" style="display:flex; justify-content:space-between; padding:10px; gap:10px; border-bottom: 1px solid rgba(0,0,0,0.05); background: rgba(255,255,255,0.2);">
@@ -1925,6 +1969,11 @@
         
         <div class="card-actions">
             ${isMain ? `
+                <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-size:11px; color:#64748b;">
+                    <input type="checkbox" ${row['is_handled']==='1' ? 'checked' : ''}
+                        onchange="toggleHandled('${mainSkuId}', this.checked)">
+                    已处理
+                </label>
                 <button class="action-btn btn-eliminate" onclick="eliminate('${mainSkuId}')">
                     ${isEliminatedRow(row) ? '恢复商品' : '标记淘汰'}
                 </button>
@@ -1986,6 +2035,13 @@
             });
             row['淘汰标记'] = String(next);
             row['是否淘汰'] = (next === 1 ? "是" : "否");
+            const handled = (next === 1);
+            await fetch('/api/toggle_handled', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ main_sku_id: mainSkuId, handled })
+            });
+            row['is_handled'] = handled ? '1' : '0';
             renderGrid(false);
         }
 
@@ -2196,19 +2252,15 @@
         function toggleUnlinkedMode() {
             isUnlinkedMode = !isUnlinkedMode;
             const btn = document.getElementById('unlinkedToggleBtn');
+            const txt = document.getElementById('unlinkedBtnText');
             if (isUnlinkedMode) {
                 btn.classList.add('active');
-                btn.style.background = 'var(--primary-color)';
-                btn.style.color = '#fff';
-                btn.querySelector('img').src = 'https://img.icons8.com/material-outlined/20/ffffff/link-off.png';
-                filterData(true);
+                txt.textContent = '关联数据';
             } else {
                 btn.classList.remove('active');
-                btn.style.background = 'transparent';
-                btn.style.color = 'var(--primary-color)';
-                btn.querySelector('img').src = 'https://img.icons8.com/material-outlined/20/6366f1/link-off.png';
-                filterData(true);
+                txt.textContent = '未关联数据';
             }
+            filterData(true);
         }
 
         async function performLinkFromPool(storeId, compSkuId) {

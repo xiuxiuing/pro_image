@@ -29,7 +29,7 @@ FIELD_MAPPINGS = {
 CORE_MAIN_COLUMNS = [
     'project_id', 'skuId', '_row_orig_idx', '商品名称', '规格名称', '原价', '活动价', '销售', 
     '主图链接', '商品条码', 'SPUID', '美团类目三级', '采购价', '采购单价', '采购链接',
-    '淘汰标记', '是否淘汰', '新活动价', '新售价', '跟价店', '现在毛利', '跟价毛利'
+    '淘汰标记', '是否淘汰', '新活动价', '新售价', '跟价店', '现价毛利', '跟价毛利'
 ]
 
 CORE_COMP_COLUMNS = [
@@ -152,6 +152,10 @@ class DataManager:
                         if col not in existing_main:
                             conn.execute(f"ALTER TABLE main_products ADD COLUMN {col} TEXT")
                             print(f"Migration: Added missing column [{col}] to main_products")
+
+                    if "is_handled" not in existing_main:
+                        conn.execute("ALTER TABLE main_products ADD COLUMN is_handled TEXT DEFAULT '0'")
+                        print("Migration: Added is_handled column to main_products")
 
                     # 2. Check comp_products
                     cursor = conn.execute("PRAGMA table_info(comp_products)")
@@ -632,6 +636,20 @@ class DataManager:
             df = df[mask]
 
         # 2. Mode Filter
+        if mode == "no_link":
+            comp_sku_cols = [f"{i}skuId" for i in range(len(self.store_names)) if f"{i}skuId" in df.columns]
+            if comp_sku_cols:
+                mask = df[comp_sku_cols].apply(
+                    lambda row: all(pd.isna(v) or str(v).strip() in ('', 'nan', 'None') for v in row), axis=1
+                )
+                df = df[mask]
+            else:
+                pass
+
+        if mode == "unhandled":
+            if 'is_handled' in df.columns:
+                df = df[df['is_handled'].fillna('0').astype(str) != '1']
+
         if mode == "diff":
             def has_diff(row):
                 main_act = 0
@@ -1101,6 +1119,22 @@ class DataManager:
         self._patch_grid_main(main_sku_id, {'淘汰标记': str(status), '是否淘汰': is_elim})
         return True
 
+    def toggle_handled(self, sku_id, handled=True):
+        val = '1' if handled else '0'
+        with self._db_lock:
+            conn = self._get_conn()
+            try:
+                with conn:
+                    conn.execute(
+                        "UPDATE main_products SET is_handled=? WHERE project_id=? AND skuId=?",
+                        (val, self.active_project_id, str(sku_id)),
+                    )
+            finally:
+                conn.close()
+        if self.grid_df is not None and 'skuId' in self.grid_df.columns:
+            mask = self.grid_df['skuId'] == str(sku_id)
+            self.grid_df.loc[mask, 'is_handled'] = val
+
     def mark_as_new(self, store_id, comp_sku_id, is_new):
         if not comp_sku_id:
             return False
@@ -1218,7 +1252,7 @@ class DataManager:
             except (ValueError, TypeError): pass
             return "-"
 
-        self.grid_df['现在毛利'] = [calc(r.get('活动价'), r.get('采购价')) for _, r in self.grid_df.iterrows()]
+        self.grid_df['现价毛利'] = [calc(r.get('活动价'), r.get('采购价')) for _, r in self.grid_df.iterrows()]
         if '新活动价' in self.grid_df.columns:
             self.grid_df['跟价毛利'] = [calc(r.get('新活动价'), r.get('采购价')) for _, r in self.grid_df.iterrows()]
 
@@ -1226,7 +1260,7 @@ class DataManager:
             prefix = str(i)
             comp_act_col = f"{prefix}活动价"
             if comp_act_col in self.grid_df.columns:
-                self.grid_df[f"{prefix}现在毛利"] = [calc(r.get(comp_act_col), r.get('采购价')) for _, r in self.grid_df.iterrows()]
+                self.grid_df[f"{prefix}现价毛利"] = [calc(r.get(comp_act_col), r.get('采购价')) for _, r in self.grid_df.iterrows()]
             if '新活动价' in self.grid_df.columns:
                 self.grid_df[f"{prefix}跟价毛利"] = [calc(r.get('新活动价'), r.get('采购价')) for _, r in self.grid_df.iterrows()]
 

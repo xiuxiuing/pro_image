@@ -409,6 +409,15 @@ def eliminate():
     dm.eliminate_product(main_sku_id, d.get('status', 1))
     return jsonify({"status": "success"})
 
+@app.route('/api/toggle_handled', methods=['POST'])
+def toggle_handled():
+    d = request.json
+    sku_id = d.get('main_sku_id')
+    if not sku_id:
+        return jsonify({"status": "error", "message": "Missing main_sku_id"}), 400
+    dm.toggle_handled(sku_id, d.get('handled', True))
+    return jsonify({"status": "success"})
+
 @app.route('/api/toggle_add', methods=['POST'])
 def toggle_add():
     d = request.json
