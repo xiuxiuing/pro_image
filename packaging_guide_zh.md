@@ -33,11 +33,16 @@ pip install pyarmor pyinstaller
 > `ProImage_Windows.spec` 已预配置了 `static`、`templates` 资源目录以及 `flask`、`torch`、`pandas` 等 30 多个 `hiddenimports`。手动执行命令行参数极易导致依赖缺失。
 
 ### macOS 系统打包 (生成 .app)
-1.  确保已完成“第一步”生成了 `dist/obfuscated` 目录。
-2.  执行打包命令：
+1.  建议先修补本机 `site-packages` 中的 torch/scipy（避免打包后启动即因 NameError 崩溃）：
     ```bash
-    pyinstaller ProImage_macOS.spec
+    python3 tools/patch_pyinstaller_site_packages.py
     ```
+2.  若使用 PyArmor，请确保已生成 `dist/obfuscated`；若**未**混淆，`ProImage_macOS.spec` 会自动改用项目根目录的 `app.py` 作为入口。
+3.  在项目根目录执行打包：
+    ```bash
+    pyinstaller -y ProImage_macOS.spec
+    ```
+4.  产物在 `dist/ProImage_AI.app`。
 
 
 ## 第三步：软件分发

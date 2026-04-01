@@ -9,16 +9,29 @@
 
 import os
 
+try:
+    _root = os.path.abspath(os.path.dirname(__file__))
+except NameError:
+    _root = os.getcwd()
+_obf_app = os.path.join(_root, 'dist', 'obfuscated', 'app.py')
+if os.path.isfile(_obf_app):
+    _entry = [_obf_app]
+    _pathex = [os.path.join(_root, 'dist', 'obfuscated')]
+else:
+    # 未运行 PyArmor 时使用源码入口（与 packaging_guide_zh.md 故障排查一致）
+    _entry = [os.path.join(_root, 'app.py')]
+    _pathex = [_root]
+
 _datas = [
     ('templates', 'templates'),
     ('static', 'static'),
 ]
-if os.path.isdir('models'):
+if os.path.isdir(os.path.join(_root, 'models')):
     _datas.append(('models', 'models'))
 
 a = Analysis(
-    ['dist/obfuscated/app.py'],
-    pathex=[os.path.abspath('dist/obfuscated')],
+    _entry,
+    pathex=_pathex,
     binaries=[],
     datas=_datas,
     hiddenimports=[
