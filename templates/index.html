@@ -1160,10 +1160,10 @@
                 <span id="unlinkedBtnText">未关联数据</span>
             </button>
             <button class="btn btn-primary" id="exportBtn" onclick="exportExcel()">
-                <img src="https://img.icons8.com/material-outlined/20/ffffff/download.png" /> 全部数据
+                <img src="https://img.icons8.com/material-outlined/20/ffffff/download.png" /> 全部导出
             </button>
             <button class="btn btn-primary" id="exportNewBtn" style="background: #10b981; border-color: #10b981;" onclick="exportNewItems()">
-                <img src="https://img.icons8.com/material-outlined/20/ffffff/add-file.png" /> 差异数据
+                <img src="https://img.icons8.com/material-outlined/20/ffffff/add-file.png" /> 修改导出
             </button>
         </div>
     </header>
@@ -2278,9 +2278,39 @@
 
         async function unlinkProduct(storeId, mainSkuId) {
             if (!mainSkuId) return;
-            if (!confirm('确定要取消关联吗？此操作将清空该列在该行的所有数据。')) return;
+            const row = getRowBySku(mainSkuId);
+            const storeName = (storeSources.find(s => s.id === storeId) || {}).name || '';
+            const matchedPrice = row && storeName && String(row['跟价店'] || '').trim() === storeName;
+            const matchedImage = row && row['ref_image_store'] === storeId;
+            const matchedName = row && row['ref_name_store'] === storeId;
+            const warnings = [];
+            if (matchedPrice) warnings.push('跟价');
+            if (matchedImage) warnings.push('图片参考');
+            if (matchedName) warnings.push('名称参考');
+            const msg = warnings.length > 0
+                ? `该商品已标记「${storeName}」为${warnings.join('、')}来源，取消关联将同时清除这些标记，确定继续？`
+                : '确定要取消关联吗？此操作将清空该列在该行的所有数据。';
+            if (!confirm(msg)) return;
 
             try {
+                if (matchedPrice) {
+                    await fetch('/api/clear_price_match', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ main_sku_id: mainSkuId })
+                    });
+                    if (row) { row['新活动价'] = ''; row['新售价'] = ''; row['跟价店'] = ''; }
+                }
+                if (matchedImage) {
+                    await fetch('/api/toggle_ref', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ main_sku_id: mainSkuId, store_id: '', field: 'image' }) });
+                    if (row) row['ref_image_store'] = '';
+                }
+                if (matchedName) {
+                    await fetch('/api/toggle_ref', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ main_sku_id: mainSkuId, store_id: '', field: 'name' }) });
+                    if (row) row['ref_name_store'] = '';
+                }
                 const response = await fetch('/api/unlink', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -2357,7 +2387,7 @@
                 <div style="text-align:right">
                     <div class="modal-product-price">¥${price}</div>
                 </div>`;
-                    item.onclick = () => performLinkFromPoolWithMain(p);
+                    item.ondblclick = () => performLinkFromPoolWithMain(p);
                     list.appendChild(item);
                 });
                 return;
@@ -2384,7 +2414,7 @@
              <div style="text-align:right">
                  <div class="modal-product-price">¥${price}</div>
              </div>`;
-                item.onclick = () => performLink(p);
+                item.ondblclick = () => performLink(p);
                 list.appendChild(item);
             });
         }
@@ -2393,6 +2423,33 @@
             const { storeId, mainSkuId } = currentLinkAction;
             const compSkuId = productData.skuId || productData.skuid || productData.SKUID;
             if (!mainSkuId || !compSkuId) return;
+            const row = getRowBySku(mainSkuId);
+            const storeName = (storeSources.find(s => s.id === storeId) || {}).name || '';
+            const matchedPrice = row && storeName && String(row['跟价店'] || '').trim() === storeName;
+            const matchedImage = row && row['ref_image_store'] === storeId;
+            const matchedName = row && row['ref_name_store'] === storeId;
+            const warnings = [];
+            if (matchedPrice) warnings.push('跟价');
+            if (matchedImage) warnings.push('图片参考');
+            if (matchedName) warnings.push('名称参考');
+            if (warnings.length > 0) {
+                if (!confirm(`该商品已标记「${storeName}」为${warnings.join('、')}来源，更换关联将同时清除这些标记，确定继续？`)) return;
+                if (matchedPrice) {
+                    await fetch('/api/clear_price_match', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ main_sku_id: mainSkuId }) });
+                    if (row) { row['新活动价'] = ''; row['新售价'] = ''; row['跟价店'] = ''; }
+                }
+                if (matchedImage) {
+                    await fetch('/api/toggle_ref', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ main_sku_id: mainSkuId, store_id: '', field: 'image' }) });
+                    if (row) row['ref_image_store'] = '';
+                }
+                if (matchedName) {
+                    await fetch('/api/toggle_ref', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ main_sku_id: mainSkuId, store_id: '', field: 'name' }) });
+                    if (row) row['ref_name_store'] = '';
+                }
+            }
             await fetch('/api/manual_link', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
