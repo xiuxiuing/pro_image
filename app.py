@@ -583,4 +583,7 @@ def debug_threads():
     return buf.getvalue(), 200, {'Content-Type': 'text/plain; charset=utf-8'}
 
 if __name__ == '__main__':
+    if getattr(sys, 'frozen', False):
+        import webbrowser
+        threading.Timer(1.5, lambda: webbrowser.open('http://127.0.0.1:5001')).start()
     app.run(debug=False, port=5001)
