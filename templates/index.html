@@ -612,7 +612,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            z-index: 100;
+            z-index: 10;
             pointer-events: none;
             user-select: none;
             opacity: 0.85;
@@ -2097,8 +2097,8 @@
             const nameStoreName = refNameStore ? (storeSources.find(s => s.id === refNameStore) || {}).name || refNameStore : '';
             if (!refImageStore && !refNameStore) return '';
             return `<div style="display:flex; gap:6px; flex-wrap:wrap; padding:6px 10px; border-bottom:1px solid rgba(0,0,0,0.05);">
-                ${refImageStore ? `<span class="ref-tag ref-tag-image">📷 图片参考: ${imgStoreName}<span class="ref-tag-close" onclick="toggleRef('${mainSkuId}', '', 'image')">×</span></span>` : ''}
-                ${refNameStore ? `<span class="ref-tag ref-tag-name">✏️ 名称参考: ${nameStoreName}<span class="ref-tag-close" onclick="toggleRef('${mainSkuId}', '', 'name')">×</span></span>` : ''}
+                ${refImageStore ? `<span class="ref-tag ref-tag-image">图片参考: ${imgStoreName}<span class="ref-tag-close" onclick="toggleRef('${mainSkuId}', '', 'image')">×</span></span>` : ''}
+                ${refNameStore ? `<span class="ref-tag ref-tag-name">名称参考: ${nameStoreName}<span class="ref-tag-close" onclick="toggleRef('${mainSkuId}', '', 'name')">×</span></span>` : ''}
             </div>`;
         })() : ''}
 
