@@ -8,6 +8,7 @@
 # 禁止加入 datas：packaging_guide_zh.md、license.dat、私钥等（仅白名单见下）
 
 import os
+from PyInstaller.utils.hooks import copy_metadata
 
 try:
     _root = os.path.abspath(os.path.dirname(__file__))
@@ -25,7 +26,7 @@ else:
 _datas = [
     ('templates', 'templates'),
     ('static', 'static'),
-]
+] + copy_metadata('regex') + copy_metadata('tqdm') + copy_metadata('transformers')
 if os.path.isdir(os.path.join(_root, 'models')):
     _datas.append(('models', 'models'))
 

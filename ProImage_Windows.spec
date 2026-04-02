@@ -7,11 +7,12 @@
 # 仅白名单：templates、static、models（见下方 _datas）
 
 import os
+from PyInstaller.utils.hooks import copy_metadata
 
 _datas = [
     ('templates', 'templates'),
     ('static', 'static'),
-]
+] + copy_metadata('regex') + copy_metadata('tqdm') + copy_metadata('transformers')
 if os.path.isdir('models'):
     _datas.append(('models', 'models'))
 

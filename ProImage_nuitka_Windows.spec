@@ -6,6 +6,7 @@
 #   3. python -m PyInstaller -y ProImage_nuitka_Windows.spec
 
 import os, glob
+from PyInstaller.utils.hooks import copy_metadata
 
 try:
     _root = os.path.abspath(os.path.dirname(__file__))
@@ -25,7 +26,7 @@ for so in glob.glob(os.path.join(_src, '*.so')):
 _datas = [
     (os.path.join(_src, 'templates'), 'templates'),
     (os.path.join(_src, 'static'), 'static'),
-]
+] + copy_metadata('regex') + copy_metadata('tqdm') + copy_metadata('transformers')
 
 if os.path.isdir(os.path.join(_root, 'models')):
     _datas.append(('models', 'models'))
