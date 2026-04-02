@@ -1003,9 +1003,11 @@ class DataManager:
         if not self.active_project_id:
             return {"items": [], "total": 0, "page": page, "limit": limit, "pages": 0}
         page = max(1, int(page))
-        limit = max(1, min(int(limit), 100))
-        offset = (page - 1) * limit
         like = f"%{search.strip()}%" if search else None
+        has_search = like is not None
+        if not has_search:
+            limit = max(1, min(int(limit), 100))
+        offset = (page - 1) * limit
         where = ["project_id = ?"]
         params = [self.active_project_id]
         if like:
@@ -1016,16 +1018,18 @@ class DataManager:
             conn = self._get_conn()
             try:
                 total = conn.execute(f"SELECT COUNT(*) FROM main_products WHERE {where_sql}", tuple(params)).fetchone()[0]
+                limit_clause = "" if has_search else "LIMIT ? OFFSET ?"
+                query_params = tuple(params) if has_search else tuple(params + [limit, offset])
                 df = pd.read_sql(
                     f"""
                     SELECT skuId, 商品名称, 规格名称, 主图链接, 活动价, 原价, 销售, 美团类目三级, _row_orig_idx
                     FROM main_products
                     WHERE {where_sql}
                     ORDER BY CAST(COALESCE(NULLIF(销售, ''), '0') AS REAL) DESC, _row_orig_idx ASC
-                    LIMIT ? OFFSET ?
+                    {limit_clause}
                     """,
                     conn,
-                    params=tuple(params + [limit, offset])
+                    params=query_params
                 )
                 link_cnt = pd.read_sql(
                     """

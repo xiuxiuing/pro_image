@@ -52,9 +52,7 @@
 
         /* Header Styles */
         header {
-            background: var(--glass-bg);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
+            background: rgba(255, 255, 255, 0.95);
             padding: 12px 40px;
             display: flex;
             justify-content: space-between;
@@ -170,10 +168,7 @@
             top: -1px; /* Slight overlap to avoid hairline gaps */
             z-index: 50;
             padding: 16px 16px 16px 16px;
-            /* Almost solid background to block all scrolling content */
-            background: rgba(248, 250, 252, 0.95); 
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
+            background: rgba(248, 250, 252, 0.98);
             margin: 0 -16px 8px; /* Offset the 16px scroller padding */
             border-bottom: 2px solid rgba(0, 0, 0, 0.03);
             box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.05); /* Added slight shadow depth */
@@ -702,8 +697,7 @@
             display: none;
             position: fixed;
             inset: 0;
-            background: rgba(15, 23, 42, 0.5);
-            backdrop-filter: blur(4px);
+            background: rgba(15, 23, 42, 0.6);
             z-index: 1000;
             justify-content: center;
             align-items: center;
@@ -885,14 +879,12 @@
             padding: 16px;
             border-radius: 12px;
             margin-bottom: 8px;
-            transition: all 0.2s;
             border: 1px solid transparent;
         }
 
         .product-list-item:hover {
             background: rgba(99, 102, 241, 0.1);
             border-color: var(--primary-color);
-            transform: translateX(4px);
         }
 
         .product-list-img {
@@ -1001,8 +993,7 @@
             justify-content: space-between;
             align-items: center;
             padding: 24px 40px;
-            background: var(--glass-bg);
-            backdrop-filter: blur(12px);
+            background: rgba(255, 255, 255, 0.95);
             border-top: 1px solid var(--glass-border);
             z-index: 100;
         }
@@ -1197,7 +1188,10 @@
     <div class="modal" id="linkModal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>选择对应商品</h3>
+                <div style="display:flex;align-items:baseline;gap:8px;">
+                    <h3>选择对应商品</h3>
+                    <span id="modalCount" style="font-size:13px;font-weight:400;color:#94a3b8;"></span>
+                </div>
                 <button class="btn" onclick="closeModal()">关闭</button>
             </div>
             <div class="modal-body">
@@ -2360,19 +2354,25 @@
             renderModalList();
         }
 
+        let mainProductsTotal = 0;
         async function fetchMainProductsForModal(term) {
             const q = encodeURIComponent(term || "");
             const res = await fetch(`/api/main_products?page=1&limit=100&search=${q}`);
             const data = await res.json();
             mainProductsCache = data.items || [];
+            mainProductsTotal = data.total || 0;
         }
 
         async function renderModalList() {
             const list = document.getElementById('modalList');
             const term = document.getElementById('modalSearch').value.toLowerCase();
             list.innerHTML = '';
+            const countEl = document.getElementById('modalCount');
             if (linkModalMode === "main_pool") {
                 await fetchMainProductsForModal(term);
+                countEl.textContent = mainProductsTotal > (mainProductsCache || []).length
+                    ? `共 ${mainProductsTotal} 条，显示 ${(mainProductsCache || []).length} 条`
+                    : `共 ${(mainProductsCache || []).length} 条`;
                 (mainProductsCache || []).forEach(p => {
                     const item = document.createElement('div');
                     item.className = 'product-list-item';
@@ -2400,11 +2400,14 @@
 
             const products = allStoreProducts[currentLinkAction.storeId];
             if (!products) return;
-            products.filter(p => {
+            const filtered = products.filter(p => {
                 const name = (p['商品名称'] || "").toLowerCase();
                 const sku = String(p['skuid'] || p['SKUID'] || "").toLowerCase();
                 return name.includes(term) || sku.includes(term);
-            }).slice(0, 50).forEach(p => {
+            });
+            const showing = Math.min(filtered.length, 50);
+            countEl.textContent = filtered.length > 50 ? `共 ${filtered.length} 条，显示前 ${showing} 条` : `共 ${filtered.length} 条`;
+            filtered.slice(0, 50).forEach(p => {
                 const item = document.createElement('div');
                 item.className = 'product-list-item';
                 const price = p['活动价'] || p['单件折扣价'] || "-";

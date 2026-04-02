@@ -1,0 +1,86 @@
+# -*- mode: python ; coding: utf-8 -*-
+# 混合方案：Nuitka 编译业务模块 (.pyd) + PyInstaller 打包
+# 步骤：
+#   1. 先用 Nuitka --module 编译业务模块到 nuitka_modules/
+#   2. 准备 _build_src/ 目录（复制 app.py + .pyd + templates + static）
+#   3. python -m PyInstaller -y ProImage_nuitka_Windows.spec
+
+import os, glob
+
+try:
+    _root = os.path.abspath(os.path.dirname(__file__))
+except NameError:
+    _root = os.getcwd()
+
+_src = os.path.join(_root, '_build_src')
+_entry = [os.path.join(_src, 'app.py')]
+_pathex = [_src]
+
+_binaries = []
+for pyd in glob.glob(os.path.join(_src, '*.pyd')):
+    _binaries.append((pyd, '.'))
+for so in glob.glob(os.path.join(_src, '*.so')):
+    _binaries.append((so, '.'))
+
+_datas = [
+    (os.path.join(_src, 'templates'), 'templates'),
+    (os.path.join(_src, 'static'), 'static'),
+]
+
+if os.path.isdir(os.path.join(_root, 'models')):
+    _datas.append(('models', 'models'))
+
+a = Analysis(
+    _entry,
+    pathex=_pathex,
+    binaries=_binaries,
+    datas=_datas,
+    hiddenimports=[
+        'flask', 'pandas', 'numpy', 'torch', 'torchvision', 'torchaudio',
+        'openpyxl', 'PIL', 'PIL.Image', 'faiss',
+        'transformers', 'google.genai', 'pydantic', 'cryptography',
+        'werkzeug', 'jinja2', 'markupsafe', 'itsdangerous',
+        'click', 'tqdm', 'requests', 'filelock', 'regex', 'safetensors',
+        'scipy', 'sentence_transformers',
+    ],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[
+        'data_mgr', 'license_utils', 'main_030822',
+        'extract_info_ai2', 'utils', 'merge_sku_data',
+    ],
+    noarchive=False,
+    optimize=0,
+)
+
+pyz = PYZ(a.pure)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name='ProImage_AI',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='ProImage_AI',
+)
