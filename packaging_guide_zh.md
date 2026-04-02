@@ -25,12 +25,17 @@
 
 > 如果 PyArmor 许可证过期或不可用，可以**跳过本步骤**。`ProImage_macOS.spec` 会自动检测：若 `dist/obfuscated/app.py` 不存在，则回退到源码打包。
 
-### 1.1 需要混淆的业务文件（7 个）
+### 1.1 需要混淆的业务文件（12 个）
 
 | 文件 | 说明 |
 |------|------|
 | `app.py` | Flask 入口 |
-| `data_mgr.py` | 数据管理 |
+| `data_mgr.py` | 数据管理入口 |
+| `data_mgr_base.py` | 数据管理 - 基础 & DB |
+| `data_mgr_import.py` | 数据管理 - 导入逻辑 |
+| `data_mgr_query.py` | 数据管理 - 查询与分页 |
+| `data_mgr_ops.py` | 数据管理 - 业务操作 |
+| `data_mgr_export.py` | 数据管理 - 导出逻辑 |
 | `license_utils.py` | 授权校验 |
 | `main_030822.py` | 核心算法 |
 | `extract_info_ai2.py` | AI 信息提取 |
@@ -41,21 +46,24 @@
 
 ```bash
 pyarmor gen -O dist/obfuscated \
-  app.py data_mgr.py license_utils.py \
-  main_030822.py extract_info_ai2.py \
+  app.py data_mgr.py data_mgr_base.py data_mgr_import.py \
+  data_mgr_query.py data_mgr_ops.py data_mgr_export.py \
+  license_utils.py main_030822.py extract_info_ai2.py \
   utils.py merge_sku_data.py
 ```
 
 ### 1.3 验证混淆结果
 
-> **⚠️ 关键步骤**：必须确认 `dist/obfuscated/` 下包含上述 **全部 7 个** `.py` 文件和 `pyarmor_runtime_*` 目录。
+> **⚠️ 关键步骤**：必须确认 `dist/obfuscated/` 下包含上述 **全部 12 个** `.py` 文件和 `pyarmor_runtime_*` 目录。
 > 如果有文件缺失，打包后 `.app`/`.exe` 启动会报 `ModuleNotFoundError`。
 
 ```bash
 ls dist/obfuscated/
 # 预期输出应包含：
-# app.py  data_mgr.py  extract_info_ai2.py  license_utils.py
-# main_030822.py  merge_sku_data.py  utils.py  pyarmor_runtime_000000/
+# app.py  data_mgr.py  data_mgr_base.py  data_mgr_export.py
+# data_mgr_import.py  data_mgr_ops.py  data_mgr_query.py
+# extract_info_ai2.py  license_utils.py  main_030822.py
+# merge_sku_data.py  utils.py  pyarmor_runtime_000000/
 ```
 
 如果文件不全（例如只有 `app.py`），说明 PyArmor 许可证受限，请**删除 `dist/obfuscated/` 目录**后直接跳到第二步用源码打包：

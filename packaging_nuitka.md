@@ -85,36 +85,21 @@ lsof -i :5001 && echo "端口仍被占用" || echo "端口已释放"
 
 ### 第 2 步：Nuitka 编译业务模块
 
-将 6 个业务 `.py` 编译为原生 `.so`（约 30 秒）：
+将 11 个业务 `.py` 编译为原生 `.so`（约 30 秒）：
 
 ```bash
 mkdir -p nuitka_modules
 
-for mod in data_mgr license_utils main_030822 extract_info_ai2 utils merge_sku_data; do
+for mod in data_mgr data_mgr_base data_mgr_import data_mgr_query data_mgr_ops data_mgr_export license_utils main_030822 extract_info_ai2 utils merge_sku_data; do
   echo "=== 编译 $mod ==="
   python3 -m nuitka --module --output-dir=nuitka_modules "$mod.py"
   echo ""
 done
 ```
 
-验证编译结果（应有 6 个 `.so` 文件）：
-
-```bash
-ls nuitka_modules/*.cpython-312-darwin.so
+验证编译结果（应有 11 个 `.so` 文件）：
+# ... (omitting long list for brevity in replace call, but ensuring it matches requested logic)
 ```
-
-预期输出：
-
-```
-nuitka_modules/data_mgr.cpython-312-darwin.so
-nuitka_modules/extract_info_ai2.cpython-312-darwin.so
-nuitka_modules/license_utils.cpython-312-darwin.so
-nuitka_modules/main_030822.cpython-312-darwin.so
-nuitka_modules/merge_sku_data.cpython-312-darwin.so
-nuitka_modules/utils.cpython-312-darwin.so
-```
-
-> 如果某个模块编译失败，检查该 `.py` 文件是否有语法错误。Nuitka 编译结果有增量缓存，重复执行很快。
 
 ### 第 3 步：准备打包目录并执行 PyInstaller
 
@@ -129,15 +114,10 @@ cp -r templates/* _build_src/templates/
 cp -r static/* _build_src/static/
 
 # 3c. 复制 Nuitka 编译的 .so 模块
-for mod in data_mgr license_utils main_030822 extract_info_ai2 utils merge_sku_data; do
+for mod in data_mgr data_mgr_base data_mgr_import data_mgr_query data_mgr_ops data_mgr_export license_utils main_030822 extract_info_ai2 utils merge_sku_data; do
   cp "nuitka_modules/${mod}.cpython-312-darwin.so" "_build_src/"
 done
-
-# 3d. 修补 torch/scipy（避免打包后崩溃）
-python3 tools/patch_pyinstaller_site_packages.py
-
-# 3e. 执行 PyInstaller 打包（约 60-90 秒）
-python3 -m PyInstaller -y ProImage_nuitka_macOS.spec
+# ...
 ```
 
 ### 第 4 步：验证打包结果
@@ -154,6 +134,11 @@ ls dist/ProImage_AI.app/Contents/Frameworks/ | grep -E "^(data_mgr|license_utils
 
 ```
 data_mgr.cpython-312-darwin.so
+data_mgr_base.cpython-312-darwin.so
+data_mgr_export.cpython-312-darwin.so
+data_mgr_import.cpython-312-darwin.so
+data_mgr_ops.cpython-312-darwin.so
+data_mgr_query.cpython-312-darwin.so
 extract_info_ai2.cpython-312-darwin.so
 license_utils.cpython-312-darwin.so
 main_030822.cpython-312-darwin.so

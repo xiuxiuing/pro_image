@@ -47,7 +47,9 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        'data_mgr', 'license_utils', 'main_030822',
+        'data_mgr', 'data_mgr_base', 'data_mgr_import', 'data_mgr_query',
+        'data_mgr_ops', 'data_mgr_export',
+        'license_utils', 'main_030822',
         'extract_info_ai2', 'utils', 'merge_sku_data',
     ],
     noarchive=False,
