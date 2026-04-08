@@ -514,6 +514,10 @@ class DataManagerQueryMixin:
 
                     total = max([main_count] + store_counts) if (self.store_names or main_count) else 0
                     pages = (total + limit - 1) // limit if total else 0
+                    spu_count = conn.execute(
+                        f"SELECT COUNT(DISTINCT 商品名称) FROM main_products WHERE {main_where_sql}",
+                        tuple(main_params)
+                    ).fetchone()[0]
                     page_rows = max(0, min(limit, total - offset))
                     items = []
                     for idx in range(page_rows):
