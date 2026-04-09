@@ -394,6 +394,47 @@
             flex: 1;
         }
 
+        .copyable-field-value {
+            position: relative;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: background 0.15s;
+            display: inline-block;
+            max-width: 100%;
+            vertical-align: top;
+            word-break: break-word;
+        }
+
+        .copyable-field-value:hover {
+            background: rgba(99, 102, 241, 0.12);
+        }
+
+        .copyable-field-value::after {
+            content: '点击复制';
+            position: absolute;
+            left: 0;
+            top: 100%;
+            margin-top: 4px;
+            padding: 3px 8px;
+            font-size: 10px;
+            font-weight: 600;
+            color: #fff;
+            background: #334155;
+            border-radius: 6px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(-4px);
+            transition: opacity 0.15s ease, transform 0.15s ease;
+            z-index: 50;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+        }
+
+        .copyable-field-value:hover::after {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
         .highlight-sales {
             color: #fff !important;
             background: #ef4444 !important;
@@ -412,6 +453,14 @@
             gap: 5px;
             background: rgba(0, 0, 0, 0.03);
             border-top: 1px solid rgba(0, 0, 0, 0.05);
+        }
+
+        /* 竞店底栏：图标在整行宽度内均分对齐（主店底栏不变） */
+        .comp-card .card-actions {
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+            box-sizing: border-box;
         }
 
         .action-btn {
@@ -481,6 +530,76 @@
             border-color: #7c3aed !important;
             box-shadow: 0 2px 8px rgba(124, 58, 237, 0.3);
         }
+        .ref-icon-btn.ref-btn-unlink {
+            background: #fff;
+            border: 1.5px solid #ef4444;
+            color: #ef4444;
+        }
+        .ref-icon-btn.ref-btn-unlink:hover {
+            background: #fef2f2;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(239, 68, 68, 0.2);
+        }
+        .ref-icon-btn.ref-btn-calibrate {
+            background: #fff;
+            border: 1.5px solid var(--primary-color);
+            color: var(--primary-color);
+        }
+        .ref-icon-btn.ref-btn-calibrate:hover {
+            background: #eef2ff;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(99, 102, 241, 0.2);
+        }
+        .ref-icon-btn.ref-btn-calibrate.ref-btn-calibrate-text {
+            width: auto;
+            min-width: auto;
+            padding: 0 8px;
+            font-size: 11px;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+        .ref-icon-btn.ref-btn-pricematch {
+            background: #fff;
+            border: 1.5px solid #059669;
+            color: #059669;
+        }
+        .ref-icon-btn.ref-btn-pricematch:hover {
+            background: #ecfdf5;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(5, 150, 105, 0.2);
+        }
+        .ref-icon-btn.ref-active-pricematch {
+            background: #059669 !important;
+            border-color: #059669 !important;
+            color: #fff !important;
+            box-shadow: 0 2px 8px rgba(5, 150, 105, 0.35);
+        }
+        .ref-icon-btn.ref-btn-add {
+            background: #fff;
+            border: 1.5px solid #64748b;
+            color: #64748b;
+        }
+        .ref-icon-btn.ref-btn-add:hover {
+            background: #f8fafc;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(100, 116, 139, 0.2);
+        }
+        .ref-icon-btn.ref-active-add {
+            background: #16a34a !important;
+            border-color: #16a34a !important;
+            color: #fff !important;
+            box-shadow: 0 2px 8px rgba(22, 163, 74, 0.3);
+        }
+        .ref-icon-btn.ref-btn-link-pool {
+            background: #fff;
+            border: 1.5px solid #ef4444;
+            color: #ef4444;
+        }
+        .ref-icon-btn.ref-btn-link-pool:hover {
+            background: #fef2f2;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(239, 68, 68, 0.2);
+        }
         .ref-tag {
             display: inline-flex;
             align-items: center;
@@ -511,60 +630,6 @@
         }
         .ref-tag .ref-tag-close:hover {
             opacity: 1;
-        }
-
-        /* Dropdown Styles */
-        .dropdown {
-            position: relative;
-            display: inline-block;
-            flex: 1;
-        }
-
-        .dropdown-content {
-            display: none;
-            position: absolute;
-            bottom: 100%;
-            left: 0;
-            background-color: #fff;
-            min-width: 120px;
-            box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.1);
-            border-radius: 8px;
-            z-index: 1000;
-            border: 1px solid #e2e8f0;
-            margin-bottom: 5px;
-            overflow: hidden;
-        }
-
-        .dropdown-content a {
-            color: var(--text-main);
-            padding: 8px 12px;
-            text-decoration: none;
-            display: block;
-            font-size: 11px;
-            font-weight: 600;
-            transition: background 0.2s;
-        }
-
-        .dropdown-content a:hover {
-            background-color: #f1f5f9;
-            color: var(--primary-color);
-        }
-
-        .dropdown.open .dropdown-content {
-            display: block;
-            animation: fadeIn 0.1s ease-out;
-        }
-
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(5px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
         }
 
         .btn-eliminate {
@@ -1074,6 +1139,39 @@
             border-color: var(--primary-color);
         }
 
+        .page-jump-wrap {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-left: 12px;
+        }
+
+        .page-jump-wrap .page-jump-label {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-main);
+            white-space: nowrap;
+        }
+
+        .page-jump-input {
+            width: 52px;
+            height: 36px;
+            padding: 0 8px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            text-align: center;
+            outline: none;
+            background: #fff;
+            color: var(--text-main);
+            box-sizing: border-box;
+        }
+
+        .page-jump-input:focus {
+            border-color: var(--primary-color);
+        }
+
         .spinner-small {
             width: 14px;
             height: 14px;
@@ -1229,7 +1327,7 @@
         let storeSources = [];          // 竞店配置信息
         let mainStoreName = "主店";       // 主店名称 (Target)
         let currentLinkAction = null;    // 当前正在进行的关联操作上下文
-        let allStoreProducts = {};       // 缓存各竞店的商品列表 (用于手动选择)
+        let allStoreProducts = {};       // 缓存各竞店的商品列表 (用于人工校准弹窗)
         let allBaseColumns = [];         // 数据中的所有可用字段名
         let visibleColumns = [];         // 当前用户选择展示的字段名
         let advancedFilters = {};        // 高级筛选条件 (字段: 关键字)
@@ -1803,6 +1901,103 @@
             return String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
         }
 
+        function escHtml(s) {
+            return String(s ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function encodeCopyPayload(s) {
+            try {
+                return btoa(unescape(encodeURIComponent(String(s))));
+            } catch (e) {
+                return '';
+            }
+        }
+
+        function decodeCopyPayload(b64) {
+            if (!b64) return '';
+            try {
+                return decodeURIComponent(escape(atob(b64)));
+            } catch (e) {
+                return '';
+            }
+        }
+
+        function showCopyToast(message) {
+            let el = document.getElementById('copyToast');
+            if (!el) {
+                el = document.createElement('div');
+                el.id = 'copyToast';
+                el.setAttribute('role', 'status');
+                el.style.cssText = 'position:fixed;bottom:28px;left:50%;transform:translateX(-50%);padding:10px 20px;background:#1e293b;color:#fff;border-radius:10px;font-size:14px;font-weight:600;z-index:100000;box-shadow:0 8px 32px rgba(0,0,0,0.25);opacity:0;transition:opacity .2s ease;pointer-events:none;max-width:90vw;text-align:center;';
+                document.body.appendChild(el);
+            }
+            el.textContent = message;
+            el.style.opacity = '1';
+            clearTimeout(showCopyToast._t);
+            showCopyToast._t = setTimeout(() => {
+                el.style.opacity = '0';
+            }, 2200);
+        }
+
+        async function copyFieldValueToClipboard(text) {
+            const t = text == null ? '' : String(text);
+            let ok = false;
+            try {
+                if (navigator.clipboard && window.isSecureContext) {
+                    await navigator.clipboard.writeText(t);
+                    ok = true;
+                } else {
+                    throw new Error('clipboard unavailable');
+                }
+            } catch (err) {
+                try {
+                    const ta = document.createElement('textarea');
+                    ta.value = t;
+                    ta.setAttribute('readonly', '');
+                    ta.style.position = 'fixed';
+                    ta.style.left = '-9999px';
+                    ta.style.top = '0';
+                    document.body.appendChild(ta);
+                    ta.focus();
+                    ta.select();
+                    ta.setSelectionRange(0, t.length);
+                    ok = document.execCommand('copy');
+                    document.body.removeChild(ta);
+                } catch (e2) {
+                    ok = false;
+                }
+            }
+            showCopyToast(ok ? '已复制到剪贴板' : '复制失败，请手动选中复制');
+        }
+
+        function setupCopyFieldDelegation() {
+            const grid = document.getElementById('gridBody');
+            if (!grid || grid._copyDelegationBound) return;
+            grid._copyDelegationBound = true;
+            grid.addEventListener('click', (ev) => {
+                const el = ev.target.closest('.copyable-field-value');
+                if (!el || !grid.contains(el)) return;
+                const b64 = el.getAttribute('data-copy-b64');
+                if (b64 === null || b64 === '') return;
+                ev.preventDefault();
+                ev.stopPropagation();
+                copyFieldValueToClipboard(decodeCopyPayload(b64));
+            });
+            grid.addEventListener('keydown', (ev) => {
+                if (ev.key !== 'Enter' && ev.key !== ' ') return;
+                const el = ev.target.closest('.copyable-field-value');
+                if (!el || !grid.contains(el)) return;
+                const b64 = el.getAttribute('data-copy-b64');
+                if (b64 === null || b64 === '') return;
+                ev.preventDefault();
+                copyFieldValueToClipboard(decodeCopyPayload(b64));
+            });
+        }
+
         function getRowBySku(skuId) {
             if (!skuId) return null;
             return gridData.find(r => String(r.skuId) === String(skuId)) || null;
@@ -1841,10 +2036,12 @@
                     <button class="page-btn" ${currentPage === 1 ? 'disabled' : ''} onclick="changePage(${currentPage - 1})">上一页</button>
                     ${pagesHtml}
                     <button class="page-btn" ${currentPage === totalPages ? 'disabled' : ''} onclick="changePage(${currentPage + 1})">下一页</button>
-                    <span style="margin-left: 12px; color: #4b5563; font-size: 13px;">到第</span>
-                    <input type="number" class="page-jump-input" min="1" max="${totalPages}" value="${currentPage}" 
-                        onkeydown="if(event.key==='Enter') jumpToPage(this.value, ${totalPages})">
-                    <span style="color: #4b5563; font-size: 13px;">页</span>
+                    <div class="page-jump-wrap">
+                        <span class="page-jump-label">跳至</span>
+                        <input type="number" class="page-jump-input" min="1" max="${totalPages}" value="${currentPage}"
+                            onkeydown="if(event.key==='Enter') jumpToPage(this.value, ${totalPages})">
+                        <span class="page-jump-label">页</span>
+                    </div>
                 </div>
             `;
         }
@@ -1893,6 +2090,9 @@
             const isLinked = row[`${prefix}skuId`] !== undefined && row[`${prefix}skuId`] !== null && row[`${prefix}skuId`] !== "";
             const mainSkuId = escAttr(row['skuId'] || '');
             const compSkuId = escAttr(row[`${prefix}skuId`] || '');
+            const storeNameForComp = !isMain ? ((storeSources.find(x => x.id === storeId) || {}).name || '') : '';
+            const compPriceMatched = !isMain && !!(row['跟价店'] && String(row['跟价店']).trim() === storeNameForComp);
+            const compAddMarked = !isMain && row[`${prefix}是否新增`] === '是';
 
             card.className = `product-card ${isMain ? 'main-card' : 'comp-card'}`;
             card.style.backgroundColor = getStoreColor(storeId);
@@ -1900,7 +2100,7 @@
             if (!isMain && !isLinked) {
                 card.classList.add('empty-card');
                 if (!isUnlinkedMode) {
-                    card.innerHTML = `<button class="btn" onclick="openModal('${storeId}', '${mainSkuId}')">手动选择</button>`;
+                    card.innerHTML = `<button type="button" class="ref-icon-btn ref-btn-calibrate ref-btn-calibrate-text" onclick="openModal('${storeId}', '${mainSkuId}')" title="手动选择" aria-label="手动选择">手动选择</button>`;
                 } else {
                     card.innerHTML = `<div style="color: #94a3b8; font-size: 11px;">无内容</div>`;
                 }
@@ -2069,10 +2269,16 @@
                     }
                 } else {
                     // General Info Group
+                    const copyCols = ['商品名称', 'skuId', '美团类目三级'];
+                    const rawStr = String(val);
+                    const copyB64 = encodeCopyPayload(rawStr);
+                    const statsHtml = copyCols.includes(col)
+                        ? `<span class="copyable-field-value" role="button" tabindex="0" data-copy-b64="${copyB64}" title="点击复制">${escHtml(rawStr)}</span>`
+                        : val;
                     restOfContent += `
                 <div class="info-group" style="justify-content: flex-start; gap: 8px;">
                     <div class="info-label" style="width: 70px; flex-shrink:0;">${col}</div>
-                    <div class="info-stats" style="flex:1; text-align:left;">${val}</div>
+                    <div class="info-stats" style="flex:1; text-align:left;">${statsHtml}</div>
                 </div>`;
                 }
             });
@@ -2125,22 +2331,17 @@
                 </button>
             ` : `
                 ${!isUnlinkedMode ? `
-                    <button class="ref-icon-btn ref-btn-image ${row['ref_image_store'] === storeId ? 'ref-active-image' : ''}" onclick="toggleRef('${mainSkuId}', '${storeId}', 'image')" title="用此图片">📷</button>
-                    <button class="ref-icon-btn ref-btn-name ${row['ref_name_store'] === storeId ? 'ref-active-name' : ''}" onclick="toggleRef('${mainSkuId}', '${storeId}', 'name')" title="用此名称">✏️</button>
-                    <div class="dropdown" id="dropdown-${mainSkuId}-${storeId}">
-                        <button class="action-btn" onclick="toggleActionDropdown(event, '${mainSkuId}', '${storeId}')">手动选择 ▼</button>
-                        <div class="dropdown-content">
-                            <a href="javascript:void(0)" onclick="openModal('${storeId}', '${mainSkuId}')">手动选择</a>
-                            <a href="javascript:void(0)" onclick="unlinkProduct('${storeId}', '${mainSkuId}')" style="color: #ef4444;">取消关联</a>
-                        </div>
-                    </div>
-                    <button class="action-btn" onclick="priceMatch('${storeId}', '${mainSkuId}')">${(() => { const s = (storeSources.find(x => x.id === storeId) || {}).name || ''; return (row['跟价店'] && String(row['跟价店']).trim() === s) ? '取消跟价' : '智能跟价'; })()}</button>
+                    <button type="button" class="ref-icon-btn ref-btn-image ${row['ref_image_store'] === storeId ? 'ref-active-image' : ''}" onclick="toggleRef('${mainSkuId}', '${storeId}', 'image')" title="用此图片">📷</button>
+                    <button type="button" class="ref-icon-btn ref-btn-name ${row['ref_name_store'] === storeId ? 'ref-active-name' : ''}" onclick="toggleRef('${mainSkuId}', '${storeId}', 'name')" title="用此名称">✏️</button>
+                    <button type="button" class="ref-icon-btn ref-btn-unlink" onclick="unlinkProduct('${storeId}', '${mainSkuId}')" title="取消关联" aria-label="取消关联"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/><line x1="4" y1="4" x2="20" y2="20"/></svg></button>
+                    <button type="button" class="ref-icon-btn ref-btn-calibrate" onclick="openModal('${storeId}', '${mainSkuId}')" title="手动选择" aria-label="手动选择"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
+                    <button type="button" class="ref-icon-btn ref-btn-pricematch ${compPriceMatched ? 'ref-active-pricematch' : ''}" onclick="priceMatch('${storeId}', '${mainSkuId}')" title="${compPriceMatched ? '取消跟价' : '智能跟价'}" aria-label="${compPriceMatched ? '取消跟价' : '智能跟价'}"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></button>
                 ` : ''}
                 ${isUnlinkedMode && row[prefix + '__from_pool'] ? `
-                    <button class="action-btn" style="background:#fecaca !important; color:#ef4444 !important; border-color:#ef4444 !important;" onclick="performLinkFromPool('${storeId}', '${compSkuId}')">关联商品</button>
-                    <button class="action-btn" onclick="toggleAdd('${storeId}', '${compSkuId}')">${row[`${prefix}是否新增`] === '是' ? '移除新增' : '标记新增'}</button>
+                    <button type="button" class="ref-icon-btn ref-btn-link-pool" onclick="performLinkFromPool('${storeId}', '${compSkuId}')" title="关联商品" aria-label="关联商品"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></button>
+                    <button type="button" class="ref-icon-btn ref-btn-add ${compAddMarked ? 'ref-active-add' : ''}" onclick="toggleAdd('${storeId}', '${compSkuId}')" title="${compAddMarked ? '移除新增' : '标记新增'}" aria-label="${compAddMarked ? '移除新增' : '标记新增'}">${compAddMarked ? '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>' : '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 8v8m-4-4h8"/></svg>'}</button>
                 ` : `
-                    <button class="action-btn" onclick="toggleAdd('${storeId}', '${compSkuId}')">${row[`${prefix}是否新增`] === '是' ? '移除新增' : '标记新增'}</button>
+                    <button type="button" class="ref-icon-btn ref-btn-add ${compAddMarked ? 'ref-active-add' : ''}" onclick="toggleAdd('${storeId}', '${compSkuId}')" title="${compAddMarked ? '移除新增' : '标记新增'}" aria-label="${compAddMarked ? '移除新增' : '标记新增'}">${compAddMarked ? '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>' : '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 8v8m-4-4h8"/></svg>'}</button>
                 `}
             `}
         </div>
@@ -2271,24 +2472,6 @@
             const row = getRowBySku(mainSkuId);
             if (row) row[column] = value;
         }
-
-        function toggleActionDropdown(event, mainSkuId, storeId) {
-            event.stopPropagation();
-            const id = `dropdown-${mainSkuId}-${storeId}`;
-            const dropdown = document.getElementById(id);
-
-            // Close other dropdowns
-            document.querySelectorAll('.dropdown').forEach(d => {
-                if (d.id !== id) d.classList.remove('open');
-            });
-
-            dropdown.classList.toggle('open');
-        }
-
-        // Close dropdowns when clicking outside
-        window.addEventListener('click', () => {
-            document.querySelectorAll('.dropdown.open').forEach(d => d.classList.remove('open'));
-        });
 
         async function unlinkProduct(storeId, mainSkuId) {
             if (!mainSkuId) return;
@@ -2661,6 +2844,7 @@
         }
 
         window.addEventListener('DOMContentLoaded', () => {
+            setupCopyFieldDelegation();
             loadData();
             initImagePreview();
 
