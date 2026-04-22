@@ -289,7 +289,7 @@ class DataManagerOpsMixin:
             finally:
                 conn.close()
 
-    def create_project(self, name, main_file_info, comp_files_info, status='ready'):
+    def create_project(self, name, main_file_info, comp_files_info, status='ready', match_config_json=""):
         """
         main_file_info: {'path': ..., 'store_name': ...}
         comp_files_info: [{'path': ..., 'store_name': ...}, ...]
@@ -299,8 +299,10 @@ class DataManagerOpsMixin:
             try:
                 with conn:
                     analysis_started = time.strftime('%Y-%m-%d %H:%M:%S') if status == 'analyzing' else None
-                    cur = conn.execute("INSERT INTO projects (name, status, analysis_started_at) VALUES (?, ?, ?)",
-                                       (name, status, analysis_started))
+                    cur = conn.execute(
+                        "INSERT INTO projects (name, status, analysis_started_at, match_config) VALUES (?, ?, ?, ?)",
+                        (name, status, analysis_started, match_config_json or ""),
+                    )
                     pid = cur.lastrowid
                     
                     # Add files

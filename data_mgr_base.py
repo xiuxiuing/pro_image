@@ -4,6 +4,7 @@ import re
 import threading
 import sqlite3
 import time
+import json
 import utils
 
 # --- Constants ---
@@ -16,19 +17,21 @@ FIELD_MAPPINGS = {
     'A规格': '规格名称', '美团外卖渠道售价': '原价',
     '活动价': '活动价', '单件折扣价': '活动价',
     '月销量': '销售', '销售': '销售', '条码': '商品条码', '商品条码': '商品条码',
+    '美团类目一级': '美团类目一级',
+    '美团类目二级': '美团类目二级',
     '美团类目三级': '美团类目三级', '三级类目': '美团类目三级'
 }
 
 # --- Core Database Columns ---
 CORE_MAIN_COLUMNS = [
     'project_id', 'skuId', '_row_orig_idx', '商品名称', '规格名称', '原价', '活动价', '销售', 
-    '主图链接', '商品条码', 'SPUID', '美团类目三级', '采购价', '采购单价', '采购链接',
+    '主图链接', '商品条码', 'SPUID', '美团类目一级', '美团类目二级', '美团类目三级', '采购价', '采购单价', '采购链接',
     '淘汰标记', '是否淘汰', '新活动价', '新售价', '跟价店', '现价毛利', '跟价毛利'
 ]
 
 CORE_COMP_COLUMNS = [
     'project_id', 'store_id', 'skuId', '商品名称', '规格名称', '原价', '活动价', '销售', 
-    '主图链接', '商品条码', 'SPUID', '美团类目三级'
+    '主图链接', '商品条码', 'SPUID', '美团类目一级', '美团类目二级', '美团类目三级'
 ]
 
 MAPPING_VERSION = "3.0" # Bumped to trigger full re-import with structure cleanup
@@ -50,6 +53,7 @@ class DataManagerBase:
         self.source_files = []
         self.store_names = []
         self.main_store_name = ""
+        self.match_config = {}
         
         self.grid_df = None
         self.main_df = None
@@ -81,14 +85,18 @@ class DataManagerBase:
             conn = self._get_conn()
             try:
                 # Get active project
-                cur = conn.execute("SELECT id, name FROM projects WHERE is_active = 1 LIMIT 1")
+                cur = conn.execute("SELECT id, name, COALESCE(match_config, '') FROM projects WHERE is_active = 1 LIMIT 1")
                 row = cur.fetchone()
                 if not row:
-                    cur = conn.execute("SELECT id, name FROM projects LIMIT 1")
+                    cur = conn.execute("SELECT id, name, COALESCE(match_config, '') FROM projects LIMIT 1")
                     row = cur.fetchone()
                 
                 if row:
                     self.active_project_id, self.active_project_name = row[0], row[1]
+                    try:
+                        self.match_config = json.loads(row[2]) if row[2] else {}
+                    except Exception:
+                        self.match_config = {}
                     
                     # Ensure dirs exist and set project_dir
                     dirs = self._ensure_project_dirs(self.active_project_id)
@@ -126,7 +134,7 @@ class DataManagerBase:
                 with conn:
                     # Meta and Project Management
                     conn.execute("CREATE TABLE IF NOT EXISTS meta_info (key TEXT PRIMARY KEY, value TEXT)")
-                    conn.execute("CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, is_active INTEGER DEFAULT 0, status TEXT DEFAULT 'ready', analysis_started_at TEXT)")
+                    conn.execute("CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, is_active INTEGER DEFAULT 0, status TEXT DEFAULT 'ready', analysis_started_at TEXT, match_config TEXT DEFAULT '')")
                     conn.execute("CREATE TABLE IF NOT EXISTS project_files (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER, type TEXT, local_path TEXT, store_name TEXT, FOREIGN KEY(project_id) REFERENCES projects(id))")
                     
                     # Core Data Tables (with project_id awareness)
@@ -180,6 +188,8 @@ class DataManagerBase:
                         conn.execute("ALTER TABLE projects ADD COLUMN status TEXT DEFAULT 'ready'")
                     if "analysis_started_at" not in proj_cols:
                         conn.execute("ALTER TABLE projects ADD COLUMN analysis_started_at TEXT")
+                    if "match_config" not in proj_cols:
+                        conn.execute("ALTER TABLE projects ADD COLUMN match_config TEXT DEFAULT ''")
 
                     # Performance indexes for unlinked-pool / grid queries
                     conn.execute("CREATE INDEX IF NOT EXISTS idx_product_links_lookup ON product_links(project_id, store_id, comp_sku_id)")

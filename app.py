@@ -215,6 +215,8 @@ def handle_projects():
     if request.method == 'POST':
         name = request.form.get('name')
         if not name: return jsonify({"status": "error", "message": "Project name is required"}), 400
+
+        match_config_json = (request.form.get('match_config_json') or "").strip()
         
         main_file = request.files.get('main_file')
         comp_files = request.files.getlist('comp_files')
@@ -264,8 +266,13 @@ def handle_projects():
             result_file.save(manual_result_path)
 
         is_manual = bool(manual_result_path)
-        pid = dm.create_project(name, {"path": main_path, "store_name": main_store_name},
-                                comp_infos, status='ready' if is_manual else 'analyzing')
+        pid = dm.create_project(
+            name,
+            {"path": main_path, "store_name": main_store_name},
+            comp_infos,
+            status='ready' if is_manual else 'analyzing',
+            match_config_json=match_config_json,
+        )
 
         # Rename temp directory to real PID
         real_proj_dir = os.path.join(data_root, "uploads", f"project_{pid}")
@@ -329,7 +336,8 @@ def handle_projects():
                 main_030822.run_analysis(
                     final_main_path, final_comp_paths,
                     output_name=str(pid), output_dir=dirs["outputs"],
-                    progress_cb=_analysis_cb
+                    progress_cb=_analysis_cb,
+                    match_config=match_config_json,
                 )
                 _update_step(pid, len(prog["steps"]) - 1, "done")
                 dm.update_project_status(pid, 'ready')

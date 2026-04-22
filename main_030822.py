@@ -81,9 +81,171 @@ def get_美团类名3(item):
     """美团三级类目，用于与竞店命中行做一致性过滤。"""
     return g(item, ["美团三级类目", "美团类目三级", "三级类目"])
 
+def get_美团类名2(item):
+    return g(item, ["美团类目二级", "美团类目2级", "美团二级类目", "二级类目"])
+
+def get_美团类名1(item):
+    return g(item, ["美团类目一级", "美团类目1级", "美团一级类目", "一级类目"])
+
+_DEFAULT_MATCH_CONFIG = {
+    "category_level": 1,
+    "sections": {
+        "SEM": {"A核心名称": 5, "A品牌": 2, "A材质": 2, "A外观": 1, "A颜色": 0},
+        "SPEC": {"A单件净含量": 3, "A售卖数量": 2, "A包装单位": 2, "A尺寸": 2, "A型号": 2},
+    },
+}
+
+def _load_match_config(raw):
+    import json
+    if not raw:
+        return _DEFAULT_MATCH_CONFIG
+    if isinstance(raw, dict):
+        return {**_DEFAULT_MATCH_CONFIG, **raw}
+    try:
+        d = json.loads(raw) if isinstance(raw, str) else {}
+        if not isinstance(d, dict):
+            return _DEFAULT_MATCH_CONFIG
+        # merge shallowly
+        out = {**_DEFAULT_MATCH_CONFIG, **d}
+        out.setdefault("sections", _DEFAULT_MATCH_CONFIG["sections"])
+        for sec in ("SEM", "SPEC"):
+            out["sections"].setdefault(sec, {})
+        return out
+    except Exception:
+        return _DEFAULT_MATCH_CONFIG
+
+def _pick_category(item, level: int):
+    if level == 2:
+        return get_美团类名2(item)
+    if level == 3:
+        return get_美团类名3(item)
+    return get_美团类名1(item)
+
+def _norm_val(v):
+    if v is None:
+        return ""
+    s = str(v).strip()
+    if s.lower() in ("nan", "none", "null"):
+        return ""
+    return s
+
+def _build_segmented_text(item, match_cfg):
+    """Build single segmented text for BGE based on match_config weights."""
+    cfg = _load_match_config(match_cfg)
+    level = int(cfg.get("category_level") or 1)
+    cat = _pick_category(item, level)
+    parts = []
+    parts.append(f"[CAT{level}]={_norm_val(cat)}")
+
+    # fixed field sets per your spec
+    sem_keys = ["A核心名称", "A品牌", "A材质", "A外观", "A颜色"]
+    spec_keys = ["A单件净含量", "A售卖数量", "A包装单位", "A尺寸", "A型号"]
+
+    sem_w = cfg.get("sections", {}).get("SEM", {}) or {}
+    spec_w = cfg.get("sections", {}).get("SPEC", {}) or {}
+
+    for k in sem_keys:
+        w = int(sem_w.get(k, 0) or 0)
+        if w <= 0:
+            continue
+        val = _norm_val(item.get(k, ""))
+        if not val:
+            continue
+        for _ in range(min(5, max(0, w))):
+            parts.append(f"[SEM][{k}]={val}")
+
+    for k in spec_keys:
+        w = int(spec_w.get(k, 0) or 0)
+        if w <= 0:
+            continue
+        val = _norm_val(item.get(k, ""))
+        if not val:
+            continue
+        for _ in range(min(5, max(0, w))):
+            parts.append(f"[SPEC][{k}]={val}")
+
+    # fallback: keep minimal original text to avoid empty embeddings
+    if len(parts) <= 1:
+        base = f"{get_规格(item)}, {item.get('商品名称','')}"
+        parts.append(_norm_val(base))
+
+    return "\n".join([p for p in parts if p])
+
 def get_text(item):
-    """拼成 BGE 文本向量用的字段串（规格、类目、名称与 A 系列补全列）。"""
-    return f"{get_规格(item)}, {get_美团类名3(item)}, {item.get('商品名称','')}, {item.get('A品牌', '')}, {item.get('A商品名称', '')}, {item.get('A规格', '')}"
+    """
+    拼成 BGE 文本向量用的字段串。
+    默认走分段格式（SEM/SPEC）并读取全局 _MATCH_CONFIG（由 run_analysis 注入）。
+    """
+    cfg = globals().get("_MATCH_CONFIG", None)
+    return _build_segmented_text(item, cfg)
+
+def _parse_net_content(s: str):
+    """Return (kind, value_in_base_unit) where kind in {'ml','g'}."""
+    import re
+    s = _norm_val(s).lower()
+    if not s:
+        return None
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(ml|l|g|kg)\b", s)
+    if not m:
+        return None
+    v = float(m.group(1))
+    u = m.group(2)
+    if u == "ml":
+        return ("ml", v)
+    if u == "l":
+        return ("ml", v * 1000.0)
+    if u == "g":
+        return ("g", v)
+    if u == "kg":
+        return ("g", v * 1000.0)
+    return None
+
+def _parse_size_mm(s: str):
+    """Extract first length-like value and convert to mm."""
+    import re
+    s = _norm_val(s).lower()
+    if not s:
+        return None
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(mm|cm|m)\b", s)
+    if not m:
+        return None
+    v = float(m.group(1))
+    u = m.group(2)
+    if u == "mm":
+        return v
+    if u == "cm":
+        return v * 10.0
+    if u == "m":
+        return v * 1000.0
+    return None
+
+def _apply_default_spec_penalty(query_item, hit_item, base_score: float):
+    """
+    Default consistency penalty for TEXT matching.
+    Does NOT affect image matching or cat3 gate.
+    """
+    score = float(base_score)
+    # net content: relative diff max 20%, penalty 0.15
+    qn = _parse_net_content(query_item.get("A单件净含量", ""))
+    hn = _parse_net_content(hit_item.get("A单件净含量", ""))
+    if qn and hn and qn[0] == hn[0] and qn[1] > 0 and hn[1] > 0:
+        rel = abs(qn[1] - hn[1]) / max(qn[1], hn[1])
+        if rel > 0.20:
+            score -= 0.15
+
+    # size: abs diff max 30mm, penalty 0.15
+    qs = _parse_size_mm(query_item.get("A尺寸", ""))
+    hs = _parse_size_mm(hit_item.get("A尺寸", ""))
+    if qs is not None and hs is not None:
+        if abs(qs - hs) > 30.0:
+            score -= 0.15
+
+    # model: if both exist and not equal -> penalty 0.20
+    qm = _norm_val(query_item.get("A型号", ""))
+    hm = _norm_val(hit_item.get("A型号", ""))
+    if qm and hm and qm != hm:
+        score -= 0.20
+    return score
 
 # --- Result Construction ---
 def build_match_item(item, prefix=""):
@@ -219,7 +381,7 @@ def build_index(data, mode="img", folder="img", path="index", batch_size=32):
     faiss.write_index(index, path)
 
 # --- Analysis Pipeline ---
-def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", progress_cb=None):
+def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", progress_cb=None, match_config=None):
     """
     主分析入口：主店表 target_xlsx，竞店表列表 source_xlsxs。
 
@@ -275,6 +437,10 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
     if progress_cb:
         progress_cb("query_progress", 0, f"生成查询向量 0/{total_q}")
     
+    # Inject match_config for get_text() globally within this module.
+    # (This keeps call sites simple and avoids changing many function signatures.)
+    globals()["_MATCH_CONFIG"] = match_config
+
     # Pre-compute all query embeddings in batches
     query_img_paths = [f"query_img/{get_sku_id(item)}.webp" for item in query_data]
     query_texts = [get_text(item) for item in query_data]
@@ -330,7 +496,7 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
             for i, ui in enumerate(search_txt_map):
                 txt_hits[ui] = (ids[i][0], float(scores[i][0]))
                 
-        # Merge results with threshholds and category check
+        # Merge results with thresholds and category check
         for ui in unmatched_indices:
             item = query_data[ui]
             s_id, score, match = -1, 0, ""
@@ -348,6 +514,8 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
             if s_id != -1:
                 hit = src["sku_dict"].get(str(int(s_id)))
                 if hit and get_美团类名3(item) == get_美团类名3(hit):
+                    if match == "文本匹配":
+                        score = _apply_default_spec_penalty(item, hit, score)
                     append_match_result(res_data[ui], hit, score, match, str(idx))
 
     out_path = os.path.join(output_dir, f"output_{output_name}.xlsx")

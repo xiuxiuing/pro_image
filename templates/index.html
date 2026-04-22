@@ -1328,7 +1328,7 @@
         let mainStoreName = "主店";       // 主店名称 (Target)
         let currentLinkAction = null;    // 当前正在进行的关联操作上下文
         let allStoreProducts = {};       // 缓存各竞店的商品列表 (用于人工校准弹窗)
-        let allBaseColumns = [];         // 数据中的所有可用字段名
+        let allBaseColumns = [];         // 数据中的所有可用字段名（已剔除不展示字段，如 A*）
         let visibleColumns = [];         // 当前用户选择展示的字段名
         let advancedFilters = {};        // 高级筛选条件 (字段: 关键字)
         let currentSort = { field: null, order: null }; // 当前排序状态
@@ -1504,6 +1504,8 @@
             gridData.forEach(row => {
                 Object.keys(row).forEach(key => {
                     const baseKey = key.replace(/^\d+/, '');
+                    // 过滤掉 A* 字段（AI 旧提取列），不在“展示筛选”中出现
+                    if (String(baseKey).startsWith('A')) return;
                     if (!internalKeys.includes(baseKey) && !internalKeys.includes(key)) {
                         allKeys.add(baseKey);
                     }
@@ -1528,7 +1530,7 @@
             } else {
                 // Default priority sort
                 allBaseColumns = currentKeys;
-                const priority = ['条码', '商品名称', '规格', '品牌', '采购价', '跟价毛利', '现价毛利', '活动价', '原价', '销售', 'A品牌', 'A商品名称', 'A规格', 'A材质口味'];
+                const priority = ['条码', '商品名称', '规格', '品牌', '采购价', '跟价毛利', '现价毛利', '活动价', '原价', '销售'];
                 allBaseColumns.sort((a, b) => {
                     const idxA = priority.indexOf(a);
                     const idxB = priority.indexOf(b);
@@ -1547,7 +1549,9 @@
 
             if (savedVisible && Array.isArray(savedVisible)) {
                 // Use saved visibility for existing keys, ignore obsolete ones
-                visibleColumns = savedVisible.filter(k => k === '主图链接' || currentKeys.includes(k));
+                visibleColumns = savedVisible
+                    .filter(k => !String(k || '').startsWith('A'))
+                    .filter(k => k === '主图链接' || currentKeys.includes(k));
             } else {
                 // First time initialization
                 if (visibleColumns.length === 0) {
@@ -1656,7 +1660,7 @@
 
         function toggleAllColumns(show) {
             if (show) {
-                visibleColumns = ['主图链接', ...allBaseColumns];
+                visibleColumns = ['主图链接', ...allBaseColumns.filter(k => !String(k || '').startsWith('A'))];
             } else {
                 visibleColumns = ['主图链接'];
             }
