@@ -37,20 +37,16 @@ PackagingUnit = Literal[
 
 class ProductInfo(BaseModel):
     """
-    Gemini 新提取结构（写回 Excel 的新 10 列 A*）。
+    Gemini 新提取结构（写回 Excel 的新 6 列 A*）。
 
-    说明：旧版本的 A商品名称/A规格/A材质口味/A使用场景/A功能标签 将不再使用。
+    说明：不再提取 品牌、核心名称、外观、材质。
     """
 
-    brand: str = Field(default="", description="品牌/厂家/系列名（如 雪碧/高洁丝/景田），不确定留空")
-    core_name: str = Field(default="", description="核心名称：描述这个商品是什么的短语，去掉品牌/规格/营销词")
     net_content: str = Field(default="", description="单件净含量，标准单位 ml/L/g/kg，如 330ml/1.5L/18g")
     sell_quantity: str = Field(default="", description="售卖数量，如 24罐/6瓶/7片/2条/1个")
     packaging_unit: PackagingUnit = Field(default="未知", description="包装单位，如 罐/瓶/袋/片/条/个/箱/包；不确定填 未知")
     color: list[str] = Field(default_factory=list, description="颜色（可多值）")
-    appearance: list[str] = Field(default_factory=list, description="外观/形态关键词（可多值）")
     size: list[str] = Field(default_factory=list, description="尺寸/长度/码数（可多值，如 240mm/17x25x8cm/XL）")
-    material: list[str] = Field(default_factory=list, description="材质（可多值）")
     model: str = Field(default="", description="型号（如 AB-123、X1），不确定留空")
 
 class BatchResponse(BaseModel):
@@ -97,27 +93,18 @@ def extract_batch_ai(items, api_key, model_name=None, max_retries=5):
     Do NOT include any markdown, code fences, or explanations.
 
     Extract fields for each item:
-    1. brand (A品牌): brand/manufacturer name if explicitly present (e.g. 雪碧, 高洁丝, 景田). If unclear, empty.
-    2. core_name (A核心名称): the core product name answering "what is this product?".
-       Remove brand words, marketing tags, flavor, and size/spec. Keep the essential noun phrase.
-       Examples: 碳酸饮料, 饮用纯净水, 卫生巾, 礼袋, 不锈钢料理盆.
-       Constraints:
-       - Prefer 1 short noun phrase (usually 2~8 Chinese chars).
-       - Avoid generic words like "商品/零食/食品/用品/礼物" unless the item truly is that category.
-    3. net_content (A单件净含量): per-unit net content only, standardized units: ml / L / g / kg (e.g. 330ml, 1.5L, 18g). If unclear, empty.
+    1. net_content (A单件净含量): per-unit net content only, standardized units: ml / L / g / kg (e.g. 330ml, 1.5L, 18g). If unclear, empty.
        Do NOT compute total net content.
-    4. sell_quantity (A售卖数量): number + selling unit (e.g. 24罐, 6瓶, 7片, 2条, 1个). If unclear, empty.
-    5. packaging_unit (A包装单位): the unit used in sell_quantity. Choose ONE from:
+    2. sell_quantity (A售卖数量): number + selling unit (e.g. 24罐, 6瓶, 7片, 2条, 1个). If unclear, empty.
+    3. packaging_unit (A包装单位): the unit used in sell_quantity. Choose ONE from:
        ["袋","盒","瓶","罐","桶","箱","听","杯","支","条","片","套","枚","个","只","包","件","板","组","卷","未知"].
        Examples:
        - 330ml*24罐/箱 => sell_quantity=24罐, packaging_unit=罐
        - 7片/包 => sell_quantity=7片, packaging_unit=片
        - 1个 => sell_quantity=1个, packaging_unit=个
-    6. color (A颜色): list of colors if explicitly stated.
-    7. appearance (A外观): list of appearance/form words (e.g. 超薄, 加厚, 极薄).
-    8. size (A尺寸): list of sizes/lengths or dimensions, keep units (mm/cm/m) and forms like 17x25x8cm, 直径19cm, and size codes like XL.
-    9. material (A材质): list of materials (e.g. 纯棉, 无纺布, 不锈钢, 玻璃).
-    10. model (A型号): model identifier if present (e.g. AB-123, X1).
+    4. color (A颜色): list of colors if explicitly stated.
+    5. size (A尺寸): list of sizes/lengths or dimensions, keep units (mm/cm/m) and forms like 17x25x8cm, 直径19cm, and size codes like XL.
+    6. model (A型号): model identifier if present (e.g. AB-123, X1).
 
     Normalization rules:
     - Convert full-width to half-width where applicable.
@@ -134,9 +121,9 @@ def extract_batch_ai(items, api_key, model_name=None, max_retries=5):
     Output:
     {{
       "items":[
-        {{"brand":"雪碧","core_name":"碳酸饮料","net_content":"330ml","sell_quantity":"24罐","packaging_unit":"罐","color":[],"appearance":[],"size":[],"material":[],"model":""}},
-        {{"brand":"高洁丝","core_name":"卫生巾","net_content":"","sell_quantity":"7片","packaging_unit":"片","color":[],"appearance":["极薄"],"size":["240mm"],"material":["纯棉"],"model":""}},
-        {{"brand":"","core_name":"礼袋","net_content":"","sell_quantity":"1个","packaging_unit":"个","color":[],"appearance":[],"size":["17x25x8cm"],"material":[],"model":""}}
+        {{"net_content":"330ml","sell_quantity":"24罐","packaging_unit":"罐","color":[],"size":[],"model":""}},
+        {{"net_content":"","sell_quantity":"7片","packaging_unit":"片","color":[],"size":["240mm"],"model":""}},
+        {{"net_content":"","sell_quantity":"1个","packaging_unit":"个","color":[],"size":["17x25x8cm"],"model":""}}
       ]
     }}
 
@@ -208,8 +195,8 @@ def process_file_ai(file_path, api_key, batch_size=110, progress_cb=None, model_
         print(f"Required columns not found in {file_path}. Available: {cols}")
         return
 
-    # Initialize target columns if they don't exist (new 10 columns)
-    target_cols = ['A品牌', 'A核心名称', 'A单件净含量', 'A售卖数量', 'A包装单位', 'A颜色', 'A外观', 'A尺寸', 'A材质', 'A型号']
+    # Initialize target columns if they don't exist (new 6 columns)
+    target_cols = ['A单件净含量', 'A售卖数量', 'A包装单位', 'A颜色', 'A尺寸', 'A型号']
     for col in target_cols:
         if col not in df.columns:
             df[col] = ""
@@ -293,15 +280,11 @@ def process_file_ai(file_path, api_key, batch_size=110, progress_cb=None, model_
     # 4. Map results back to the original DataFrame
     for name, res in results_map.items():
         row_mask = (df['_temp_input'] == name) & mask_to_process
-        df.loc[row_mask, 'A品牌'] = getattr(res, "brand", "") or ""
-        df.loc[row_mask, 'A核心名称'] = getattr(res, "core_name", "") or ""
         df.loc[row_mask, 'A单件净含量'] = getattr(res, "net_content", "") or ""
         df.loc[row_mask, 'A售卖数量'] = getattr(res, "sell_quantity", "") or ""
         df.loc[row_mask, 'A包装单位'] = getattr(res, "packaging_unit", "") or ""
         df.loc[row_mask, 'A颜色'] = " | ".join(getattr(res, "color", []) or [])
-        df.loc[row_mask, 'A外观'] = " | ".join(getattr(res, "appearance", []) or [])
         df.loc[row_mask, 'A尺寸'] = " | ".join(getattr(res, "size", []) or [])
-        df.loc[row_mask, 'A材质'] = " | ".join(getattr(res, "material", []) or [])
         # Model post-processing: keep closer to offline extractor output
         df.loc[row_mask, 'A型号'] = _postprocess_model(getattr(res, "model", "") or "", "", name)  # name==_temp_input here
 

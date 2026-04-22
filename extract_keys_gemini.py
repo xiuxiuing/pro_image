@@ -62,19 +62,12 @@ class ProductKeyExtract(BaseModel):
     spec: str = ""
     category3: str = ""
 
-    brand: str = Field(default="", description="品牌/厂家/系列名（如 雪碧/高洁丝/景田），不确定留空")
-    core_product_name: str = Field(
-        default="",
-        description="核心商品名称：描述这个商品是什么，尽量去掉品牌/规格/口味/营销词，仅保留品类核心（如 '碳酸饮料'/'卫生巾'/'礼袋'/'料理盆'）",
-    )
     net_content: str = Field(default="", description="单件净含量：ml/L/g/kg")
     sell_quantity: str = Field(default="", description="售卖数量：如 24罐/6瓶/7片/2条/1个")
     packaging_unit: PackagingUnit = Field(default="未知", description="包装单位（罐/瓶/袋/片/条/个/箱…），不确定填 未知")
 
     color: list[str] = Field(default_factory=list)
-    appearance: list[str] = Field(default_factory=list)
     size: list[str] = Field(default_factory=list)
-    material: list[str] = Field(default_factory=list)
     model: str = ""
 
     # 这两个字段用于调试与评估，不作为你“统一字段集”的输出要求，但保留会更好排查。
@@ -189,16 +182,11 @@ Return ONLY valid JSON that matches the provided response schema.
 Do NOT include any markdown, code fences, or explanations.
 
 Fields to extract:
-- brand: brand/manufacturer name if explicitly present (e.g. 雪碧, 高洁丝, 景田). If unclear, empty.
-- core_product_name: the core product name answering "what is this product?".
-  Remove brand words, marketing tags, flavor, and size/spec. Keep the essential noun phrase.
-  Examples: "碳酸饮料", "饮用纯净水", "卫生巾", "礼袋", "不锈钢料理盆".
 - net_content: per-unit net content only, standardized units: ml / L / g / kg (e.g. 330ml, 1.5L, 18g). If unclear, empty.
 - sell_quantity: number + selling unit (e.g. 24罐, 6瓶, 7片, 2条, 1个). If unclear, empty.
 - packaging_unit: choose ONE from ["袋","盒","瓶","罐","桶","箱","听","杯","支","条","片","套","枚","个","只","包","件","板","组","卷","未知"].
   Use the selling unit of the quantity (e.g. 330ml*24罐/箱 => 罐 ; 7片/包 => 片 ; 1个 => 个).
 - size: include mm/cm/m dimensions like 17x25x8cm, 240mm, 直径19cm, and size codes like XL.
-- material: include explicit materials like 纯棉, 无纺布, 不锈钢.
 - spec_text: cleaned spec string (keep key numbers/units/multipliers; remove marketing noise).
 - confidence: 0.0~1.0
 
@@ -218,9 +206,9 @@ Input:
 Output:
 {{
   "items":[
-    {{"name":"【整箱】雪碧 碳酸饮料 330ml*24罐/箱","spec":"330ml*24罐/箱","category3":"碳酸饮料","brand":"雪碧","core_product_name":"碳酸饮料","net_content":"330ml","sell_quantity":"24罐","packaging_unit":"罐","color":[],"appearance":[],"size":[],"material":[],"model":"","spec_text":"330ml*24罐/箱","confidence":0.95}},
-    {{"name":"高洁丝 纯棉240mm*7片/包 极薄卫生巾","spec":"7片/包","category3":"卫生巾","brand":"高洁丝","core_product_name":"卫生巾","net_content":"","sell_quantity":"7片","packaging_unit":"片","color":[],"appearance":["极薄"],"size":["240mm"],"material":["纯棉"],"model":"","spec_text":"240mm*7片/包","confidence":0.92}},
-    {{"name":"礼袋 1个 礼品包装","spec":"礼袋17x25x8cm*1个","category3":"礼品包装","brand":"","core_product_name":"礼袋","net_content":"","sell_quantity":"1个","packaging_unit":"个","color":[],"appearance":[],"size":["17x25x8cm"],"material":[],"model":"","spec_text":"17x25x8cm*1个","confidence":0.90}}
+    {{"name":"【整箱】雪碧 碳酸饮料 330ml*24罐/箱","spec":"330ml*24罐/箱","category3":"碳酸饮料","net_content":"330ml","sell_quantity":"24罐","packaging_unit":"罐","color":[],"size":[],"model":"","spec_text":"330ml*24罐/箱","confidence":0.95}},
+    {{"name":"高洁丝 纯棉240mm*7片/包 极薄卫生巾","spec":"7片/包","category3":"卫生巾","net_content":"","sell_quantity":"7片","packaging_unit":"片","color":[],"size":["240mm"],"model":"","spec_text":"240mm*7片/包","confidence":0.92}},
+    {{"name":"礼袋 1个 礼品包装","spec":"礼袋17x25x8cm*1个","category3":"礼品包装","net_content":"","sell_quantity":"1个","packaging_unit":"个","color":[],"size":["17x25x8cm"],"model":"","spec_text":"17x25x8cm*1个","confidence":0.90}}
   ]
 }}
 
@@ -308,15 +296,11 @@ def main() -> None:
                 {
                     "商品名称": b.get("name", ""),
                     "规格": b.get("spec", ""),
-                    "品牌": d.get("brand", ""),
-                    "核心名称": d.get("core_product_name", ""),
                     "单件净含量": d.get("net_content", ""),
                     "售卖数量": d.get("sell_quantity", ""),
                     "包装单位": d.get("packaging_unit", ""),
                     "颜色": " | ".join(d.get("color") or []),
-                    "外观": " | ".join(d.get("appearance") or []),
                     "尺寸": " | ".join(d.get("size") or []),
-                    "材质": " | ".join(d.get("material") or []),
                     "型号": d.get("model", ""),
                 }
             )

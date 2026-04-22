@@ -90,7 +90,7 @@ def get_美团类名1(item):
 _DEFAULT_MATCH_CONFIG = {
     "category_level": 1,
     "sections": {
-        "SEM": {"A核心名称": 5, "A品牌": 2, "A材质": 2, "A外观": 1, "A颜色": 0},
+        "SEM": {"A颜色": 0},
         "SPEC": {"A单件净含量": 3, "A售卖数量": 2, "A包装单位": 2, "A尺寸": 2, "A型号": 2},
     },
 }
@@ -136,33 +136,6 @@ def _build_segmented_text(item, match_cfg):
     cat = _pick_category(item, level)
     parts = []
     parts.append(f"[CAT{level}]={_norm_val(cat)}")
-
-    # fixed field sets per your spec
-    sem_keys = ["A核心名称", "A品牌", "A材质", "A外观", "A颜色"]
-    spec_keys = ["A单件净含量", "A售卖数量", "A包装单位", "A尺寸", "A型号"]
-
-    sem_w = cfg.get("sections", {}).get("SEM", {}) or {}
-    spec_w = cfg.get("sections", {}).get("SPEC", {}) or {}
-
-    for k in sem_keys:
-        w = int(sem_w.get(k, 0) or 0)
-        if w <= 0:
-            continue
-        val = _norm_val(item.get(k, ""))
-        if not val:
-            continue
-        for _ in range(min(5, max(0, w))):
-            parts.append(f"[SEM][{k}]={val}")
-
-    for k in spec_keys:
-        w = int(spec_w.get(k, 0) or 0)
-        if w <= 0:
-            continue
-        val = _norm_val(item.get(k, ""))
-        if not val:
-            continue
-        for _ in range(min(5, max(0, w))):
-            parts.append(f"[SPEC][{k}]={val}")
 
     # fallback: keep minimal original text to avoid empty embeddings
     if len(parts) <= 1:
