@@ -1,3 +1,9 @@
+"""
+主店 vs 竞店比对流水线：下载图片 → 构建 FAISS 图/文向量索引 → 对主店 SKU 做条码优先匹配，
+再对未匹配项做批量向量检索，合并图/文相似度与三级类目校验后写出 Excel 结果。
+
+依赖：DINOv2（图）、BGE（文），向量维度见全局 dim。
+"""
 import utils
 import os
 import requests
@@ -26,6 +32,7 @@ dim = 768
 models_base = os.path.join(sys._MEIPASS, "models") if getattr(sys, 'frozen', False) else os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
 
 def load_model_from_path(name, fallback):
+    """若本地 models_base 下存在 name 目录则用之，否则回退到 HuggingFace 标识 fallback。"""
     p = os.path.join(models_base, name)
     return p if os.path.exists(p) else fallback
 
@@ -40,26 +47,47 @@ text_model = AutoModel.from_pretrained(bge_p).to(device).eval()
 
 # --- Field Getters ---
 def g(item, keys, default=""):
+    """从行字典 item 中按 keys 顺序取第一个非空字段，均空则返回 default。"""
     for k in keys:
         v = item.get(k)
         if v is not None and str(v).strip() != "": return v
     return default
 
 def get_sku_id(item):
+    """SKU 主键，与 utils.get_sku_id 一致。"""
     return utils.get_sku_id(item)
 
-def get_条码(item): return g(item, ["条码", "商品条码"])
-def get_规格(item): return g(item, ["规格", "规格名称"])
-def get_活动价(item): return g(item, ["单件折扣价", "新活动价", "活动价"])
-def get_原价(item): return g(item, ["单件原价", "新售价", "美团外卖渠道售价", "采购价"])
-def get_销售(item): return g(item, ["销售", "月销量"])
-def get_美团类名3(item): return g(item, ["美团三级类目", "美团类目三级", "三级类目"])
+def get_条码(item):
+    """商品条码（多列名兼容）。"""
+    return g(item, ["条码", "商品条码"])
+
+def get_规格(item):
+    """规格展示名（多列名兼容）。"""
+    return g(item, ["规格", "规格名称"])
+
+def get_活动价(item):
+    """活动/折扣价（多列名兼容）。"""
+    return g(item, ["单件折扣价", "新活动价", "活动价"])
+
+def get_原价(item):
+    """原价或渠道售价（多列名兼容）。"""
+    return g(item, ["单件原价", "新售价", "美团外卖渠道售价", "采购价"])
+
+def get_销售(item):
+    """销量（多列名兼容）。"""
+    return g(item, ["销售", "月销量"])
+
+def get_美团类名3(item):
+    """美团三级类目，用于与竞店命中行做一致性过滤。"""
+    return g(item, ["美团三级类目", "美团类目三级", "三级类目"])
 
 def get_text(item):
+    """拼成 BGE 文本向量用的字段串（规格、类目、名称与 A 系列补全列）。"""
     return f"{get_规格(item)}, {get_美团类名3(item)}, {item.get('商品名称','')}, {item.get('A品牌', '')}, {item.get('A商品名称', '')}, {item.get('A规格', '')}"
 
 # --- Result Construction ---
 def build_match_item(item, prefix=""):
+    """将一行 Excel 字典转为输出列：原列加 prefix，并统一写出 skuId/主图/价量等展示字段。"""
     res = {f"{prefix}{k}": v for k, v in item.items()}
     res.update({
         f"{prefix}skuId": get_sku_id(item),
@@ -74,11 +102,13 @@ def build_match_item(item, prefix=""):
     return res
 
 def append_match_result(res_item, sear_item, sim, match, prefix=""):
+    """把竞店命中行合并进主店结果行，并写入 {prefix}相似度、{prefix}匹配（如 0 匹配、条码匹配）。"""
     res_item.update(build_match_item(sear_item, prefix))
     res_item[f"{prefix}相似度"], res_item[f"{prefix}匹配"] = sim, match
 
 # --- Image Utilities ---
 def download_img(url, sku_id, folder):
+    """按 url 下载主图到 folder/{sku_id}.webp，已存在则跳过；失败静默忽略。"""
     os.makedirs(folder, exist_ok=True); path = f"{folder}/{sku_id}.webp"
     if os.path.exists(path): return
     try:
@@ -87,11 +117,13 @@ def download_img(url, sku_id, folder):
     except: pass
 
 def download_imgs(data, folder="img", workers=30):
+    """并发下载 data 中每行的「图片」URL 到 folder，文件名为 skuId.webp。"""
     with ThreadPoolExecutor(max_workers=workers) as ex:
         [ex.submit(download_img, (item.get("图片") or "").strip(), get_sku_id(item), folder) for item in data]
 
 # --- Embedding & Index ---
 def images_to_embeddings(paths, batch_size=32):
+    """DINOv2 批量提图向量，L2 归一；缺图或失败的位置为 None，与 paths 等长。"""
     all_embeddings = []
     for i in range(0, len(paths), batch_size):
         batch_paths = paths[i:i + batch_size]
@@ -126,6 +158,7 @@ def images_to_embeddings(paths, batch_size=32):
     return all_embeddings
 
 def texts_to_embeddings(texts, batch_size=32):
+    """BGE 批量提句向量，按 batch 归一；本 batch 失败则该 batch 全为 None。"""
     all_embeddings = []
     for i in range(0, len(texts), batch_size):
         batch_texts = texts[i:i + batch_size]
@@ -141,14 +174,21 @@ def texts_to_embeddings(texts, batch_size=32):
     return all_embeddings
 
 def image_to_embedding(path):
+    """单张图片向量，供外部少量调用。"""
     res = images_to_embeddings([path])
     return res[0]
 
 def text_to_embedding(text):
+    """单条文本向量，供外部少量调用。"""
     res = texts_to_embeddings([text])
     return res[0]
 
 def build_index(data, mode="img", folder="img", path="index", batch_size=32):
+    """
+    将竞店 Excel 行列表转为 FAISS 索引并写入 path。
+    mode 为 img：读 folder/{skuId}.webp；为 text：用 get_text 拼串。
+    使用 IndexFlatIP + 已归一向量，检索分数为内积（等价余弦相似度）。
+    """
     vecs, ids = [], []
     valid_items = []
     for item in data:
@@ -180,6 +220,17 @@ def build_index(data, mode="img", folder="img", path="index", batch_size=32):
 
 # --- Analysis Pipeline ---
 def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", progress_cb=None):
+    """
+    主分析入口：主店表 target_xlsx，竞店表列表 source_xlsxs。
+
+    每个竞店：下载图 →（按需）构建 img_*/txt_* 的 FAISS 索引到 output_dir/../cache。
+    主店：下载到 query_img → 预计算全量查询图/文向量。
+    对每个竞店：先条码字典精确匹配，再对仍未出现「{idx}匹配」列的行做 Faiss top-1，
+    图/文结果按阈值合并，且要求主店与命中行美团三级类目一致，最后写出 output_{output_name}.xlsx。
+
+    progress_cb(event, idx, detail) 可选：source_start/source_done、query_start、query_progress。
+    返回：生成结果文件的绝对路径。
+    """
     os.makedirs(output_dir, exist_ok=True)
     cache_dir = os.path.join(output_dir, "..", "cache") if output_dir != "." else "."
     os.makedirs(cache_dir, exist_ok=True)

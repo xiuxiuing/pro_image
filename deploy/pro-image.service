@@ -1,0 +1,24 @@
+[Unit]
+Description=Pro Image Flask (gunicorn)
+After=network.target
+
+[Service]
+Type=notify
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/pro_image
+Environment="PATH=/opt/pro_image/venv/bin"
+# 单机 SQLite + 进程内 DataManager：必须使用单 worker，否则多进程各持一份库/内存状态
+ExecStart=/opt/pro_image/venv/bin/gunicorn \
+  --bind 127.0.0.1:5001 \
+  --workers 1 \
+  --threads 4 \
+  --timeout 600 \
+  --access-logfile - \
+  --error-logfile - \
+  app:app
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

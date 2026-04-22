@@ -1,0 +1,2 @@
+# 生产环境在 requirements.txt 之外额外安装
+gunicorn>=23.0.0
