@@ -80,6 +80,10 @@ class DataManagerQueryMixin:
                 merged_comp.rename(columns=rename_dict, inplace=True)
                 cols_to_drop = [c for c in drop_cols if c in merged_comp.columns]
                 if cols_to_drop: merged_comp.drop(columns=cols_to_drop, inplace=True)
+
+                # 每店对主行最多一条；若历史错误导入产生多条同 main，避免 merge 时一对多把主表行数放大
+                if "main_sku_id" in merged_comp.columns and not merged_comp.empty:
+                    merged_comp = merged_comp.drop_duplicates(subset=["main_sku_id"], keep="first")
                 
                 grid = pd.merge(grid, merged_comp, left_on='skuId', right_on='main_sku_id', how='left')
                 if 'main_sku_id' in grid.columns: grid.drop(columns=['main_sku_id'], inplace=True)

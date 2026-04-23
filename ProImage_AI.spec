@@ -13,7 +13,7 @@ a = Analysis(
         'flask', 'pandas', 'numpy', 'torch', 'torchvision', 'torchaudio', 
         'openpyxl', 'PIL', 'PIL.Image', 'faiss', 
         'transformers', 'google.genai', 'pydantic', 'cryptography',
-        'data_mgr', 'license_utils', 'main_030822', 'extract_info_ai2', 'utils',
+        'data_mgr', 'data_mgr_rule_templates', 'post_match_engine', 'license_utils', 'main_030822', 'extract_info_ai2', 'utils',
         'merge_sku_data', 'werkzeug', 'jinja2', 'markupsafe', 'itsdangerous', 
         'click', 'tqdm', 'requests', 'filelock', 'regex', 'safetensors',
         'scipy',

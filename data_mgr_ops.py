@@ -270,7 +270,7 @@ class DataManagerOpsMixin:
                 cur = conn.execute("""
                     SELECT p.id, p.name, p.created_at, p.is_active,
                            COALESCE(m.cnt, 0) AS sku_count, p.status,
-                           p.analysis_started_at
+                           p.analysis_started_at, p.rule_template_id
                     FROM projects p
                     LEFT JOIN (
                         SELECT project_id, COUNT(*) AS cnt
@@ -283,13 +283,14 @@ class DataManagerOpsMixin:
                     {"id": r[0], "name": r[1], "created_at": r[2],
                      "is_active": r[3], "sku_count": r[4],
                      "status": r[5] or "ready",
-                     "analysis_started_at": r[6]}
+                     "analysis_started_at": r[6],
+                     "rule_template_id": r[7]}
                     for r in cur.fetchall()
                 ]
             finally:
                 conn.close()
 
-    def create_project(self, name, main_file_info, comp_files_info, status='ready', match_config_json=""):
+    def create_project(self, name, main_file_info, comp_files_info, status='ready', match_config_json="", rule_template_id=None):
         """
         main_file_info: {'path': ..., 'store_name': ...}
         comp_files_info: [{'path': ..., 'store_name': ...}, ...]
@@ -299,9 +300,13 @@ class DataManagerOpsMixin:
             try:
                 with conn:
                     analysis_started = time.strftime('%Y-%m-%d %H:%M:%S') if status == 'analyzing' else None
+                    rtid = rule_template_id
+                    if rtid is None:
+                        r0 = conn.execute("SELECT id FROM rule_templates ORDER BY id LIMIT 1").fetchone()
+                        rtid = r0[0] if r0 else None
                     cur = conn.execute(
-                        "INSERT INTO projects (name, status, analysis_started_at, match_config) VALUES (?, ?, ?, ?)",
-                        (name, status, analysis_started, match_config_json or ""),
+                        "INSERT INTO projects (name, status, analysis_started_at, match_config, rule_template_id) VALUES (?, ?, ?, ?, ?)",
+                        (name, status, analysis_started, match_config_json or "", rtid),
                     )
                     pid = cur.lastrowid
                     

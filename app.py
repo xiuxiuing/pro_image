@@ -1,8 +1,20 @@
+import os
+import sys
+
+# macOS：FAISS 与 PyTorch 同时链接不同 OpenMP/BLAS 时易 SIGSEGV；需在 numpy/torch 初始化前收紧线程
+if sys.platform == "darwin":
+    for _k, _v in (
+        ("OMP_NUM_THREADS", "1"),
+        ("MKL_NUM_THREADS", "1"),
+        ("VECLIB_MAXIMUM_THREADS", "1"),
+        ("NUMEXPR_MAX_THREADS", "1"),
+        ("OPENBLAS_NUM_THREADS", "1"),
+    ):
+        os.environ.setdefault(_k, _v)
+
 from flask import Flask, render_template, request, jsonify, send_file, send_from_directory
 from data_mgr import DataManager
 from license_utils import LicenseManager
-import os
-import sys
 import signal
 import faulthandler
 import shutil
@@ -147,6 +159,14 @@ def _clear_progress(pid):
     with _progress_lock:
         _analysis_progress.pop(pid, None)
 
+
+# 成功/失败后延迟清理内存进度，让前端能至少轮询到一次「全步完成 / 100%」再消失
+_ANALYSIS_PROGRESS_HOLD_S = 5.0
+
+
+def _schedule_clear_progress(pid):
+    threading.Timer(_ANALYSIS_PROGRESS_HOLD_S, lambda p=pid: _clear_progress(p)).start()
+
 MAX_FILE_SIZE = 80 * 1024 * 1024  # 80MB per file
 ALLOWED_EXTENSIONS = {'.xlsx', '.xls'}
 
@@ -217,7 +237,12 @@ def handle_projects():
         if not name: return jsonify({"status": "error", "message": "Project name is required"}), 400
 
         match_config_json = (request.form.get('match_config_json') or "").strip()
-        
+        raw_rt = (request.form.get("rule_template_id") or "").strip()
+        try:
+            rule_template_id = int(raw_rt) if raw_rt else None
+        except ValueError:
+            rule_template_id = None
+
         main_file = request.files.get('main_file')
         comp_files = request.files.getlist('comp_files')
         
@@ -272,6 +297,7 @@ def handle_projects():
             comp_infos,
             status='ready' if is_manual else 'analyzing',
             match_config_json=match_config_json,
+            rule_template_id=rule_template_id,
         )
 
         # Rename temp directory to real PID
@@ -333,13 +359,15 @@ def handle_projects():
                         _update_step(pid, len(prog["steps"]) - 1, "running", detail)
 
                 print(f"[BG] Project {pid} starting run_analysis...", flush=True)
+                _pmt = dm.get_post_match_template_for_project(pid)
                 main_030822.run_analysis(
                     final_main_path, final_comp_paths,
                     output_name=str(pid), output_dir=dirs["outputs"],
                     progress_cb=_analysis_cb,
                     match_config=match_config_json,
+                    post_match_template=_pmt,
                 )
-                _update_step(pid, len(prog["steps"]) - 1, "done")
+                _update_step(pid, len(prog["steps"]) - 1, "done", "分析完成")
                 dm.update_project_status(pid, 'ready')
                 print(f"[BG] Project {pid} analysis complete in {time.time()-_t0:.1f}s", flush=True)
             except BaseException as e:
@@ -350,7 +378,7 @@ def handle_projects():
                     pass
                 print(f"[BG] Project {pid} FAILED ({type(e).__name__}: {e}) after {time.time()-_t0:.1f}s", flush=True)
             finally:
-                _clear_progress(pid)
+                _schedule_clear_progress(pid)
 
         threading.Thread(target=_run_analysis_bg, daemon=True).start()
         return jsonify({"status": "success", "project_id": pid})
@@ -375,7 +403,71 @@ def delete_project(pid):
     dm.delete_project(pid)
     return jsonify({"status": "success"})
 
-@app.route('/api/config', methods=['GET'])
+@app.route("/match-rules")
+def match_rules_page():
+    is_valid, _ = check_license()
+    if not is_valid:
+        return render_template("activate.html", hwid=CURRENT_HWID)
+    return render_template("match_rules.html")
+
+@app.route("/match-rules/new", methods=["GET"])
+def match_rule_new_page():
+    is_valid, _ = check_license()
+    if not is_valid:
+        return render_template("activate.html", hwid=CURRENT_HWID)
+    return render_template("match_rule_edit.html", template_id=0, template_name="")
+
+@app.route("/match-rules/<int:tid>", methods=["GET"])
+def match_rule_edit_page(tid):
+    is_valid, _ = check_license()
+    if not is_valid:
+        return render_template("activate.html", hwid=CURRENT_HWID)
+    t = dm.get_rule_template(tid) if tid else None
+    if tid and not t:
+        return "规则不存在", 404
+    return render_template("match_rule_edit.html", template_id=tid, template_name=(t or {}).get("name", ""))
+
+@app.route("/api/rule-templates", methods=["GET", "POST"])
+def api_rule_templates():
+    if request.method == "GET":
+        return jsonify({"status": "ok", "items": dm.list_rule_templates()})
+    d = request.get_json(silent=True) or {}
+    name = (d.get("name") or "").strip() or "未命名规则"
+    desc = (d.get("description") or "").strip()
+    config = d.get("config")
+    if not isinstance(config, dict):
+        return jsonify({"status": "error", "message": "config 须为对象"}), 400
+    rid = dm.create_rule_template(name, desc, config)
+    return jsonify({"status": "ok", "id": rid})
+
+@app.route("/api/rule-templates/<int:tid>", methods=["GET", "PUT", "DELETE"])
+def api_rule_template_one(tid):
+    if request.method == "GET":
+        t = dm.get_rule_template(tid)
+        if not t:
+            return jsonify({"status": "error", "message": "不存在"}), 404
+        try:
+            import json
+            t["config"] = json.loads(t.get("config_json") or "{}")
+        except Exception:
+            t["config"] = {}
+        return jsonify({"status": "ok", "item": t})
+    if request.method == "DELETE":
+        ok, err = dm.delete_rule_template(tid)
+        if not ok:
+            return jsonify({"status": "error", "message": err or "删除失败"}), 400
+        return jsonify({"status": "ok"})
+    d = request.get_json(silent=True) or {}
+    name = (d.get("name") or "").strip() or "未命名规则"
+    desc = (d.get("description") or "").strip()
+    config = d.get("config")
+    if not isinstance(config, dict):
+        return jsonify({"status": "error", "message": "config 须为对象"}), 400
+    if not dm.update_rule_template(tid, name, desc, config):
+        return jsonify({"status": "error", "message": "更新失败"}), 400
+    return jsonify({"status": "ok"})
+
+@app.route("/api/config", methods=['GET'])
 def get_config():
     return jsonify({
         "main_store": dm.main_store_name, "target_file": dm.target_file, "output_file": dm.output_file,

@@ -43,7 +43,7 @@ class ProductInfo(BaseModel):
     """
 
     net_content: str = Field(default="", description="单件净含量，标准单位 ml/L/g/kg，如 330ml/1.5L/18g")
-    sell_quantity: str = Field(default="", description="售卖数量，如 24罐/6瓶/7片/2条/1个")
+    sell_quantity: str = Field(default="", description="售卖数量，如 24/6/7/2/1")
     packaging_unit: PackagingUnit = Field(default="未知", description="包装单位，如 罐/瓶/袋/片/条/个/箱/包；不确定填 未知")
     color: list[str] = Field(default_factory=list, description="颜色（可多值）")
     size: list[str] = Field(default_factory=list, description="尺寸/长度/码数（可多值，如 240mm/17x25x8cm/XL）")

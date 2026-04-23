@@ -34,7 +34,7 @@ CORE_COMP_COLUMNS = [
     '主图链接', '商品条码', 'SPUID', '美团类目一级', '美团类目二级', '美团类目三级'
 ]
 
-MAPPING_VERSION = "3.0" # Bumped to trigger full re-import with structure cleanup
+MAPPING_VERSION = "3.1"  # 链接导入：列前缀 0/1/2 与竞店下标固定一致（修复错映射导致主表行数×竞店数）
 
 _SAFE_COL_RE = re.compile(r'^[\w\u4e00-\u9fff]+$')
 
@@ -190,6 +190,38 @@ class DataManagerBase:
                         conn.execute("ALTER TABLE projects ADD COLUMN analysis_started_at TEXT")
                     if "match_config" not in proj_cols:
                         conn.execute("ALTER TABLE projects ADD COLUMN match_config TEXT DEFAULT ''")
+                    if "rule_template_id" not in proj_cols:
+                        conn.execute("ALTER TABLE projects ADD COLUMN rule_template_id INTEGER")
+
+                    # --- rule_templates (后验规则模板) ---
+                    conn.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS rule_templates (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            name TEXT NOT NULL,
+                            description TEXT DEFAULT '',
+                            config_json TEXT NOT NULL DEFAULT '{}',
+                            created_at TEXT,
+                            updated_at TEXT
+                        )
+                        """
+                    )
+                    _rtc = conn.execute("SELECT COUNT(*) FROM rule_templates").fetchone()[0]
+                    if _rtc == 0:
+                        import json as _json
+                        try:
+                            import post_match_engine as _pme
+                            _cfg = _json.dumps(
+                                _pme.get_builtin_default_template(), ensure_ascii=False, separators=(",", ":")
+                            )
+                        except Exception:
+                            _cfg = '{"v":1,"default":{"cat3":{"en":true},"net":{"en":true,"max_rel":0.2},"sell":{"en":true,"max_diff":0.0},"pack":{"en":true,"syn":[]},"color":{"en":true,"syn":[]},"size":{"en":true,"max_rel":0.125},"model":{"en":true,"syn":[]}},"by_cat1":{}}'
+                        _now = __import__("time").strftime("%Y-%m-%d %H:%M:%S")
+                        conn.execute(
+                            "INSERT INTO rule_templates (name, description, config_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                            ("系统默认后验", "与线网默认参数接近；可另建或编辑规则模板", _cfg, _now, _now),
+                        )
+                        print("Created default rule_templates row.")
 
                     # Performance indexes for unlinked-pool / grid queries
                     conn.execute("CREATE INDEX IF NOT EXISTS idx_product_links_lookup ON product_links(project_id, store_id, comp_sku_id)")

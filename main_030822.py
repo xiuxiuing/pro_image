@@ -4,14 +4,28 @@
 
 依赖：DINOv2（图）、BGE（文），向量维度见全局 dim。
 """
-import utils
 import os
+import sys
+
+# 必须在 import torch / numpy / faiss 之前（直接运行本文件时无 app.py 预设）
+if sys.platform == "darwin":
+    for _k, _v in (
+        ("OMP_NUM_THREADS", "1"),
+        ("MKL_NUM_THREADS", "1"),
+        ("VECLIB_MAXIMUM_THREADS", "1"),
+        ("NUMEXPR_MAX_THREADS", "1"),
+        ("OPENBLAS_NUM_THREADS", "1"),
+    ):
+        os.environ.setdefault(_k, _v)
+
+import utils
+import post_match_engine
+import time as _time_mod
 import requests
 import traceback
 import torch
 import numpy as np
 import faiss
-import sys
 from PIL import Image
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from transformers import AutoImageProcessor, AutoModel, AutoTokenizer
@@ -19,13 +33,45 @@ from transformers import AutoImageProcessor, AutoModel, AutoTokenizer
 # --- Environment & Setup ---
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 # os.environ["OMP_NUM_THREADS"] = "1"  # 已解除线程限制以提升多核使用率
-if torch.cuda.is_available():
-    device = "cuda"
-elif torch.backends.mps.is_available():
-    device = "mps"
+
+
+def _select_torch_device():
+    """
+    苹果 MPS 上 DINOv2 + BGE 在部分 PyTorch/批次下会 EXC_BAD_ACCESS (SIGSEGV)。
+    默认在「仅有 MPS、无 CUDA」时改用 CPU；需要 GPU 时显式设 PROIMAGE_DEVICE=mps 或 PROIMAGE_USE_MPS=1。
+    """
+    ex = (os.environ.get("PROIMAGE_DEVICE") or os.environ.get("PROIMAGE_TORCH_DEVICE") or "").strip().lower()
+    if ex in ("cpu", "mps", "cuda"):
+        if ex == "mps" and not torch.backends.mps.is_available():
+            print("PROIMAGE_DEVICE=mps 但 MPS 不可用，使用 cpu", flush=True)
+            return "cpu", True
+        if ex == "cuda" and not torch.cuda.is_available():
+            print("PROIMAGE_DEVICE=cuda 但 CUDA 不可用，使用 cpu", flush=True)
+            return "cpu", True
+        return ex, True
+    if torch.cuda.is_available():
+        return "cuda", False
+    if torch.backends.mps.is_available():
+        mps_wanted = os.environ.get("PROIMAGE_USE_MPS", "").strip().lower() in ("1", "true", "yes", "on")
+        if mps_wanted:
+            return "mps", False
+        return "cpu", False
+    return "cpu", False
+
+
+device, _device_is_explicit = _select_torch_device()
+if device == "cpu" and (not _device_is_explicit) and torch.backends.mps.is_available():
+    print(
+        "Using device: cpu (已跳过 Apple MPS，避免向量分析段错误。要试用 GPU: 设置 PROIMAGE_DEVICE=mps 或 PROIMAGE_USE_MPS=1)",
+        flush=True,
+    )
 else:
-    device = "cpu"
-print(f"Using device: {device}")
+    print(f"Using device: {device}", flush=True)
+
+if sys.platform == "darwin":
+    torch.set_num_threads(1)
+    torch.set_num_interop_threads(1)
+
 dim = 768
 
 # Define model paths with frozen/MEIPASS support
@@ -87,32 +133,24 @@ def get_美团类名2(item):
 def get_美团类名1(item):
     return g(item, ["美团类目一级", "美团类目1级", "美团一级类目", "一级类目"])
 
+# 仅 category_level 参与文本向量；文检索由「美团类目 + 规格 + 商品名称」两行构成（见 _build_segmented_text）。
 _DEFAULT_MATCH_CONFIG = {
     "category_level": 1,
-    "sections": {
-        "SEM": {"A颜色": 0},
-        "SPEC": {"A单件净含量": 3, "A售卖数量": 2, "A包装单位": 2, "A尺寸": 2, "A型号": 2},
-    },
 }
 
 def _load_match_config(raw):
     import json
     if not raw:
-        return _DEFAULT_MATCH_CONFIG
+        return {**_DEFAULT_MATCH_CONFIG}
     if isinstance(raw, dict):
         return {**_DEFAULT_MATCH_CONFIG, **raw}
     try:
         d = json.loads(raw) if isinstance(raw, str) else {}
         if not isinstance(d, dict):
-            return _DEFAULT_MATCH_CONFIG
-        # merge shallowly
-        out = {**_DEFAULT_MATCH_CONFIG, **d}
-        out.setdefault("sections", _DEFAULT_MATCH_CONFIG["sections"])
-        for sec in ("SEM", "SPEC"):
-            out["sections"].setdefault(sec, {})
-        return out
+            return {**_DEFAULT_MATCH_CONFIG}
+        return {**_DEFAULT_MATCH_CONFIG, **d}
     except Exception:
-        return _DEFAULT_MATCH_CONFIG
+        return {**_DEFAULT_MATCH_CONFIG}
 
 def _pick_category(item, level: int):
     if level == 2:
@@ -130,95 +168,23 @@ def _norm_val(v):
     return s
 
 def _build_segmented_text(item, match_cfg):
-    """Build single segmented text for BGE based on match_config weights."""
+    """BGE 输入：一行美团类目（由 category_level 选 1/2/3 级）+ 一行「规格, 商品名称」。不读 columns 权重。"""
     cfg = _load_match_config(match_cfg)
     level = int(cfg.get("category_level") or 1)
     cat = _pick_category(item, level)
-    parts = []
-    parts.append(f"[CAT{level}]={_norm_val(cat)}")
-
-    # fallback: keep minimal original text to avoid empty embeddings
-    if len(parts) <= 1:
-        base = f"{get_规格(item)}, {item.get('商品名称','')}"
-        parts.append(_norm_val(base))
-
-    return "\n".join([p for p in parts if p])
+    parts = [f"[CAT{level}]={_norm_val(cat)}"]
+    base = _norm_val(f"{get_规格(item)}, {item.get('商品名称', '')}")
+    if base:
+        parts.append(base)
+    return "\n".join(parts)
 
 def get_text(item):
     """
-    拼成 BGE 文本向量用的字段串。
-    默认走分段格式（SEM/SPEC）并读取全局 _MATCH_CONFIG（由 run_analysis 注入）。
+    拼成 BGE 文本向量的唯一字符串源：美团类目 + 规格 + 商品名称（见 _build_segmented_text）。
+    使用全局 _MATCH_CONFIG（由 run_analysis 注入），当前仅使用其中的 category_level。
     """
     cfg = globals().get("_MATCH_CONFIG", None)
     return _build_segmented_text(item, cfg)
-
-def _parse_net_content(s: str):
-    """Return (kind, value_in_base_unit) where kind in {'ml','g'}."""
-    import re
-    s = _norm_val(s).lower()
-    if not s:
-        return None
-    m = re.search(r"(\d+(?:\.\d+)?)\s*(ml|l|g|kg)\b", s)
-    if not m:
-        return None
-    v = float(m.group(1))
-    u = m.group(2)
-    if u == "ml":
-        return ("ml", v)
-    if u == "l":
-        return ("ml", v * 1000.0)
-    if u == "g":
-        return ("g", v)
-    if u == "kg":
-        return ("g", v * 1000.0)
-    return None
-
-def _parse_size_mm(s: str):
-    """Extract first length-like value and convert to mm."""
-    import re
-    s = _norm_val(s).lower()
-    if not s:
-        return None
-    m = re.search(r"(\d+(?:\.\d+)?)\s*(mm|cm|m)\b", s)
-    if not m:
-        return None
-    v = float(m.group(1))
-    u = m.group(2)
-    if u == "mm":
-        return v
-    if u == "cm":
-        return v * 10.0
-    if u == "m":
-        return v * 1000.0
-    return None
-
-def _apply_default_spec_penalty(query_item, hit_item, base_score: float):
-    """
-    Default consistency penalty for TEXT matching.
-    Does NOT affect image matching or cat3 gate.
-    """
-    score = float(base_score)
-    # net content: relative diff max 20%, penalty 0.15
-    qn = _parse_net_content(query_item.get("A单件净含量", ""))
-    hn = _parse_net_content(hit_item.get("A单件净含量", ""))
-    if qn and hn and qn[0] == hn[0] and qn[1] > 0 and hn[1] > 0:
-        rel = abs(qn[1] - hn[1]) / max(qn[1], hn[1])
-        if rel > 0.20:
-            score -= 0.15
-
-    # size: abs diff max 30mm, penalty 0.15
-    qs = _parse_size_mm(query_item.get("A尺寸", ""))
-    hs = _parse_size_mm(hit_item.get("A尺寸", ""))
-    if qs is not None and hs is not None:
-        if abs(qs - hs) > 30.0:
-            score -= 0.15
-
-    # model: if both exist and not equal -> penalty 0.20
-    qm = _norm_val(query_item.get("A型号", ""))
-    hm = _norm_val(hit_item.get("A型号", ""))
-    if qm and hm and qm != hm:
-        score -= 0.20
-    return score
 
 # --- Result Construction ---
 def build_match_item(item, prefix=""):
@@ -241,26 +207,46 @@ def append_match_result(res_item, sear_item, sim, match, prefix=""):
     res_item.update(build_match_item(sear_item, prefix))
     res_item[f"{prefix}相似度"], res_item[f"{prefix}匹配"] = sim, match
 
+
+def _has_comp_match_for_source(row_dict, pfx: str) -> bool:
+    """
+    第 i 个竞店是否已有有效匹配。若用「f'{i}匹配' in row」判断，主表来自旧结果时表头中会有空列
+    「1匹配」等，键已存在但无内容，会误判为已匹配，从跳过后续竞店（常见：B 有结果、A 全空，AB 为同一文件时更明显）。
+    与导入 / 前端一致，以 {pfx}skuId 是否有有效值为准。
+    """
+    v = row_dict.get(f"{pfx}skuId")
+    if v is None:
+        return False
+    s = str(v).strip().lower()
+    return bool(s) and s not in ("none", "nan", "-", "null")
+
 # --- Image Utilities ---
 def download_img(url, sku_id, folder):
     """按 url 下载主图到 folder/{sku_id}.webp，已存在则跳过；失败静默忽略。"""
-    os.makedirs(folder, exist_ok=True); path = f"{folder}/{sku_id}.webp"
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, f"{sku_id}.webp")
     if os.path.exists(path): return
     try:
         r = requests.get(url, timeout=20); r.raise_for_status()
         with open(path, "wb") as f: f.write(r.content)
     except: pass
 
-def download_imgs(data, folder="img", workers=30):
+def download_imgs(data, folder="img", workers=None):
     """并发下载 data 中每行的「图片」URL 到 folder，文件名为 skuId.webp。"""
+    if workers is None:
+        workers = 8 if sys.platform == "darwin" else 30
     with ThreadPoolExecutor(max_workers=workers) as ex:
         [ex.submit(download_img, (item.get("图片") or "").strip(), get_sku_id(item), folder) for item in data]
 
 # --- Embedding & Index ---
-def images_to_embeddings(paths, batch_size=32):
-    """DINOv2 批量提图向量，L2 归一；缺图或失败的位置为 None，与 paths 等长。"""
+def images_to_embeddings(paths, batch_size=32, on_batch_progress=None):
+    """DINOv2 批量提图向量，L2 归一；缺图或失败的位置为 None，与 paths 等长。
+    on_batch_progress(done, total, phase) 每批结束后调用，phase 为展示用短标签（如「图」）。"""
+    n = len(paths)
+    if n == 0:
+        return []
     all_embeddings = []
-    for i in range(0, len(paths), batch_size):
+    for i in range(0, n, batch_size):
         batch_paths = paths[i:i + batch_size]
         batch_images = []
         valid_indices = []
@@ -271,31 +257,36 @@ def images_to_embeddings(paths, batch_size=32):
                         batch_images.append(img.convert("RGB"))
                         valid_indices.append(idx)
             except: pass
-        
+
         if not batch_images:
             all_embeddings.extend([None] * len(batch_paths))
-            continue
-            
-        try:
-            inputs = img_processor(images=batch_images, return_tensors="pt").to(device)
-            with torch.no_grad():
-                outputs = img_model(**inputs)
-                embeddings = outputs.last_hidden_state[:, 0]
-                embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
-                embeddings = embeddings.cpu().numpy().astype("float32")
-                
-            batch_out = [None] * len(batch_paths)
-            for vi, embed in zip(valid_indices, embeddings):
-                batch_out[vi] = embed
-            all_embeddings.extend(batch_out)
-        except:
-            all_embeddings.extend([None] * len(batch_paths))
+        else:
+            try:
+                inputs = img_processor(images=batch_images, return_tensors="pt").to(device)
+                with torch.no_grad():
+                    outputs = img_model(**inputs)
+                    embeddings = outputs.last_hidden_state[:, 0]
+                    embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
+                    embeddings = embeddings.cpu().numpy().astype("float32")
+
+                batch_out = [None] * len(batch_paths)
+                for vi, embed in zip(valid_indices, embeddings):
+                    batch_out[vi] = embed
+                all_embeddings.extend(batch_out)
+            except:
+                all_embeddings.extend([None] * len(batch_paths))
+        if on_batch_progress:
+            on_batch_progress(min(i + len(batch_paths), n), n, "图")
     return all_embeddings
 
-def texts_to_embeddings(texts, batch_size=32):
-    """BGE 批量提句向量，按 batch 归一；本 batch 失败则该 batch 全为 None。"""
+def texts_to_embeddings(texts, batch_size=32, on_batch_progress=None):
+    """BGE 批量提句向量，按 batch 归一；本 batch 失败则该 batch 全为 None。
+    on_batch_progress(done, total, phase) 每批结束后调用，phase 如「文」。"""
+    n = len(texts)
+    if n == 0:
+        return []
     all_embeddings = []
-    for i in range(0, len(texts), batch_size):
+    for i in range(0, n, batch_size):
         batch_texts = texts[i:i + batch_size]
         try:
             inputs = text_tokenizer(batch_texts, padding=True, truncation=True, max_length=512, return_tensors="pt").to(device)
@@ -306,6 +297,8 @@ def texts_to_embeddings(texts, batch_size=32):
             all_embeddings.extend([embeddings[j] for j in range(len(batch_texts))])
         except:
             all_embeddings.extend([None] * len(batch_texts))
+        if on_batch_progress:
+            on_batch_progress(min(i + len(batch_texts), n), n, "文")
     return all_embeddings
 
 def image_to_embedding(path):
@@ -335,7 +328,7 @@ def build_index(data, mode="img", folder="img", path="index", batch_size=32):
         sids = [b[0] for b in batch]
         
         if mode == "img":
-            paths = [f"{folder}/{sid}.webp" for sid in sids]
+            paths = [os.path.join(folder, f"{sid}.webp") for sid in sids]
             batch_vecs = images_to_embeddings(paths, batch_size=batch_size)
         else:
             texts = [get_text(b[1]) for b in batch]
@@ -348,20 +341,38 @@ def build_index(data, mode="img", folder="img", path="index", batch_size=32):
                     vecs.append(v)
                     ids.append(numeric_id)
                 except: continue
-    if not vecs: return
+    if not vecs:
+        # 本趟未写出索引时删旧文件，避免下一行 read_index 读到过期/损坏的 v2
+        if path and os.path.isfile(path):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        return
     v_stack = np.vstack(vecs); id_arr = np.array(ids, dtype="int64")
     index = faiss.IndexIDMap2(faiss.IndexFlatIP(dim)); index.add_with_ids(v_stack, id_arr)
     faiss.write_index(index, path)
 
+
+def _safe_faiss_read_index(path: str):
+    if not path or not os.path.isfile(path) or os.path.getsize(path) < 1:
+        return None
+    try:
+        return faiss.read_index(path)
+    except Exception as e:
+        print(f"_safe_faiss_read_index failed: {path}: {e}", flush=True)
+        return None
+
 # --- Analysis Pipeline ---
-def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", progress_cb=None, match_config=None):
+def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", progress_cb=None, match_config=None, post_match_template=None):
     """
     主分析入口：主店表 target_xlsx，竞店表列表 source_xlsxs。
 
     每个竞店：下载图 →（按需）构建 img_*/txt_* 的 FAISS 索引到 output_dir/../cache。
     主店：下载到 query_img → 预计算全量查询图/文向量。
     对每个竞店：先条码字典精确匹配，再对仍未出现「{idx}匹配」列的行做 Faiss top-1，
-    图/文结果按阈值合并，且要求主店与命中行美团三级类目一致，最后写出 output_{output_name}.xlsx。
+    图/文结果按阈值合并后，经 post_match_template 后验（七维等，见 post_match_engine），通过才写入；
+    post_match_template 为 None 时使用内置默认。最后写出 output_{output_name}.xlsx。
 
     progress_cb(event, idx, detail) 可选：source_start/source_done、query_start、query_progress。
     返回：生成结果文件的绝对路径。
@@ -369,6 +380,13 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
     os.makedirs(output_dir, exist_ok=True)
     cache_dir = os.path.join(output_dir, "..", "cache") if output_dir != "." else "."
     os.makedirs(cache_dir, exist_ok=True)
+
+    # 与 outputs 同级的项目根目录，用于竞店/主店图片隔离，避免多项目、多竞店共写同一路径
+    if output_dir and str(output_dir).strip() not in (".",):
+        proj_dir = os.path.normpath(os.path.join(output_dir, ".."))
+    else:
+        proj_dir = os.path.join(os.getcwd(), f"__analysis_{output_name}")
+    os.makedirs(proj_dir, exist_ok=True)
 
     sources = []
     for idx, xlsx in enumerate(source_xlsxs):
@@ -379,15 +397,18 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
         data = utils.excel_to_list_dict(xlsx, "Sheet1")
         if progress_cb:
             progress_cb("source_start", idx, f"下载图片 ({len(data)} 件)")
-        download_imgs(data)
-        
-        i_path = os.path.join(cache_dir, f"img_{output_name}{idx}.index")
+        # 各竞店独立目录。旧逻辑全部写入 img/，后处理的店会覆盖先下载的同 sku 文件。
+        comp_img_dir = os.path.join(proj_dir, f"comp_img_{idx}")
+        os.makedirs(comp_img_dir, exist_ok=True)
+        download_imgs(data, comp_img_dir)
+
+        # 图索引用独立 comp_img；每次分析都重算图索引，避免只改表、不删 v2 时仍用旧图向量
+        i_path = os.path.join(cache_dir, f"img_{output_name}{idx}.v2.index")
         t_path = os.path.join(cache_dir, f"txt_{output_name}{idx}.index")
-        
-        if not os.path.exists(i_path):
-            if progress_cb:
-                progress_cb("source_start", idx, f"图片向量 ({len(data)} 件)")
-            build_index(data, "img", "img", i_path)
+
+        if progress_cb:
+            progress_cb("source_start", idx, f"图片向量 ({len(data)} 件)")
+        build_index(data, "img", comp_img_dir, i_path)
         if not os.path.exists(t_path):
             if progress_cb:
                 progress_cb("source_start", idx, f"文本向量 ({len(data)} 件)")
@@ -396,30 +417,45 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
             progress_cb("source_done", idx)
         sources.append({
             "sku_dict": {get_sku_id(i): i for i in data}, "tiaoma_dict": {get_条码(i): i for i in data if get_条码(i)},
-            "i_idx": faiss.read_index(i_path) if os.path.exists(i_path) else None,
-            "t_idx": faiss.read_index(t_path) if os.path.exists(t_path) else None
+            "i_idx": _safe_faiss_read_index(i_path),
+            "t_idx": _safe_faiss_read_index(t_path),
         })
 
     print(f"Loading query: {target_xlsx}")
     query_data = utils.excel_to_list_dict(target_xlsx, "Sheet1")
     if progress_cb:
         progress_cb("query_start", 0, f"下载查询图片 ({len(query_data)} 件)")
-    download_imgs(query_data, "query_img")
+    query_img_dir = os.path.join(proj_dir, "query_img")
+    os.makedirs(query_img_dir, exist_ok=True)
+    download_imgs(query_data, query_img_dir)
     
     total_q = len(query_data)
     if progress_cb:
-        progress_cb("query_progress", 0, f"生成查询向量 0/{total_q}")
+        progress_cb("query_progress", 0, f"生成查询向量 0/{total_q}（开始）")
     
     # Inject match_config for get_text() globally within this module.
     # (This keeps call sites simple and avoids changing many function signatures.)
     globals()["_MATCH_CONFIG"] = match_config
+    _pm_tmpl = post_match_engine.normalize_template(post_match_template)
 
-    # Pre-compute all query embeddings in batches
-    query_img_paths = [f"query_img/{get_sku_id(item)}.webp" for item in query_data]
+    # Pre-compute all query embeddings in batches（每批回调节流，减少锁竞争；前端仍按数秒轮询）
+    query_img_paths = [os.path.join(query_img_dir, f"{get_sku_id(item)}.webp") for item in query_data]
     query_texts = [get_text(item) for item in query_data]
-    
-    query_img_vecs = images_to_embeddings(query_img_paths, batch_size=32)
-    query_txt_vecs = texts_to_embeddings(query_texts, batch_size=32)
+    _last_pb = {"图": 0.0, "文": 0.0}
+    _pb_min_s = 1.2
+
+    def _throttled_query_embed_progress(done, total, phase):
+        if not progress_cb or total <= 0:
+            return
+        now = _time_mod.time()
+        is_final = done >= total
+        if not is_final and (now - _last_pb[phase]) < _pb_min_s:
+            return
+        _last_pb[phase] = now
+        progress_cb("query_progress", 0, f"生成查询向量 {done}/{total}（{phase}）")
+
+    query_img_vecs = images_to_embeddings(query_img_paths, batch_size=32, on_batch_progress=_throttled_query_embed_progress)
+    query_txt_vecs = texts_to_embeddings(query_texts, batch_size=32, on_batch_progress=_throttled_query_embed_progress)
     
     res_data = [build_match_item(item) for item in query_data]
     
@@ -432,10 +468,14 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
         for qi, item in enumerate(query_data):
             hit = src["tiaoma_dict"].get(get_条码(item))
             if hit:
+                _blk = post_match_engine.rules_for_item(_pm_tmpl, item)
+                if not post_match_engine.should_accept_post_match(item, hit, _blk):
+                    continue
                 append_match_result(res_data[qi], hit, 1, "条码匹配", str(idx))
                 
         # 2. Batch vector search for items not yet matched by barcode in this source
-        unmatched_indices = [i for i, rd in enumerate(res_data) if f"{idx}匹配" not in rd]
+        pfx = str(idx)
+        unmatched_indices = [i for i, rd in enumerate(res_data) if not _has_comp_match_for_source(rd, pfx)]
         if not unmatched_indices: continue
         
         # Prepare vectors for Faiss batch search
@@ -486,9 +526,10 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
             
             if s_id != -1:
                 hit = src["sku_dict"].get(str(int(s_id)))
-                if hit and get_美团类名3(item) == get_美团类名3(hit):
-                    if match == "文本匹配":
-                        score = _apply_default_spec_penalty(item, hit, score)
+                if hit:
+                    _blk = post_match_engine.rules_for_item(_pm_tmpl, item)
+                    if not post_match_engine.should_accept_post_match(item, hit, _blk):
+                        continue
                     append_match_result(res_data[ui], hit, score, match, str(idx))
 
     out_path = os.path.join(output_dir, f"output_{output_name}.xlsx")

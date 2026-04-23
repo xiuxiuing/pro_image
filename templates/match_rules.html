@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>后验规则模板 - 商品分析平台</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-accent: #FFD500;
+            --text-main: #000;
+            --text-muted: #64748b;
+            --glass-border: rgba(255, 255, 255, 0.3);
+            --radius-lg: 20px;
+        }
+        body { font-family: 'Inter', sans-serif; background: #f8fafc; color: var(--text-main); margin: 0; min-height: 100vh; }
+        .dynamic-bg { position: fixed; inset: 0; z-index: -1; background: #f8fafc; }
+        .wrap { max-width: 1100px; margin: 0 auto; padding: 32px 24px 80px; }
+        .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; flex-wrap: wrap; gap: 16px; }
+        h1 { font-family: 'Outfit', sans-serif; font-size: 32px; font-weight: 800; margin: 0; letter-spacing: -0.02em; }
+        .sub { color: var(--text-muted); font-size: 14px; margin-top: 6px; font-weight: 500; }
+        .btn { display: inline-flex; align-items: center; justify-content: center; padding: 12px 22px; border-radius: 14px; font-weight: 700; font-size: 14px; cursor: pointer; border: none; text-decoration: none; transition: .2s; }
+        .btn-back { background: #f1f5f9; color: #475569; }
+        .btn-back:hover { background: #e2e8f0; }
+        .btn-primary { background: #000; color: #fff; }
+        .btn-primary:hover { background: #1e293b; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
+        .card {
+            background: rgba(255,255,255,0.92); border: 1.5px solid var(--glass-border); border-radius: var(--radius-lg);
+            padding: 22px; box-shadow: 0 10px 30px rgba(0,0,0,.06); transition: .25s;
+        }
+        .card:hover { border-color: var(--primary-accent); transform: translateY(-4px); box-shadow: 0 16px 36px rgba(255,213,0,.12); }
+        .card h3 { font-family: 'Outfit', sans-serif; font-size: 18px; font-weight: 800; margin: 0 0 8px; }
+        .card p { font-size: 13px; color: var(--text-muted); line-height: 1.5; margin: 0 0 16px; min-height: 40px; }
+        .card-actions { display: flex; gap: 10px; }
+        .card-actions a, .card-actions button { flex: 1; text-align: center; padding: 10px; border-radius: 12px; font-weight: 700; font-size: 13px; cursor: pointer; border: none; text-decoration: none; }
+        .edit { background: #000; color: #fff; }
+        .edit:hover { opacity: .9; }
+        .del { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca !important; }
+        .empty { text-align: center; padding: 48px 20px; color: var(--text-muted); font-size: 15px; }
+    </style>
+</head>
+<body>
+    <div class="dynamic-bg"></div>
+    <div class="wrap">
+        <div class="top-bar">
+            <div>
+                <h1>后验规则模板</h1>
+                <div class="sub">向量/条码命中后的七维校验；项目创建时选用。按美团一级类目可在编辑页覆写默认。</div>
+            </div>
+            <div style="display:flex; gap:12px; align-items:center;">
+                <a class="btn btn-back" href="/">← 返回项目</a>
+                <a class="btn btn-primary" href="/match-rules/new">+ 新建模板</a>
+            </div>
+        </div>
+        <div id="list" class="grid"></div>
+        <div id="empty" class="empty" style="display:none;">暂无规则，请点击「新建模板」</div>
+    </div>
+    <script>
+        async function load() {
+            const list = document.getElementById('list');
+            const empty = document.getElementById('empty');
+            try {
+                const r = await fetch('/api/rule-templates');
+                const j = await r.json();
+                const items = j.items || [];
+                list.innerHTML = '';
+                if (items.length === 0) { empty.style.display = 'block'; return; }
+                empty.style.display = 'none';
+                items.forEach(t => {
+                    const d = document.createElement('div');
+                    d.className = 'card';
+                    d.innerHTML = `
+                        <h3>${escapeHtml(t.name)}</h3>
+                        <p>${escapeHtml((t.description || '').slice(0, 120))}${(t.description || '').length > 120 ? '…' : ''}</p>
+                        <div class="card-actions">
+                            <a class="edit" href="/match-rules/${t.id}">编辑</a>
+                            <button type="button" class="del" data-id="${t.id}">删除</button>
+                        </div>`;
+                    d.querySelector('.del').onclick = () => deleteT(t.id, t.name);
+                    list.appendChild(d);
+                });
+            } catch (e) {
+                list.innerHTML = '<div class="empty">加载失败</div>';
+            }
+        }
+        function escapeHtml(s) {
+            const d = document.createElement('div');
+            d.textContent = s == null ? '' : String(s);
+            return d.innerHTML;
+        }
+        async function deleteT(id, name) {
+            if (!confirm('确定删除「' + name + '」？有项目引用时将无法删除。')) return;
+            const r = await fetch('/api/rule-templates/' + id, { method: 'DELETE' });
+            const j = await r.json();
+            if (j.status === 'ok') load();
+            else alert(j.message || '删除失败');
+        }
+        load();
+    </script>
+</body>
+</html>

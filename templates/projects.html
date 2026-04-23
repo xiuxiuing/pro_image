@@ -83,6 +83,29 @@
             text-align: center;
         }
 
+        .projects-nav {
+            position: fixed;
+            top: 20px;
+            right: 24px;
+            z-index: 50;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+        .projects-nav a {
+            font-size: 13px;
+            font-weight: 700;
+            color: #475569;
+            text-decoration: none;
+            padding: 8px 14px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 2px 8px rgba(0,0,0,.04);
+        }
+        .projects-nav a:hover { color: #000; border-color: var(--primary-accent); }
+
         .header-title h1 {
             margin: 0;
             font-family: 'Outfit', sans-serif;
@@ -449,157 +472,6 @@
             box-sizing: border-box;
         }
 
-        /* Match config controls (keep same visual language) */
-        .match-config-box {
-            background: #f8fafc;
-            border: 1.5px solid #e2e8f0;
-            border-radius: 20px;
-            padding: 20px;
-        }
-        .match-config-subtitle {
-            font-size: 12px;
-            font-weight: 800;
-            color: #0f172a;
-            margin-bottom: 12px;
-        }
-        .match-config-level {
-            display: flex;
-            gap: 14px;
-            align-items: center;
-            margin-bottom: 16px;
-            font-size: 12px;
-            font-weight: 700;
-            color: #334155;
-        }
-        .match-config-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 18px;
-        }
-        .mc-row {
-            display: grid;
-            grid-template-columns: 110px 1fr 34px;
-            gap: 10px;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-        .mc-row:last-child { margin-bottom: 0; }
-        .mc-name {
-            font-size: 12px;
-            font-weight: 800;
-            color: #0f172a;
-        }
-        .mc-val {
-            font-size: 12px;
-            font-weight: 800;
-            text-align: right;
-            color: #0f172a;
-        }
-        .mc-range {
-            width: 100%;
-            accent-color: #000;
-        }
-        .match-config-hint {
-            margin-top: 12px;
-            font-size: 11px;
-            color: #64748b;
-            line-height: 1.5;
-        }
-
-        /* Match config modal (secondary dialog inside create modal) */
-        .mc-modal-backdrop {
-            position: fixed;
-            inset: 0;
-            background: rgba(0, 0, 0, 0.5);
-            display: none;
-            justify-content: center;
-            align-items: center;
-            z-index: 1200;
-            padding: 20px;
-        }
-        .mc-modal {
-            background: #fff;
-            width: 100%;
-            max-width: 720px;
-            border-radius: 32px;
-            padding: 28px 28px 22px;
-            box-shadow: 0 40px 100px rgba(0, 0, 0, 0.12);
-            position: relative;
-        }
-        .mc-modal-title {
-            font-family: 'Outfit', sans-serif;
-            font-size: 18px;
-            font-weight: 900;
-            margin-bottom: 14px;
-            color: #0f172a;
-        }
-        .mc-modal-close {
-            position: absolute;
-            top: 14px;
-            right: 16px;
-            border: none;
-            background: #f1f5f9;
-            width: 34px;
-            height: 34px;
-            border-radius: 12px;
-            cursor: pointer;
-            font-size: 18px;
-            font-weight: 900;
-            color: #334155;
-        }
-        .mc-modal-actions {
-            display: flex;
-            justify-content: flex-end;
-            gap: 12px;
-            margin-top: 18px;
-        }
-        .mc-btn {
-            padding: 12px 16px;
-            border-radius: 14px;
-            font-size: 13px;
-            font-weight: 900;
-            cursor: pointer;
-            border: none;
-            transition: all 0.2s;
-        }
-        .mc-btn-primary {
-            background: var(--primary-accent);
-            color: #000;
-        }
-        .mc-btn-ghost {
-            background: #f1f5f9;
-            color: #475569;
-        }
-        .mc-trigger {
-            width: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            background: #f8fafc;
-            border: 1.5px solid #e2e8f0;
-            border-radius: 18px;
-            padding: 14px 16px;
-            cursor: pointer;
-        }
-        .mc-trigger .t1 {
-            font-size: 13px;
-            font-weight: 900;
-            color: #0f172a;
-        }
-        .mc-trigger .t2 {
-            font-size: 11px;
-            font-weight: 700;
-            color: #64748b;
-            margin-top: 4px;
-        }
-        .mc-trigger .arrow {
-            font-size: 16px;
-            font-weight: 900;
-            color: #64748b;
-            flex: 0 0 auto;
-        }
-
         .btn {
             padding: 16px 32px;
             border-radius: 16px;
@@ -766,6 +638,10 @@
         </div>
     </div>
 
+    <div class="projects-nav">
+        <a href="/match-rules" title="后验规则模板">后验规则</a>
+    </div>
+
     <div class="container">
         <header>
             <div class="header-title">
@@ -821,112 +697,18 @@
                     <label class="form-label">Gemini API Key</label>
                     <input type="password" name="api_key" id="api-key-input" class="form-control" placeholder="输入您的 API Key" style="background: #fff;">
                 </div>
+                <div class="form-group" id="rule-template-group">
+                    <label class="form-label">后验规则模板</label>
+                    <select name="rule_template_id" id="rule-template-select" class="form-control" style="background:#fff;">
+                        <option value="">加载中…</option>
+                    </select>
+                    <div style="font-size:12px; color:#64748b; margin-top:8px; font-weight:500;">
+                        向量/条码命中后按模板做七维校验（可在 <a href="/match-rules" target="_blank" style="color:#334155; font-weight:700;">后验规则</a> 管理）
+                    </div>
+                </div>
                 <div class="form-group">
                     <label class="form-label">项目名称 (必填)</label>
                     <input type="text" name="name" class="form-control" placeholder="例如: 闪购商品竞对分析" required>
-                </div>
-
-                <!-- Match config (for text matching) -->
-                <div class="form-group">
-                    <button type="button" class="mc-trigger" onclick="openMatchConfigModal()">
-                        <div>
-                            <div class="t1">文本匹配策略（可选）</div>
-                            <div class="t2" id="mc-summary">点击配置类目级别与字段权重</div>
-                        </div>
-                        <div class="arrow">›</div>
-                    </button>
-                </div>
-
-                <!-- Match config modal -->
-                <div id="mcModalBackdrop" class="mc-modal-backdrop" onclick="onMcBackdropClick(event)">
-                    <div class="mc-modal" onclick="event.stopPropagation()">
-                        <button type="button" class="mc-modal-close" onclick="closeMatchConfigModal()">&times;</button>
-                        <div class="mc-modal-title">文本匹配策略</div>
-
-                        <div class="match-config-box" style="padding:16px;">
-                            <div class="match-config-level" style="margin-bottom: 14px;">
-                                <div>类目级别：</div>
-                                <label style="display:flex; gap:6px; align-items:center;">
-                                    <input type="radio" name="category_level" value="1" checked> 一级
-                                </label>
-                                <label style="display:flex; gap:6px; align-items:center;">
-                                    <input type="radio" name="category_level" value="2"> 二级
-                                </label>
-                                <label style="display:flex; gap:6px; align-items:center;">
-                                    <input type="radio" name="category_level" value="3"> 三级
-                                </label>
-                            </div>
-
-                            <div class="match-config-grid">
-                                <div>
-                                    <div class="match-config-subtitle">语义块（SEM）</div>
-                                    <div class="mc-row">
-                                        <div class="mc-name">核心名称</div>
-                                        <input class="mc-range" type="range" min="0" max="5" value="5" data-mc-key="A核心名称" data-mc-section="SEM" oninput="updateMcVal(this)">
-                                        <div class="mc-val">5</div>
-                                    </div>
-                                    <div class="mc-row">
-                                        <div class="mc-name">品牌</div>
-                                        <input class="mc-range" type="range" min="0" max="5" value="2" data-mc-key="A品牌" data-mc-section="SEM" oninput="updateMcVal(this)">
-                                        <div class="mc-val">2</div>
-                                    </div>
-                                    <div class="mc-row">
-                                        <div class="mc-name">材质</div>
-                                        <input class="mc-range" type="range" min="0" max="5" value="2" data-mc-key="A材质" data-mc-section="SEM" oninput="updateMcVal(this)">
-                                        <div class="mc-val">2</div>
-                                    </div>
-                                    <div class="mc-row">
-                                        <div class="mc-name">外观</div>
-                                        <input class="mc-range" type="range" min="0" max="5" value="1" data-mc-key="A外观" data-mc-section="SEM" oninput="updateMcVal(this)">
-                                        <div class="mc-val">1</div>
-                                    </div>
-                                    <div class="mc-row">
-                                        <div class="mc-name">颜色</div>
-                                        <input class="mc-range" type="range" min="0" max="5" value="0" data-mc-key="A颜色" data-mc-section="SEM" oninput="updateMcVal(this)">
-                                        <div class="mc-val">0</div>
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <div class="match-config-subtitle">规格块（SPEC）</div>
-                                    <div class="mc-row">
-                                        <div class="mc-name">单件净含量</div>
-                                        <input class="mc-range" type="range" min="0" max="5" value="3" data-mc-key="A单件净含量" data-mc-section="SPEC" oninput="updateMcVal(this)">
-                                        <div class="mc-val">3</div>
-                                    </div>
-                                    <div class="mc-row">
-                                        <div class="mc-name">售卖数量</div>
-                                        <input class="mc-range" type="range" min="0" max="5" value="2" data-mc-key="A售卖数量" data-mc-section="SPEC" oninput="updateMcVal(this)">
-                                        <div class="mc-val">2</div>
-                                    </div>
-                                    <div class="mc-row">
-                                        <div class="mc-name">包装单位</div>
-                                        <input class="mc-range" type="range" min="0" max="5" value="2" data-mc-key="A包装单位" data-mc-section="SPEC" oninput="updateMcVal(this)">
-                                        <div class="mc-val">2</div>
-                                    </div>
-                                    <div class="mc-row">
-                                        <div class="mc-name">尺寸</div>
-                                        <input class="mc-range" type="range" min="0" max="5" value="2" data-mc-key="A尺寸" data-mc-section="SPEC" oninput="updateMcVal(this)">
-                                        <div class="mc-val">2</div>
-                                    </div>
-                                    <div class="mc-row">
-                                        <div class="mc-name">型号</div>
-                                        <input class="mc-range" type="range" min="0" max="5" value="2" data-mc-key="A型号" data-mc-section="SPEC" oninput="updateMcVal(this)">
-                                        <div class="mc-val">2</div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="match-config-hint">
-                                说明：权重 0–5 代表该字段在文本向量中重复次数（0=不参与）。该配置仅影响文本匹配，不影响图片匹配与类目 gate。
-                            </div>
-                        </div>
-
-                        <div class="mc-modal-actions">
-                            <button type="button" class="mc-btn mc-btn-ghost" onclick="resetMatchConfigDefaults()">重置默认</button>
-                            <button type="button" class="mc-btn mc-btn-primary" onclick="closeMatchConfigModal(true)">完成</button>
-                        </div>
-                    </div>
                 </div>
 
                 <!-- Always Visible Source File Section -->
@@ -964,6 +746,11 @@
             document.getElementById('createModal').style.display = 'flex';
             const warn = document.getElementById('modal-analyzing-warn');
             if (warn) warn.style.display = _hasAnalyzing ? 'block' : 'none';
+            const rtg = document.getElementById('rule-template-group');
+            if (rtg) {
+                const manual = document.getElementById('skip-analysis-input').value === 'true';
+                rtg.style.display = manual ? 'none' : '';
+            }
         }
 
         function closeModal() {
@@ -981,7 +768,10 @@
             document.getElementById('result-file-input').required = isManual;
 
             document.getElementById('submit-btn').innerText = isManual ? '直接导入结果' : '开始 AI 分析';
-            
+
+            const rtg = document.getElementById('rule-template-group');
+            if (rtg) rtg.style.display = isManual ? 'none' : '';
+
             // AI toggle is only for auto mode
             document.getElementById('ai-extraction-toggle-group').style.display = isManual ? 'none' : 'block';
             if (isManual) {
@@ -997,92 +787,39 @@
             document.getElementById('ai-model-group').style.display = useAi ? 'block' : 'none';
         }
 
-        function updateMcVal(el) {
-            const row = el.closest('.mc-row');
-            const out = row ? row.querySelector('.mc-val') : null;
-            if (out) out.innerText = String(el.value);
-        }
-
         function buildMatchConfigJson() {
-            const levelEl = document.querySelector('input[name="category_level"]:checked');
-            const category_level = levelEl ? parseInt(levelEl.value, 10) : 1;
-            const SEM = {};
-            const SPEC = {};
-            document.querySelectorAll('input[type="range"][data-mc-key][data-mc-section]').forEach(el => {
-                const k = el.getAttribute('data-mc-key');
-                const sec = el.getAttribute('data-mc-section');
-                const v = parseInt(el.value || '0', 10);
-                if (sec === 'SEM') SEM[k] = v;
-                if (sec === 'SPEC') SPEC[k] = v;
-            });
-            return JSON.stringify({ category_level, sections: { SEM, SPEC } });
+            return JSON.stringify({ category_level: 1 });
         }
 
-        function _mcDefaultConfig() {
-            return {
-                category_level: 1,
-                sections: {
-                    SEM: { "A核心名称": 5, "A品牌": 2, "A材质": 2, "A外观": 1, "A颜色": 0 },
-                    SPEC: { "A单件净含量": 3, "A售卖数量": 2, "A包装单位": 2, "A尺寸": 2, "A型号": 2 },
+        async function loadRuleTemplates() {
+            const sel = document.getElementById('rule-template-select');
+            if (!sel) return;
+            try {
+                const r = await fetch('/api/rule-templates');
+                const j = await r.json();
+                const items = j.items || [];
+                sel.innerHTML = '';
+                if (items.length === 0) {
+                    const o = document.createElement('option');
+                    o.value = '';
+                    o.textContent = '(无规则模板，请先到「后验规则」创建)';
+                    sel.appendChild(o);
+                    return;
                 }
-            };
-        }
-
-        function _updateMcSummary() {
-            const sumEl = document.getElementById('mc-summary');
-            if (!sumEl) return;
-            const cfg = JSON.parse(buildMatchConfigJson());
-            const lvlMap = { 1: "一级", 2: "二级", 3: "三级" };
-            const lvl = lvlMap[cfg.category_level] || "一级";
-            let on = 0;
-            Object.values(cfg.sections.SEM || {}).forEach(v => { if ((v || 0) > 0) on++; });
-            Object.values(cfg.sections.SPEC || {}).forEach(v => { if ((v || 0) > 0) on++; });
-            sumEl.innerText = `类目：${lvl}；参与字段：${on}/10`;
-        }
-
-        function openMatchConfigModal() {
-            const b = document.getElementById('mcModalBackdrop');
-            if (!b) return;
-            b.style.display = 'flex';
-            document.body.style.overflow = 'hidden';
-            _updateMcSummary();
-        }
-
-        function closeMatchConfigModal(updateSummary = false) {
-            const b = document.getElementById('mcModalBackdrop');
-            if (!b) return;
-            b.style.display = 'none';
-            document.body.style.overflow = '';
-            if (updateSummary) _updateMcSummary();
-        }
-
-        function onMcBackdropClick(e) {
-            if (e && e.target && e.target.id === 'mcModalBackdrop') closeMatchConfigModal(true);
-        }
-
-        function resetMatchConfigDefaults() {
-            const def = _mcDefaultConfig();
-            const level = def.category_level;
-            const levelEl = document.querySelector(`input[name=\"category_level\"][value=\"${level}\"]`);
-            if (levelEl) levelEl.checked = true;
-
-            const all = { ...(def.sections.SEM || {}), ...(def.sections.SPEC || {}) };
-            document.querySelectorAll('input[type="range"][data-mc-key][data-mc-section]').forEach(el => {
-                const k = el.getAttribute('data-mc-key');
-                if (k in all) {
-                    el.value = String(all[k]);
-                    updateMcVal(el);
-                }
-            });
-            _updateMcSummary();
-        }
-
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') {
-                const b = document.getElementById('mcModalBackdrop');
-                if (b && b.style.display === 'flex') closeMatchConfigModal(true);
+                items.forEach(t => {
+                    const o = document.createElement('option');
+                    o.value = t.id;
+                    o.textContent = t.name || ('#' + t.id);
+                    sel.appendChild(o);
+                });
+            } catch (e) {
+                sel.innerHTML = '';
+                const o = document.createElement('option');
+                o.value = '';
+                o.textContent = '加载失败';
+                sel.appendChild(o);
             }
-        });
+        }
 
         let _pollTimer = null;
         let _hasAnalyzing = false;
@@ -1378,11 +1115,33 @@
 
         async function pollProgress() {
             if (!_progressPid) return;
+            const pid = _progressPid;
             try {
-                const resp = await fetch(`/api/projects/${_progressPid}/progress`);
+                const resp = await fetch(`/api/projects/${pid}/progress`);
                 const d = await resp.json();
                 if (!d.available) {
-                    document.getElementById('pm-summary').textContent = '暂无进度信息（可能已完成或未开始）';
+                    // 分析线程在 finally 里会清掉进度；此时应用项目列表中的 status 判是否结束，否则弹窗会永远停在最后一步
+                    const r2 = await fetch('/api/projects');
+                    const projects = await r2.json();
+                    const p = projects.find(x => x.id === pid);
+                    if (!p) {
+                        closeProgressModal();
+                        showToast('项目列表已变化，已关闭进度');
+                        loadProjects();
+                        return;
+                    }
+                    const st = p.status || 'ready';
+                    if (st !== 'analyzing') {
+                        _analyzingIds.delete(pid);
+                        closeProgressModal();
+                        notifyAnalysisComplete(p.name, st === 'ready');
+                        if (st === 'ready') showToast(`项目「${p.name}」分析完成`);
+                        else if (st === 'failed') showToast(`项目「${p.name}」分析失败，请删除后重试`);
+                        else showToast('分析已结束');
+                        loadProjects();
+                        return;
+                    }
+                    document.getElementById('pm-summary').textContent = '暂无实时进度，任务状态仍为分析中，请稍候…';
                     return;
                 }
                 const bar = document.getElementById('pm-bar');
@@ -1393,6 +1152,9 @@
                     summary += `　·　预计剩余 ${fmtDuration(d.estimated_remaining_s)}`;
                 }
                 summary += `　·　${d.done_count}/${d.total_steps} 步完成 (${d.pct}%)`;
+                if (d.done_count === d.total_steps && d.total_steps > 0) {
+                    summary = '全部分析步骤已完成 · ' + summary;
+                }
                 document.getElementById('pm-summary').textContent = summary;
 
                 const list = document.getElementById('pm-steps');
@@ -1445,6 +1207,7 @@
         }
 
         requestNotifyPermission();
+        loadRuleTemplates();
         loadProjects();
         refreshLicenseDaysBadge();
     </script>

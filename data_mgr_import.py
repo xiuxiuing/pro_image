@@ -155,7 +155,6 @@ class DataManagerImportMixin:
 
         # ── Phase 2: Prepare competitor store data (memory only) ──
         comp_dfs = []
-        sku_to_store = {}
         for i, path in enumerate(self.source_files):
             if os.path.exists(path):
                 print(f"Importing Competitor Store [{i}]: {path}")
@@ -178,37 +177,23 @@ class DataManagerImportMixin:
                 cdf = cdf.drop_duplicates(subset=['project_id', 'store_id', 'skuId'], keep='first')
                 comp_dfs.append(cdf)
 
-                for _, row in cdf.iterrows():
-                    sku_to_store[str(row['skuId'])] = str(row['store_id'])
-
-        # ── Phase 3: Prepare links data (memory only, uses sku_to_store from Phase 2) ──
+        # ── Phase 3: Prepare links (output 的 0* / 1* 列与竞店源文件下标一一对应，与 main_030822 中 prefix 一致) ──
         links_df = None
         if has_output_file:
             print(f"Importing Links from Result: {self.output_file}")
             res_data = utils.excel_to_list_dict(self.output_file)
             res_df = pd.DataFrame(res_data)
 
+            # 必须与 run_analysis 写出列名一致：第 i 个竞店表对应前缀 str(i)；
+            # 不再用「全库竞店 sku 反推 store_id」——多店若存在相同 skuId，投票会把多列都映射到同一店，
+            # product_links 中同一 store_id 出现多条，_reconstruct 时 merge 一对多，主表行数变为 主店行数×竞店数。
             prefix_to_store_map = {}
             for i in range(10):
                 p = str(i)
                 col = f"{p}skuId"
                 if col in res_df.columns:
-                    samples = res_df[col].dropna().astype(str).unique().tolist()
-                    hits = {}
-                    for s in samples[:100]:
-                        s_clean = ""
-                        if s is not None:
-                            s_str = str(s).strip()
-                            s_clean = s_str[:-2] if s_str.endswith(".0") else s_str
-                        if s_clean in sku_to_store:
-                            sid = sku_to_store[s_clean]
-                            hits[sid] = hits.get(sid, 0) + 1
-                    if hits:
-                        best_sid = max(hits, key=hits.get)
-                        prefix_to_store_map[p] = best_sid
-                        print(f"Detected prefix [{p}] matches store_id [{best_sid}] with {hits[best_sid]} hits")
-                    else:
-                        prefix_to_store_map[p] = p
+                    prefix_to_store_map[p] = p
+                    print(f"Link import: column prefix [{p}*] → store_id [{p}]", flush=True)
 
             final_mappings = FIELD_MAPPINGS.copy()
             for p in prefix_to_store_map.keys():

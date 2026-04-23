@@ -24,7 +24,16 @@ def optimize_numeric_value(val):
 
 def excel_to_list_dict(file_path, sheet_name=None):
     wb = load_workbook(file_path, data_only=True)
-    ws = wb[sheet_name] if sheet_name else wb.active
+    if sheet_name and sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+    else:
+        if sheet_name and sheet_name not in wb.sheetnames:
+            # pandas/部分导出为默认第一张表，名称可能不是「Sheet1」
+            try:
+                print(f"excel_to_list_dict: 无表「{sheet_name}」，使用工作簿第一张表: {wb.active.title}", flush=True)
+            except Exception:
+                pass
+        ws = wb.active
 
     rows = ws.iter_rows(values_only=True)
 
@@ -55,8 +64,15 @@ def write_dict_list_to_excel(data, file_path="output_text.xlsx"):
     ws = wb.active
     ws.title = "Sheet1"
 
-    # 写入表头
-    headers = list(data[0].keys())
+    # 表头须为**所有**行 key 的并集；仅 data[0].keys() 时，若第 0 行缺某店列（如只匹配 0*、
+    # 无 1*），整表会无 1* 列，后续行的 1* 在写出时丢失，导入后第二竞店全空、仅 A 无匹配。
+    seen = set()
+    headers = []
+    for item in data:
+        for k in item.keys():
+            if k not in seen:
+                seen.add(k)
+                headers.append(k)
     ws.append(headers)
 
     # 写入每一行

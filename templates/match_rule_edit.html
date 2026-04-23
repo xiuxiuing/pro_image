@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>{% if template_id %}编辑规则{% else %}新建规则{% endif %} - 商品分析平台</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-accent: #FFD500;
+            --text-muted: #64748b;
+            --radius: 16px;
+        }
+        body { font-family: 'Inter', sans-serif; background: #f8fafc; margin: 0; color: #0f172a; padding-bottom: 60px; }
+        .wrap { max-width: 880px; margin: 0 auto; padding: 28px 20px; }
+        .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+        h1 { font-family: 'Outfit', sans-serif; font-size: 28px; font-weight: 800; margin: 0; }
+        .hint { font-size: 13px; color: var(--text-muted); margin-top: 8px; line-height: 1.55; }
+        a.back { color: #475569; font-weight: 600; text-decoration: none; font-size: 14px; }
+        a.back:hover { color: #000; }
+        .panel {
+            background: rgba(255,255,255,.95); border: 1px solid #e2e8f0; border-radius: var(--radius);
+            padding: 22px 22px 8px; margin-bottom: 18px; box-shadow: 0 4px 20px rgba(0,0,0,.04);
+        }
+        .panel h2 { font-size: 15px; font-weight: 800; margin: 0 0 16px; letter-spacing: .02em; }
+        .row { display: grid; grid-template-columns: 160px 1fr; gap: 10px 16px; align-items: center; margin-bottom: 14px; }
+        @media (max-width: 640px) { .row { grid-template-columns: 1fr; } }
+        label.lbl { font-size: 13px; font-weight: 600; color: #334155; }
+        input[type="text"], input[type="number"], textarea {
+            width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 12px; border: 1px solid #e2e8f0;
+            font-size: 14px; font-family: inherit;
+        }
+        textarea { min-height: 56px; resize: vertical; }
+        .dim { border-top: 1px solid #f1f5f9; padding-top: 14px; margin-top: 8px; }
+        .dim-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+        .dim-head label { font-weight: 700; font-size: 14px; }
+        .dim-head input[type="checkbox"] { width: 18px; height: 18px; accent-color: #000; }
+        .actions { display: flex; gap: 12px; margin-top: 24px; flex-wrap: wrap; }
+        .btn { padding: 14px 28px; border-radius: 14px; font-weight: 700; font-size: 15px; border: none; cursor: pointer; }
+        .btn-save { background: #000; color: #fff; }
+        .btn-save:hover { background: #1e293b; }
+        .btn-ghost { background: #f1f5f9; color: #475569; }
+        .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="top">
+            <div>
+                <a class="back" href="/match-rules">← 返回规则列表</a>
+                <h1 style="margin-top:10px;">{% if template_id %}编辑「{{ template_name or '规则' }}」{% else %}新建后验规则模板{% endif %}</h1>
+                <p class="hint">勾选表示参与过滤；未勾选则该维度不参与。净含量/尺寸容差为相对<strong>主店</strong>解析值的比率。包装/颜色/型号的同义为 JSON 数组，如 <code class="mono">[["听","罐"]]</code>。</p>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>基本信息</h2>
+            <div class="row">
+                <label class="lbl">名称</label>
+                <input type="text" id="f-name" placeholder="例如：饮料行业-严" value="{{ template_name or '' }}">
+            </div>
+            <div class="row">
+                <label class="lbl">说明</label>
+                <input type="text" id="f-desc" placeholder="可选">
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>默认七维</h2>
+            <div id="dims"></div>
+        </div>
+
+        <div class="panel">
+            <h2>按一级类目覆写 (JSON)</h2>
+            <p class="hint" style="margin-top:-4px;">键为「美团一级类目」名字符串，值为与 default 同结构的<strong>部分字段</strong>，会与默认做深度合并。留空 <code class="mono">{}</code> 表示不覆写。</p>
+            <textarea id="f-by-cat1" class="mono" style="min-height:120px;" placeholder='{"食品饮料":{"net":{"en":false}}}'></textarea>
+        </div>
+
+        <div class="actions">
+            <button type="button" class="btn btn-save" id="btn-save">保存</button>
+            <a class="btn btn-ghost" href="/match-rules" style="text-decoration:none; display:inline-flex; align-items:center;">取消</a>
+        </div>
+    </div>
+
+    <script>
+        const TEMPLATE_ID = {{ template_id|int }};
+
+        const DIM_META = [
+            { key: 'cat3', title: '美团三级类目', kind: 'bool', help: '主店与竞对三级类目须一致' },
+            { key: 'net', title: '单件净含量', kind: 'net', help: 'max_rel：相对主店的最大相对偏差' },
+            { key: 'sell', title: '售卖数量', kind: 'sell', help: 'max_diff：解析出的第一个数字之差的绝对值上限' },
+            { key: 'pack', title: '包装单位', kind: 'syn', help: 'syn：同义分组 JSON' },
+            { key: 'color', title: '颜色', kind: 'syn', help: 'syn：同义分组（多色为 “|” 拼接后再比）' },
+            { key: 'size', title: '尺寸', kind: 'size', help: 'max_rel：相对主店' },
+            { key: 'model', title: '型号', kind: 'syn', help: 'syn：同义分组' },
+        ];
+
+        function buildDimForm() {
+            const root = document.getElementById('dims');
+            root.innerHTML = '';
+            DIM_META.forEach(m => {
+                const box = document.createElement('div');
+                box.className = 'dim';
+                box.dataset.dim = m.key;
+                let extra = '';
+                if (m.kind === 'net' || m.kind === 'size') {
+                    const dv = m.key === 'size' ? '0.125' : '0.2';
+                    extra = `<div class="row" style="margin-top:8px;"><span class="lbl">max_rel</span><input type="number" step="0.001" class="f-maxrel" value="${dv}"></div>`;
+                }
+                if (m.kind === 'sell') {
+                    extra = `<div class="row" style="margin-top:8px;"><span class="lbl">max_diff</span><input type="number" step="0.1" class="f-maxdiff" value="0"></div>`;
+                }
+                if (m.kind === 'syn') {
+                    extra = `<div class="row" style="margin-top:8px;"><span class="lbl">syn JSON</span><textarea class="f-syn mono" placeholder='[]'>[]</textarea></div>`;
+                }
+                box.innerHTML = `
+                    <div class="dim-head">
+                        <input type="checkbox" class="f-en" checked>
+                        <label>${m.title}</label>
+                    </div>
+                    <p class="hint" style="margin:0 0 8px 28px;">${m.help}</p>
+                    ${extra}
+                `;
+                root.appendChild(box);
+            });
+        }
+
+        function readDimFromUI() {
+            const defaultBlock = {};
+            document.querySelectorAll('.dim').forEach(box => {
+                const k = box.dataset.dim;
+                const en = box.querySelector('.f-en') && box.querySelector('.f-en').checked;
+                const o = { en: en };
+                const mr = box.querySelector('.f-maxrel');
+                const md = box.querySelector('.f-maxdiff');
+                const sy = box.querySelector('.f-syn');
+                if (mr) o.max_rel = parseFloat(mr.value) || 0;
+                if (md) o.max_diff = parseFloat(md.value) || 0;
+                if (sy) {
+                    try { o.syn = JSON.parse(sy.value || '[]'); } catch (e) { o.syn = []; }
+                }
+                defaultBlock[k] = o;
+            });
+            return defaultBlock;
+        }
+
+        function fillDim(cfg) {
+            const d = (cfg && cfg.default) || {};
+            document.querySelectorAll('.dim').forEach(box => {
+                const k = box.dataset.dim;
+                const b = d[k] || {};
+                const en = box.querySelector('.f-en');
+                if (en) en.checked = b.en !== false;
+                const mr = box.querySelector('.f-maxrel');
+                if (mr && b.max_rel != null) mr.value = b.max_rel;
+                const md = box.querySelector('.f-maxdiff');
+                if (md && b.max_diff != null) md.value = b.max_diff;
+                const sy = box.querySelector('.f-syn');
+                if (sy) sy.value = JSON.stringify(b.syn != null ? b.syn : [], null, 0);
+            });
+        }
+
+        function collectConfig() {
+            const name = (document.getElementById('f-name').value || '').trim();
+            const byText = (document.getElementById('f-by-cat1').value || '').trim();
+            let by_cat1 = {};
+            if (byText) {
+                by_cat1 = JSON.parse(byText);
+            }
+            return {
+                v: 1,
+                default: readDimFromUI(),
+                by_cat1: by_cat1
+            };
+        }
+
+        buildDimForm();
+
+        async function loadExisting() {
+            const rr = await fetch('/api/rule-templates/' + TEMPLATE_ID);
+            const jj = await rr.json();
+            if (jj.status !== 'ok' || !jj.item) { alert('加载失败'); return; }
+            const t = jj.item;
+            document.getElementById('f-name').value = t.name || '';
+            document.getElementById('f-desc').value = t.description || '';
+            if (t.config) {
+                fillDim(t.config);
+                document.getElementById('f-by-cat1').value = t.config.by_cat1 && Object.keys(t.config.by_cat1).length
+                    ? JSON.stringify(t.config.by_cat1, null, 2)
+                    : '';
+            }
+        }
+
+        if (TEMPLATE_ID) loadExisting();
+
+        document.getElementById('btn-save').onclick = async () => {
+            let config;
+            try { config = collectConfig(); } catch (e) { alert('按一级类 JSON 格式错误: ' + e); return; }
+            const name = (document.getElementById('f-name').value || '').trim() || '未命名规则';
+            const description = (document.getElementById('f-desc').value || '').trim();
+            const payload = { name, description, config };
+            try {
+                let resp;
+                if (!TEMPLATE_ID) {
+                    resp = await fetch('/api/rule-templates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                } else {
+                    resp = await fetch('/api/rule-templates/' + TEMPLATE_ID, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                }
+                const j = await resp.json();
+                if (j.status === 'ok') {
+                    if (!TEMPLATE_ID && j.id) location.href = '/match-rules/' + j.id;
+                    else location.href = '/match-rules';
+                } else {
+                    alert(j.message || '保存失败');
+                }
+            } catch (e) {
+                alert('网络错误');
+            }
+        };
+    </script>
+</body>
+</html>
