@@ -40,6 +40,22 @@
         .btn-save:hover { background: #1e293b; }
         .btn-ghost { background: #f1f5f9; color: #475569; }
         .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; }
+        .callout {
+            background: linear-gradient(135deg, #fffbeb 0%, #fef9c3 100%);
+            border: 1px solid #fde047; border-radius: 14px; padding: 16px 18px; margin-top: 14px; font-size: 14px; line-height: 1.65; color: #422006;
+        }
+        .callout strong { color: #0f172a; }
+        .callout ol { margin: 10px 0 0; padding-left: 1.25em; }
+        .callout li { margin: 6px 0; }
+        .section-lead { font-size: 13px; color: var(--text-muted); line-height: 1.6; margin: -6px 0 14px; }
+        .tech { font-size: 12px; color: #94a3b8; display: block; margin-top: 4px; }
+        .json-tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+        .json-tools button {
+            padding: 8px 14px; border-radius: 10px; border: 1px solid #e2e8f0; background: #fff; font-size: 12px; font-weight: 600; cursor: pointer; color: #334155;
+        }
+        .json-tools button:hover { background: #f8fafc; border-color: #cbd5e1; }
+        details.how-json { margin-top: 8px; font-size: 13px; color: #475569; }
+        details.how-json summary { cursor: pointer; font-weight: 600; color: #0f172a; }
     </style>
 </head>
 <body>
@@ -48,7 +64,14 @@
             <div>
                 <a class="back" href="/match-rules">← 返回规则列表</a>
                 <h1 style="margin-top:10px;">{% if template_id %}编辑「{{ template_name or '规则' }}」{% else %}新建后验规则模板{% endif %}</h1>
-                <p class="hint">勾选表示参与过滤；未勾选则该维度不参与。净含量/尺寸容差为相对<strong>主店</strong>解析值的比率。包装/颜色/型号的同义为 JSON 数组，如 <code class="mono">[["听","罐"]]</code>。</p>
+                <div class="callout" role="note">
+                    <strong>后验规则在什么时候生效？</strong> 仅当主店与竞对已通过向量或条码检索<strong>先命中为候选</strong>之后，再用这里的条件做二次筛选。未勾选的维度<strong>完全不算</strong>，不会误伤。
+                    <ol>
+                        <li><strong>下面「全局默认」</strong>对表中<strong>所有</strong>「美团一级类目」生效，除非你写了例外。</li>
+                        <li>系统看<strong>主店这一行</strong>的「美团一级类目」列：有例外就用例外，没有就用全局默认。</li>
+                        <li>净含量、尺寸里的「容差」是<strong>相对主店解析值</strong>的比例，不是绝对毫升数。</li>
+                    </ol>
+                </div>
             </div>
         </div>
 
@@ -65,14 +88,25 @@
         </div>
 
         <div class="panel">
-            <h2>默认七维</h2>
+            <h2>全局默认（七维）</h2>
+            <p class="section-lead">此处勾选＝对<strong>全表所有一级类目</strong>使用同一套标准（除非在下一栏为某个一级类目单独写了例外）。取消勾选＝该条目不参与过滤。</p>
             <div id="dims"></div>
         </div>
 
         <div class="panel">
-            <h2>按一级类目覆写 (JSON)</h2>
-            <p class="hint" style="margin-top:-4px;">键为「美团一级类目」名字符串，值为与 default 同结构的<strong>部分字段</strong>，会与默认做深度合并。留空 <code class="mono">{}</code> 表示不覆写。</p>
-            <textarea id="f-by-cat1" class="mono" style="min-height:120px;" placeholder='{"食品饮料":{"net":{"en":false}}}'></textarea>
+            <h2>按「美团一级类目」的例外（可选，高级）</h2>
+            <p class="section-lead">大部分用户可<strong>整栏留空</strong>。仅当不同行业需要不同松紧度时，用 JSON 为某个一级类目覆盖上面的默认。键必须与 Excel 里「美团一级类目」<strong>文字完全一致</strong>（含括弧、空格需一致）。</p>
+            <div class="json-tools">
+                <button type="button" id="btn-json-example" title="插入一条常用示例，可再改">插入示例：某类目关闭「售卖数量」</button>
+                <button type="button" id="btn-json-format" title="将 JSON 排版缩进，便于检查">排版 JSON</button>
+                <button type="button" id="btn-json-clear" title="清空为例外配置">清空</button>
+            </div>
+            <textarea id="f-by-cat1" class="mono" style="min-height:160px;" placeholder='留空＝不覆写。示例见下方说明。'></textarea>
+            <details class="how-json">
+                <summary>技术说明与字段名（与保存到数据库的 JSON 一致）</summary>
+                <p class="hint" style="margin-top:10px;">写成一个对象：外层键＝「美团一级类目」名称；内层可只写要改的维度。维度短键为 <code class="mono">cat3, net, sell, pack, color, size, model</code>；是否启用为 <code class="mono">"en": true/false</code>。会与「全局默认」<strong>深度合并</strong>，不必重复写整份规则。</p>
+                <p class="hint">示例：仅把「食品饮料」下的净含量校验关掉、其余继承默认——<code class="mono">{"食品饮料":{"net":{"en":false}}}</code>。售卖数量在默认里全表启用、仅「生鲜」要关掉——<code class="mono">{"生鲜":{"sell":{"en":false}}}</code>。</p>
+            </details>
         </div>
 
         <div class="actions">
@@ -85,13 +119,13 @@
         const TEMPLATE_ID = {{ template_id|int }};
 
         const DIM_META = [
-            { key: 'cat3', title: '美团三级类目', kind: 'bool', help: '主店与竞对三级类目须一致' },
-            { key: 'net', title: '单件净含量', kind: 'net', help: 'max_rel：相对主店的最大相对偏差' },
-            { key: 'sell', title: '售卖数量', kind: 'sell', help: 'max_diff：解析出的第一个数字之差的绝对值上限' },
-            { key: 'pack', title: '包装单位', kind: 'syn', help: 'syn：同义分组 JSON' },
-            { key: 'color', title: '颜色', kind: 'syn', help: 'syn：同义分组（多色为 “|” 拼接后再比）' },
-            { key: 'size', title: '尺寸', kind: 'size', help: 'max_rel：相对主店' },
-            { key: 'model', title: '型号', kind: 'syn', help: 'syn：同义分组' },
+            { key: 'cat3', title: '三级类目须一致', kind: 'bool', help: '主店与竞对两行的「三级类目」列要相同。任一侧空白则**不比较**、不因此淘汰。' },
+            { key: 'net', title: '单件净含量', kind: 'net', help: '按 AI 提取的净含量比较；单位会换算到同一度量。' },
+            { key: 'sell', title: '售卖数量（件/组/箱装数）', kind: 'sell', help: '从「售卖数量」里取<strong>第一个数字</strong>比较；允差是两边数字之差的绝对值上限。' },
+            { key: 'pack', title: '包装单位', kind: 'syn', help: '听/罐等写成若干组同义词，组内算匹配。' },
+            { key: 'color', title: '颜色', kind: 'syn', help: '多色按「|」拼成再比；可配置同义（如 乳白≈白）。' },
+            { key: 'size', title: '尺寸', kind: 'size', help: '从尺寸文本里取长度类数值比较，容差为相对主店的比例。' },
+            { key: 'model', title: '型号', kind: 'syn', help: '按提取的型号比；可配同义避免写法差异。' },
         ];
 
         function buildDimForm() {
@@ -104,20 +138,21 @@
                 let extra = '';
                 if (m.kind === 'net' || m.kind === 'size') {
                     const dv = m.key === 'size' ? '0.125' : '0.2';
-                    extra = `<div class="row" style="margin-top:8px;"><span class="lbl">max_rel</span><input type="number" step="0.001" class="f-maxrel" value="${dv}"></div>`;
+                    const cap = m.key === 'size' ? '如 0.125 ≈ 主店与竞对允许约 ±12.5% 的相对差' : '如 0.2 ≈ 主店与竞对允差约 ±20%（同单位下）';
+                    extra = `<div class="row" style="margin-top:8px;"><span class="lbl">容差 max_rel</span><input type="number" step="0.001" class="f-maxrel" value="${dv}" title="${cap}"></div><span class="tech" style="margin-left:28px;">技术名 max_rel，${cap}</span>`;
                 }
                 if (m.kind === 'sell') {
-                    extra = `<div class="row" style="margin-top:8px;"><span class="lbl">max_diff</span><input type="number" step="0.1" class="f-maxdiff" value="0"></div>`;
+                    extra = `<div class="row" style="margin-top:8px;"><span class="lbl">允差（个数）</span><input type="number" step="0.1" class="f-maxdiff" value="0" title="两边解析出的件数，差的绝对值超过此数则不过"></div><span class="tech" style="margin-left:28px;">技术名 max_diff，=0 时须完全一致</span>`;
                 }
                 if (m.kind === 'syn') {
-                    extra = `<div class="row" style="margin-top:8px;"><span class="lbl">syn JSON</span><textarea class="f-syn mono" placeholder='[]'>[]</textarea></div>`;
+                    extra = `<div class="row" style="margin-top:8px;"><span class="lbl">同义词分组</span><textarea class="f-syn mono" placeholder='[]' title='例：[["听","罐"]]，同一组内视为相同'>[]</textarea></div><span class="tech" style="margin-left:28px;">JSON 数组，每组内可互换，如 <code class="mono">[["听","罐"]]</code></span>`;
                 }
                 box.innerHTML = `
                     <div class="dim-head">
-                        <input type="checkbox" class="f-en" checked>
-                        <label>${m.title}</label>
+                        <input type="checkbox" class="f-en" checked title="勾选：参与后验；不勾选：本维度不拦截">
+                        <label>${m.title} <span style="font-size:12px;font-weight:600;color:#94a3b8;">(启用)</span></label>
                     </div>
-                    <p class="hint" style="margin:0 0 8px 28px;">${m.help}</p>
+                    <p class="hint" style="margin:0 0 8px 28px;">${m.help.replace(/\*\*/g, '')}</p>
                     ${extra}
                 `;
                 root.appendChild(box);
@@ -174,6 +209,27 @@
         }
 
         buildDimForm();
+
+        document.getElementById('btn-json-example').onclick = () => {
+            const ex = '{\n  "示例_请改为与你表里一致的美团一级类目": {\n    "sell": { "en": false }\n  }\n}';
+            document.getElementById('f-by-cat1').value = ex;
+        };
+        document.getElementById('btn-json-format').onclick = () => {
+            const el = document.getElementById('f-by-cat1');
+            const t = (el.value || '').trim();
+            if (!t) {
+                alert('请输入 JSON，或先点「插入示例」再排版。');
+                return;
+            }
+            try {
+                el.value = JSON.stringify(JSON.parse(t), null, 2);
+            } catch (e) {
+                alert('无法解析为 JSON，请检查逗号、引号与括号。' + (e && e.message ? '\n' + e.message : ''));
+            }
+        };
+        document.getElementById('btn-json-clear').onclick = () => {
+            document.getElementById('f-by-cat1').value = '';
+        };
 
         async function loadExisting() {
             const rr = await fetch('/api/rule-templates/' + TEMPLATE_ID);
