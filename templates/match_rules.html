@@ -45,7 +45,7 @@
         <div class="top-bar">
             <div>
                 <h1>后验规则模板</h1>
-                <div class="sub">在向量/条码已命中之后，用「七维」再筛一遍候选。建项目时选一个模板即可。<strong>默认规则＝对全表生效</strong>；仅少数类目要放宽/收紧时，再到编辑页最下方用 JSON 写「按一级类目的例外」。</div>
+                <div class="sub">先导入美团一二三级类目树，再按三级类目分组配置后验规则。未被规则组选中的三级类目，不做后验过滤。</div>
             </div>
             <div style="display:flex; gap:12px; align-items:center;">
                 <a class="btn btn-back" href="/">← 返回项目</a>
@@ -72,6 +72,7 @@
                     d.innerHTML = `
                         <h3>${escapeHtml(t.name)}</h3>
                         <p>${escapeHtml((t.description || '').slice(0, 120))}${(t.description || '').length > 120 ? '…' : ''}</p>
+                        <p style="font-size:12px;color:#475569;margin:-4px 0 16px;">规则组 ${t.group_count || 0} 条 · 三级类目 ${(t.category3_count || 0)} 个 · 已启用维度 ${(t.enabled_metric_total || 0)} 项</p>
                         <div class="card-actions">
                             <a class="edit" href="/match-rules/${t.id}">编辑</a>
                             <button type="button" class="del" data-id="${t.id}">删除</button>

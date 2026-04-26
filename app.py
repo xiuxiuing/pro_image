@@ -21,6 +21,9 @@ import shutil
 import time
 import threading
 import traceback
+import io
+from openpyxl import Workbook, load_workbook
+import utils
 
 _single_instance_lock_fh = None
 
@@ -72,6 +75,8 @@ def _resolve_app_paths():
 
 
 resource_root, data_root = _resolve_app_paths()
+# 后验规则页默认类目表（与「下载模板」同源时可复制到 data/default_meituan_categories.xlsx）
+DEFAULT_RULE_CATEGORIES_XLSX = os.path.join(resource_root, "data", "default_meituan_categories.xlsx")
 # 冻结版：分析线程里相对路径 img/、query_img/ 与 DataManager 使用同一根目录
 if getattr(sys, 'frozen', False):
     os.chdir(data_root)
@@ -181,6 +186,88 @@ def _validate_upload(file_storage, label):
     if size > MAX_FILE_SIZE:
         return f"{label}：文件过大 ({size // 1024 // 1024}MB)，上限 {MAX_FILE_SIZE // 1024 // 1024}MB"
     return None
+
+
+def _norm_cell(v):
+    if v is None:
+        return ""
+    s = str(v).strip()
+    return "" if s.lower() in ("nan", "none", "null") else s
+
+
+def _build_category_tree(rows):
+    l1_aliases = ("美团一级类目", "一级类目", "美团类目一级", "美团1级类目")
+    l2_aliases = ("美团二级类目", "二级类目", "美团类目二级", "美团2级类目")
+    l3_aliases = ("美团三级类目", "三级类目", "美团类目三级", "美团3级类目")
+
+    def first_val(item, aliases):
+        for key in aliases:
+            if key in item:
+                v = _norm_cell(item.get(key))
+                if v:
+                    return v
+        return ""
+
+    l1_map = {}
+    for row in rows:
+        l3 = first_val(row, l3_aliases)
+        if not l3:
+            continue
+        l1 = first_val(row, l1_aliases) or "未分类一级类目"
+        l2 = first_val(row, l2_aliases) or "未分类二级类目"
+        l1_entry = l1_map.setdefault(l1, {"name": l1, "children_map": {}, "l3_count": 0})
+        l2_entry = l1_entry["children_map"].setdefault(l2, {"name": l2, "children": [], "seen": set()})
+        if l3 not in l2_entry["seen"]:
+            l2_entry["children"].append({"name": l3})
+            l2_entry["seen"].add(l3)
+            l1_entry["l3_count"] += 1
+
+    items = []
+    for l1_name in sorted(l1_map.keys()):
+        l1_entry = l1_map[l1_name]
+        children = []
+        for l2_name in sorted(l1_entry["children_map"].keys()):
+            l2_entry = l1_entry["children_map"][l2_name]
+            children.append({
+                "name": l2_name,
+                "l3_count": len(l2_entry["children"]),
+                "children": sorted(l2_entry["children"], key=lambda x: x["name"]),
+            })
+        items.append({
+            "name": l1_name,
+            "l3_count": l1_entry["l3_count"],
+            "children": children,
+        })
+
+    return {
+        "items": items,
+        "l1_count": len(items),
+        "l3_count": sum(item["l3_count"] for item in items),
+    }
+
+
+def _workbook_to_rows(wb):
+    ws = wb.active
+    rows = ws.iter_rows(values_only=True)
+    headers = next(rows, None)
+    if not headers:
+        return []
+    out = []
+    for row in rows:
+        if all(cell is None for cell in row):
+            continue
+        out.append(dict(zip(headers, row)))
+    return out
+
+
+def _excel_file_to_rows(file_storage):
+    wb = load_workbook(file_storage, data_only=True)
+    return _workbook_to_rows(wb)
+
+
+def _excel_path_to_rows(path: str):
+    wb = load_workbook(path, data_only=True)
+    return _workbook_to_rows(wb)
 
 # --- License Check Logic ---
 LICENSE_FILE = os.path.join(data_root, "license.dat")
@@ -446,11 +533,6 @@ def api_rule_template_one(tid):
         t = dm.get_rule_template(tid)
         if not t:
             return jsonify({"status": "error", "message": "不存在"}), 404
-        try:
-            import json
-            t["config"] = json.loads(t.get("config_json") or "{}")
-        except Exception:
-            t["config"] = {}
         return jsonify({"status": "ok", "item": t})
     if request.method == "DELETE":
         ok, err = dm.delete_rule_template(tid)
@@ -466,6 +548,68 @@ def api_rule_template_one(tid):
     if not dm.update_rule_template(tid, name, desc, config):
         return jsonify({"status": "error", "message": "更新失败"}), 400
     return jsonify({"status": "ok"})
+
+
+@app.route("/api/rule-category-template")
+def api_rule_category_template():
+    if os.path.isfile(DEFAULT_RULE_CATEGORIES_XLSX):
+        return send_file(
+            DEFAULT_RULE_CATEGORIES_XLSX,
+            as_attachment=True,
+            download_name="类目配置模板.xlsx",
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "类目模板"
+    ws.append(["美团一级类目", "美团二级类目", "美团三级类目"])
+    ws.append(["饮料", "碳酸饮料", "可乐"])
+    ws.append(["饮料", "碳酸饮料", "雪碧"])
+    ws.append(["休闲零食", "膨化食品", "薯片"])
+    ws.append(["生鲜水果", "热带水果", "香蕉"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name="类目配置模板.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.route("/api/rule-categories/parse", methods=["POST"])
+def api_rule_categories_parse():
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"status": "error", "message": "请上传类目文件"}), 400
+    err = _validate_upload(f, "类目文件")
+    if err:
+        return jsonify({"status": "error", "message": err}), 400
+    try:
+        rows = _excel_file_to_rows(f)
+        tree = _build_category_tree(rows)
+        if not tree["items"]:
+            return jsonify({"status": "error", "message": "未读取到有效的三级类目，请检查模板列名与内容"}), 400
+        return jsonify({"status": "ok", "tree": tree})
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"解析失败：{e}"}), 400
+
+
+@app.route("/api/rule-categories/default", methods=["GET"])
+def api_rule_categories_default():
+    """规则编辑页首次进入时使用的默认一级/二/三级类目树（与 data/default_meituan_categories.xlsx 一致）。"""
+    if not os.path.isfile(DEFAULT_RULE_CATEGORIES_XLSX):
+        return jsonify({"status": "error", "message": "未配置默认类目文件"}), 404
+    try:
+        rows = _excel_path_to_rows(DEFAULT_RULE_CATEGORIES_XLSX)
+        tree = _build_category_tree(rows)
+        if not tree["items"]:
+            return jsonify({"status": "error", "message": "默认类目文件无有效三级类目"}), 500
+        return jsonify({"status": "ok", "tree": tree})
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"解析失败：{e}"}), 500
+
 
 @app.route("/api/config", methods=['GET'])
 def get_config():

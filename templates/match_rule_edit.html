@@ -2,60 +2,379 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>{% if template_id %}编辑规则{% else %}新建规则{% endif %} - 商品分析平台</title>
+    <title>{% if template_id %}编辑规则模板{% else %}新建规则模板{% endif %} - 商品分析平台</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
     <style>
         :root {
-            --primary-accent: #FFD500;
-            --text-muted: #64748b;
-            --radius: 16px;
+            --bg: #f8fafc;
+            --panel: rgba(255,255,255,.94);
+            --border: #dbe3ef;
+            --text: #0f172a;
+            --muted: #64748b;
+            --primary: #2563eb;
+            --primary-2: #1d4ed8;
+            --soft: #eef4ff;
+            --danger: #b91c1c;
+            --danger-bg: #fef2f2;
+            --radius: 18px;
+            --shadow: 0 10px 30px rgba(15, 23, 42, .06);
         }
-        body { font-family: 'Inter', sans-serif; background: #f8fafc; margin: 0; color: #0f172a; padding-bottom: 60px; }
-        .wrap { max-width: 880px; margin: 0 auto; padding: 28px 20px; }
-        .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
-        h1 { font-family: 'Outfit', sans-serif; font-size: 28px; font-weight: 800; margin: 0; }
-        .hint { font-size: 13px; color: var(--text-muted); margin-top: 8px; line-height: 1.55; }
-        a.back { color: #475569; font-weight: 600; text-decoration: none; font-size: 14px; }
-        a.back:hover { color: #000; }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+        }
+        .wrap {
+            max-width: 1540px;
+            margin: 0 auto;
+            padding: 28px 20px 48px;
+        }
+        .top {
+            display: flex;
+            justify-content: space-between;
+            gap: 20px;
+            align-items: flex-start;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+        }
+        .back {
+            color: #475569;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 14px;
+        }
+        .back:hover { color: #000; }
+        h1 {
+            margin: 10px 0 6px;
+            font-family: 'Outfit', sans-serif;
+            font-size: 32px;
+            line-height: 1.05;
+        }
+        .sub {
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.65;
+            max-width: 860px;
+        }
+        .layout {
+            display: grid;
+            grid-template-columns: 290px minmax(560px, 1fr) 300px;
+            gap: 18px;
+            align-items: start;
+        }
         .panel {
-            background: rgba(255,255,255,.95); border: 1px solid #e2e8f0; border-radius: var(--radius);
-            padding: 22px 22px 8px; margin-bottom: 18px; box-shadow: 0 4px 20px rgba(0,0,0,.04);
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
         }
-        .panel h2 { font-size: 15px; font-weight: 800; margin: 0 0 16px; letter-spacing: .02em; }
-        .row { display: grid; grid-template-columns: 160px 1fr; gap: 10px 16px; align-items: center; margin-bottom: 14px; }
-        @media (max-width: 640px) { .row { grid-template-columns: 1fr; } }
-        label.lbl { font-size: 13px; font-weight: 600; color: #334155; }
-        input[type="text"], input[type="number"], textarea {
-            width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 12px; border: 1px solid #e2e8f0;
-            font-size: 14px; font-family: inherit;
+        .panel-head {
+            padding: 18px 18px 14px;
+            border-bottom: 1px solid #edf2f7;
         }
-        textarea { min-height: 56px; resize: vertical; }
-        .dim { border-top: 1px solid #f1f5f9; padding-top: 14px; margin-top: 8px; }
-        .dim-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-        .dim-head label { font-weight: 700; font-size: 14px; }
-        .dim-head input[type="checkbox"] { width: 18px; height: 18px; accent-color: #000; }
-        .actions { display: flex; gap: 12px; margin-top: 24px; flex-wrap: wrap; }
-        .btn { padding: 14px 28px; border-radius: 14px; font-weight: 700; font-size: 15px; border: none; cursor: pointer; }
-        .btn-save { background: #000; color: #fff; }
-        .btn-save:hover { background: #1e293b; }
-        .btn-ghost { background: #f1f5f9; color: #475569; }
-        .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; }
-        .callout {
-            background: linear-gradient(135deg, #fffbeb 0%, #fef9c3 100%);
-            border: 1px solid #fde047; border-radius: 14px; padding: 16px 18px; margin-top: 14px; font-size: 14px; line-height: 1.65; color: #422006;
+        .panel-head h2 {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 800;
         }
-        .callout strong { color: #0f172a; }
-        .callout ol { margin: 10px 0 0; padding-left: 1.25em; }
-        .callout li { margin: 6px 0; }
-        .section-lead { font-size: 13px; color: var(--text-muted); line-height: 1.6; margin: -6px 0 14px; }
-        .tech { font-size: 12px; color: #94a3b8; display: block; margin-top: 4px; }
-        .json-tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
-        .json-tools button {
-            padding: 8px 14px; border-radius: 10px; border: 1px solid #e2e8f0; background: #fff; font-size: 12px; font-weight: 600; cursor: pointer; color: #334155;
+        .panel-head p {
+            margin: 6px 0 0;
+            font-size: 12px;
+            color: var(--muted);
+            line-height: 1.6;
         }
-        .json-tools button:hover { background: #f8fafc; border-color: #cbd5e1; }
-        details.how-json { margin-top: 8px; font-size: 13px; color: #475569; }
-        details.how-json summary { cursor: pointer; font-weight: 600; color: #0f172a; }
+        .panel-body { padding: 16px 18px 18px; }
+        .field { margin-bottom: 14px; }
+        .label {
+            display: block;
+            font-size: 12px;
+            font-weight: 700;
+            margin-bottom: 7px;
+            color: #334155;
+        }
+        input[type="text"], input[type="number"], .search, textarea {
+            width: 100%;
+            border: 1px solid #d9e2ef;
+            border-radius: 12px;
+            padding: 10px 12px;
+            font: inherit;
+            font-size: 14px;
+            background: #fff;
+            color: var(--text);
+        }
+        textarea { resize: vertical; }
+        .btn, .btn-mini {
+            border: none;
+            border-radius: 12px;
+            font: inherit;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .btn {
+            padding: 12px 18px;
+            font-size: 14px;
+        }
+        .btn-primary {
+            background: var(--primary);
+            color: #fff;
+        }
+        .btn-primary:hover { background: var(--primary-2); }
+        .btn-soft {
+            background: #f1f5f9;
+            color: #334155;
+        }
+        .btn-soft:hover { background: #e2e8f0; }
+        .btn-outline {
+            background: #fff;
+            color: #334155;
+            border: 1px solid #d9e2ef;
+        }
+        .btn-outline:hover { background: #f8fafc; }
+        .btn-danger {
+            background: var(--danger-bg);
+            color: var(--danger);
+            border: 1px solid #fecaca;
+        }
+        .stack { display: flex; flex-direction: column; gap: 10px; }
+        .btn-row { display: flex; gap: 10px; flex-wrap: wrap; }
+        .search { margin-bottom: 14px; }
+        .tree-toolbar {
+            display: flex;
+            flex-direction: row;
+            gap: 6px;
+            align-items: stretch;
+            margin-bottom: 8px;
+        }
+        .tree-toolbar .tree-toolbar-btn {
+            flex: 1;
+            min-width: 0;
+            padding: 4px 8px;
+            font-size: 11px;
+            font-weight: 600;
+            line-height: 1.3;
+            border-radius: 8px;
+            white-space: nowrap;
+        }
+        .tree {
+            max-height: 620px;
+            overflow: auto;
+            padding-right: 4px;
+        }
+        .tree-block { margin-bottom: 12px; }
+        .node {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 30px;
+            font-size: 13px;
+        }
+        .toggle-btn {
+            width: 18px;
+            height: 18px;
+            border: none;
+            background: transparent;
+            color: #64748b;
+            cursor: pointer;
+            padding: 0;
+            font-size: 12px;
+            line-height: 18px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 18px;
+        }
+        .toggle-btn:hover { color: #0f172a; }
+        .toggle-spacer {
+            width: 18px;
+            height: 18px;
+            flex: 0 0 18px;
+        }
+        .node input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: var(--primary);
+        }
+        .node.l1 { font-weight: 700; }
+        .node.l2 { margin-left: 20px; color: #334155; }
+        .node.l3 { margin-left: 40px; color: #475569; }
+        .node.disabled { opacity: .45; }
+        .node-note {
+            margin-left: auto;
+            font-size: 11px;
+            color: #94a3b8;
+        }
+        .summary {
+            background: linear-gradient(135deg, #eff6ff 0%, #f8fbff 100%);
+            border: 1px solid #dbeafe;
+            border-radius: 14px;
+            padding: 14px 15px;
+            margin-bottom: 16px;
+        }
+        .summary-title {
+            font-size: 14px;
+            font-weight: 800;
+            margin-bottom: 6px;
+        }
+        .summary-text {
+            font-size: 12px;
+            color: #475569;
+            line-height: 1.6;
+        }
+        .metric-card {
+            border: 1px solid #dde6f2;
+            border-radius: 16px;
+            overflow: hidden;
+            margin-bottom: 14px;
+        }
+        .metric-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 14px 16px 10px;
+        }
+        .metric-name {
+            font-size: 15px;
+            font-weight: 800;
+        }
+        .metric-help {
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.55;
+            padding: 0 16px 12px;
+        }
+        .metric-body {
+            border-top: 1px solid #edf2f7;
+            padding: 14px 16px 16px;
+            background: #fff;
+        }
+        .switch {
+            position: relative;
+            width: 48px;
+            height: 28px;
+            display: inline-block;
+        }
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            inset: 0;
+            border-radius: 999px;
+            background: #cbd5e1;
+            transition: .2s;
+            cursor: pointer;
+        }
+        .slider:before {
+            content: "";
+            position: absolute;
+            width: 22px;
+            height: 22px;
+            left: 3px;
+            top: 3px;
+            border-radius: 50%;
+            background: #fff;
+            transition: .2s;
+            box-shadow: 0 1px 3px rgba(0,0,0,.25);
+        }
+        .switch input:checked + .slider {
+            background: var(--primary);
+        }
+        .switch input:checked + .slider:before {
+            transform: translateX(20px);
+        }
+        .metric-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        .metric-inline-note {
+            margin-top: 7px;
+            font-size: 11px;
+            color: #94a3b8;
+        }
+        .syn-list { display: flex; flex-direction: column; gap: 8px; }
+        .syn-row {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 8px;
+            align-items: center;
+        }
+        .syn-empty {
+            color: #94a3b8;
+            font-size: 12px;
+            padding: 8px 0 2px;
+        }
+        .side-card {
+            border: 1px solid #dde6f2;
+            border-radius: 16px;
+            padding: 14px;
+            background: #fff;
+            margin-bottom: 12px;
+        }
+        .side-card h3 {
+            margin: 0 0 8px;
+            font-size: 15px;
+            font-weight: 800;
+        }
+        .side-meta {
+            font-size: 12px;
+            color: var(--muted);
+            line-height: 1.6;
+            margin-bottom: 10px;
+        }
+        .side-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 12px;
+        }
+        .side-table th,
+        .side-table td {
+            text-align: left;
+            font-size: 11px;
+            padding: 5px 0;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .side-table th {
+            color: #94a3b8;
+            font-weight: 700;
+        }
+        .side-actions {
+            display: flex;
+            gap: 8px;
+        }
+        .side-actions button {
+            flex: 1;
+            padding: 9px 10px;
+        }
+        .empty {
+            font-size: 13px;
+            color: var(--muted);
+            line-height: 1.7;
+            padding: 10px 2px;
+        }
+        .footer-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 18px;
+            flex-wrap: wrap;
+        }
+        .notice {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #475569;
+            line-height: 1.6;
+        }
+        @media (max-width: 1240px) {
+            .layout { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 720px) {
+            .metric-row { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>
@@ -63,215 +382,801 @@
         <div class="top">
             <div>
                 <a class="back" href="/match-rules">← 返回规则列表</a>
-                <h1 style="margin-top:10px;">{% if template_id %}编辑「{{ template_name or '规则' }}」{% else %}新建后验规则模板{% endif %}</h1>
-                <div class="callout" role="note">
-                    <strong>后验规则在什么时候生效？</strong> 仅当主店与竞对已通过向量或条码检索<strong>先命中为候选</strong>之后，再用这里的条件做二次筛选。未勾选的维度<strong>完全不算</strong>，不会误伤。
-                    <ol>
-                        <li><strong>下面「全局默认」</strong>对表中<strong>所有</strong>「美团一级类目」生效，除非你写了例外。</li>
-                        <li>系统看<strong>主店这一行</strong>的「美团一级类目」列：有例外就用例外，没有就用全局默认。</li>
-                        <li>净含量、尺寸里的「容差」是<strong>相对主店解析值</strong>的比例，不是绝对毫升数。</li>
-                    </ol>
+                <h1>{% if template_id %}编辑规则模板{% else %}新建规则模板{% endif %}</h1>
+            </div>
+        </div>
+
+        <div class="layout">
+            <section class="panel">
+                <div class="panel-head">
+                    <h2>类目导入与选择</h2>
                 </div>
-            </div>
-        </div>
+                <div class="panel-body">
+                    <div class="stack">
+                        <div class="btn-row">
+                            <label class="btn btn-primary" style="position:relative; overflow:hidden;">
+                                上传类目文件
+                                <input id="category-file-input" type="file" accept=".xlsx,.xls" style="position:absolute; inset:0; opacity:0; cursor:pointer;">
+                            </label>
+                            <a class="btn btn-outline" href="/api/rule-category-template">下载模板</a>
+                        </div>
+                        <div class="notice" id="category-source-note">尚未上传类目文件。</div>
+                    </div>
 
-        <div class="panel">
-            <h2>基本信息</h2>
-            <div class="row">
-                <label class="lbl">名称</label>
-                <input type="text" id="f-name" placeholder="例如：饮料行业-严" value="{{ template_name or '' }}">
-            </div>
-            <div class="row">
-                <label class="lbl">说明</label>
-                <input type="text" id="f-desc" placeholder="可选">
-            </div>
-        </div>
+                    <input id="category-search" class="search" type="text" placeholder="筛选一级 / 二级 / 三级类目">
+                    <div class="tree-toolbar" role="toolbar" aria-label="类目树操作">
+                        <button type="button" class="btn-mini btn-outline tree-toolbar-btn" id="expand-toggle-btn">全部展开</button>
+                        <button type="button" class="btn-mini btn-outline tree-toolbar-btn" id="select-toggle-btn">全选</button>
+                    </div>
+                    <div id="category-tree" class="tree"></div>
+                </div>
+            </section>
 
-        <div class="panel">
-            <h2>全局默认（七维）</h2>
-            <p class="section-lead">此处勾选＝对<strong>全表所有一级类目</strong>使用同一套标准（除非在下一栏为某个一级类目单独写了例外）。取消勾选＝该条目不参与过滤。</p>
-            <div id="dims"></div>
-        </div>
+            <section class="panel">
+                <div class="panel-head">
+                    <h2>当前规则组</h2>
+                </div>
+                <div class="panel-body">
+                    <div class="field">
+                        <label class="label">模板名称</label>
+                        <input id="template-name" type="text" placeholder="例如：商品后验规则（饮料 / 生鲜）" value="{{ template_name or '' }}">
+                    </div>
+                    <div class="field">
+                        <label class="label">模板说明</label>
+                        <input id="template-desc" type="text" placeholder="可选，给团队看的说明文字">
+                    </div>
 
-        <div class="panel">
-            <h2>按「美团一级类目」的例外（可选，高级）</h2>
-            <p class="section-lead">大部分用户可<strong>整栏留空</strong>。仅当不同行业需要不同松紧度时，用 JSON 为某个一级类目覆盖上面的默认。键必须与 Excel 里「美团一级类目」<strong>文字完全一致</strong>（含括弧、空格需一致）。</p>
-            <div class="json-tools">
-                <button type="button" id="btn-json-example" title="插入一条常用示例，可再改">插入示例：某类目关闭「售卖数量」</button>
-                <button type="button" id="btn-json-format" title="将 JSON 排版缩进，便于检查">排版 JSON</button>
-                <button type="button" id="btn-json-clear" title="清空为例外配置">清空</button>
-            </div>
-            <textarea id="f-by-cat1" class="mono" style="min-height:160px;" placeholder='留空＝不覆写。示例见下方说明。'></textarea>
-            <details class="how-json">
-                <summary>技术说明与字段名（与保存到数据库的 JSON 一致）</summary>
-                <p class="hint" style="margin-top:10px;">写成一个对象：外层键＝「美团一级类目」名称；内层可只写要改的维度。维度短键为 <code class="mono">cat3, net, sell, pack, color, size, model</code>；是否启用为 <code class="mono">"en": true/false</code>。会与「全局默认」<strong>深度合并</strong>，不必重复写整份规则。</p>
-                <p class="hint">示例：仅把「食品饮料」下的净含量校验关掉、其余继承默认——<code class="mono">{"食品饮料":{"net":{"en":false}}}</code>。售卖数量在默认里全表启用、仅「生鲜」要关掉——<code class="mono">{"生鲜":{"sell":{"en":false}}}</code>。</p>
-            </details>
-        </div>
+                    <div class="summary">
+                        <div class="summary-title" id="draft-summary-title">尚未选择三级类目</div>
+                        <div class="summary-text" id="draft-summary-text">左侧选择三级类目后，在这里配置规则。</div>
+                    </div>
 
-        <div class="actions">
-            <button type="button" class="btn btn-save" id="btn-save">保存</button>
-            <a class="btn btn-ghost" href="/match-rules" style="text-decoration:none; display:inline-flex; align-items:center;">取消</a>
+                    <div id="metrics-root"></div>
+
+                    <div class="footer-actions">
+                        <button type="button" class="btn btn-primary" id="save-group-btn">保存当前规则组</button>
+                        <button type="button" class="btn btn-soft" id="clear-draft-btn">清空当前编辑</button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="panel">
+                <div class="panel-head">
+                    <h2>已保存规则组</h2>
+                </div>
+                <div class="panel-body">
+                    <div id="rule-groups-list"></div>
+                    <div class="footer-actions">
+                        <button type="button" class="btn btn-primary" id="submit-template-btn" style="flex:1;">提交模板</button>
+                        <a class="btn btn-soft" href="/match-rules" style="text-decoration:none; text-align:center;">取消</a>
+                    </div>
+                </div>
+            </section>
         </div>
     </div>
 
     <script>
         const TEMPLATE_ID = {{ template_id|int }};
-
-        const DIM_META = [
-            { key: 'cat3', title: '三级类目须一致', kind: 'bool', help: '主店与竞对两行的「三级类目」列要相同。任一侧空白则**不比较**、不因此淘汰。' },
-            { key: 'net', title: '单件净含量', kind: 'net', help: '按 AI 提取的净含量比较；单位会换算到同一度量。' },
-            { key: 'sell', title: '售卖数量（件/组/箱装数）', kind: 'sell', help: '从「售卖数量」里取<strong>第一个数字</strong>比较；允差是两边数字之差的绝对值上限。' },
-            { key: 'pack', title: '包装单位', kind: 'syn', help: '听/罐等写成若干组同义词，组内算匹配。' },
-            { key: 'color', title: '颜色', kind: 'syn', help: '多色按「|」拼成再比；可配置同义（如 乳白≈白）。' },
-            { key: 'size', title: '尺寸', kind: 'size', help: '从尺寸文本里取长度类数值比较，容差为相对主店的比例。' },
-            { key: 'model', title: '型号', kind: 'syn', help: '按提取的型号比；可配同义避免写法差异。' },
+        const METRICS = [
+            { key: 'cat3', title: '三级类目一致', type: 'bool', help: '开启后，竞店候选商品的三级类目必须与主店商品三级类目一致；关闭后允许跨三级类目候选继续由其他维度判断。', note: '建议默认开启，只有明确需要放宽跨三级类目匹配时再关闭。' },
+            { key: 'net', title: '单件净含量', type: 'rel', help: '按 AI 提取的净含量比较；仅在双方都能解析且单位一致时才计算相对偏差。', defaultValue: 0.2, step: 0.01, note: '建议从 0.2 起步，表示允许约 ±20% 相对差。' },
+            { key: 'sell', title: '售卖数量', type: 'diff', help: '从售卖数量文本中取第一个数字比较；差值超过阈值则拦截。', defaultValue: 0, step: 0.1, note: '为 0 时，数量须完全一致。' },
+            { key: 'pack', title: '包装单位', type: 'syn', help: '例如“听 / 罐”“瓶 / 支”可配置为同义词组。', note: '仅在双方都有值时比较。' },
+            { key: 'color', title: '颜色', type: 'syn', help: '多色会先拆分再排序比较；同义词可消除“乳白≈白”这类写法差异。', note: '建议只在该品类颜色信息稳定时启用。' },
+            { key: 'size', title: '尺寸', type: 'rel', help: '从尺寸文本里提取 mm / cm / m 比较；只在双方都能解析时计算相对偏差。', defaultValue: 0.125, step: 0.005, note: '0.125 约等于允许 ±12.5% 相对差。' },
+            { key: 'model', title: '型号', type: 'syn', help: '按型号文本比较，可用同义词组消除型号别名或缩写差异。', note: '适合型号特征明确的商品。' },
         ];
 
-        function buildDimForm() {
-            const root = document.getElementById('dims');
-            root.innerHTML = '';
-            DIM_META.forEach(m => {
-                const box = document.createElement('div');
-                box.className = 'dim';
-                box.dataset.dim = m.key;
-                let extra = '';
-                if (m.kind === 'net' || m.kind === 'size') {
-                    const dv = m.key === 'size' ? '0.125' : '0.2';
-                    const cap = m.key === 'size' ? '如 0.125 ≈ 主店与竞对允许约 ±12.5% 的相对差' : '如 0.2 ≈ 主店与竞对允差约 ±20%（同单位下）';
-                    extra = `<div class="row" style="margin-top:8px;"><span class="lbl">容差 max_rel</span><input type="number" step="0.001" class="f-maxrel" value="${dv}" title="${cap}"></div><span class="tech" style="margin-left:28px;">技术名 max_rel，${cap}</span>`;
-                }
-                if (m.kind === 'sell') {
-                    extra = `<div class="row" style="margin-top:8px;"><span class="lbl">允差（个数）</span><input type="number" step="0.1" class="f-maxdiff" value="0" title="两边解析出的件数，差的绝对值超过此数则不过"></div><span class="tech" style="margin-left:28px;">技术名 max_diff，=0 时须完全一致</span>`;
-                }
-                if (m.kind === 'syn') {
-                    extra = `<div class="row" style="margin-top:8px;"><span class="lbl">同义词分组</span><textarea class="f-syn mono" placeholder='[]' title='例：[["听","罐"]]，同一组内视为相同'>[]</textarea></div><span class="tech" style="margin-left:28px;">JSON 数组，每组内可互换，如 <code class="mono">[["听","罐"]]</code></span>`;
-                }
-                box.innerHTML = `
-                    <div class="dim-head">
-                        <input type="checkbox" class="f-en" checked title="勾选：参与后验；不勾选：本维度不拦截">
-                        <label>${m.title} <span style="font-size:12px;font-weight:600;color:#94a3b8;">(启用)</span></label>
-                    </div>
-                    <p class="hint" style="margin:0 0 8px 28px;">${m.help.replace(/\*\*/g, '')}</p>
-                    ${extra}
-                `;
-                root.appendChild(box);
-            });
+        let categoryTree = { items: [], l1_count: 0, l3_count: 0 };
+        let categoryPathMap = new Map();
+        let selectedKeys = new Set();
+        let ruleGroups = [];
+        let editingIndex = null;
+        let expandedL1 = new Set();
+        let expandedL2 = new Set();
+
+        function pathKey(path) {
+            return [path.l1 || '', path.l2 || '', path.l3 || ''].join('||');
         }
 
-        function readDimFromUI() {
-            const defaultBlock = {};
-            document.querySelectorAll('.dim').forEach(box => {
-                const k = box.dataset.dim;
-                const en = box.querySelector('.f-en') && box.querySelector('.f-en').checked;
-                const o = { en: en };
-                const mr = box.querySelector('.f-maxrel');
-                const md = box.querySelector('.f-maxdiff');
-                const sy = box.querySelector('.f-syn');
-                if (mr) o.max_rel = parseFloat(mr.value) || 0;
-                if (md) o.max_diff = parseFloat(md.value) || 0;
-                if (sy) {
-                    try { o.syn = JSON.parse(sy.value || '[]'); } catch (e) { o.syn = []; }
+        function uniqueList(values) {
+            const out = [];
+            const seen = new Set();
+            (values || []).forEach((v) => {
+                const s = String(v || '').trim();
+                if (!s || seen.has(s)) return;
+                seen.add(s);
+                out.push(s);
+            });
+            return out;
+        }
+
+        function buildTreeFromPaths(paths) {
+            const l1Map = new Map();
+            (paths || []).forEach((row) => {
+                const l1 = String((row && row.l1) || '').trim() || '未分类一级类目';
+                const l2 = String((row && row.l2) || '').trim() || '未分类二级类目';
+                const l3 = String((row && row.l3) || '').trim();
+                if (!l3) return;
+                if (!l1Map.has(l1)) l1Map.set(l1, { name: l1, l3_count: 0, childrenMap: new Map() });
+                const l1Node = l1Map.get(l1);
+                if (!l1Node.childrenMap.has(l2)) l1Node.childrenMap.set(l2, { name: l2, children: [], seen: new Set() });
+                const l2Node = l1Node.childrenMap.get(l2);
+                if (!l2Node.seen.has(l3)) {
+                    l2Node.seen.add(l3);
+                    l2Node.children.push({ name: l3 });
+                    l1Node.l3_count += 1;
                 }
-                defaultBlock[k] = o;
             });
-            return defaultBlock;
-        }
-
-        function fillDim(cfg) {
-            const d = (cfg && cfg.default) || {};
-            document.querySelectorAll('.dim').forEach(box => {
-                const k = box.dataset.dim;
-                const b = d[k] || {};
-                const en = box.querySelector('.f-en');
-                if (en) en.checked = b.en !== false;
-                const mr = box.querySelector('.f-maxrel');
-                if (mr && b.max_rel != null) mr.value = b.max_rel;
-                const md = box.querySelector('.f-maxdiff');
-                if (md && b.max_diff != null) md.value = b.max_diff;
-                const sy = box.querySelector('.f-syn');
-                if (sy) sy.value = JSON.stringify(b.syn != null ? b.syn : [], null, 0);
-            });
-        }
-
-        function collectConfig() {
-            const name = (document.getElementById('f-name').value || '').trim();
-            const byText = (document.getElementById('f-by-cat1').value || '').trim();
-            let by_cat1 = {};
-            if (byText) {
-                by_cat1 = JSON.parse(byText);
-            }
+            const items = Array.from(l1Map.values()).sort((a, b) => a.name.localeCompare(b.name, 'zh')).map((l1Node) => ({
+                name: l1Node.name,
+                l3_count: l1Node.l3_count,
+                children: Array.from(l1Node.childrenMap.values()).sort((a, b) => a.name.localeCompare(b.name, 'zh')).map((l2Node) => ({
+                    name: l2Node.name,
+                    l3_count: l2Node.children.length,
+                    children: l2Node.children.sort((a, b) => a.name.localeCompare(b.name, 'zh')),
+                })),
+            }));
             return {
-                v: 1,
-                default: readDimFromUI(),
-                by_cat1: by_cat1
+                items,
+                l1_count: items.length,
+                l3_count: items.reduce((sum, item) => sum + item.l3_count, 0),
             };
         }
 
-        buildDimForm();
+        function occupiedKeys() {
+            const taken = new Set();
+            ruleGroups.forEach((group, idx) => {
+                if (idx === editingIndex) return;
+                (((group || {}).categories || {}).paths || []).forEach((path) => taken.add(pathKey(path)));
+            });
+            return taken;
+        }
 
-        document.getElementById('btn-json-example').onclick = () => {
-            const ex = '{\n  "示例_请改为与你表里一致的美团一级类目": {\n    "sell": { "en": false }\n  }\n}';
-            document.getElementById('f-by-cat1').value = ex;
-        };
-        document.getElementById('btn-json-format').onclick = () => {
-            const el = document.getElementById('f-by-cat1');
-            const t = (el.value || '').trim();
-            if (!t) {
-                alert('请输入 JSON，或先点「插入示例」再排版。');
-                return;
-            }
-            try {
-                el.value = JSON.stringify(JSON.parse(t), null, 2);
-            } catch (e) {
-                alert('无法解析为 JSON，请检查逗号、引号与括号。' + (e && e.message ? '\n' + e.message : ''));
-            }
-        };
-        document.getElementById('btn-json-clear').onclick = () => {
-            document.getElementById('f-by-cat1').value = '';
-        };
+        function rebuildPathMap() {
+            categoryPathMap = new Map();
+            (categoryTree.items || []).forEach((l1) => {
+                (l1.children || []).forEach((l2) => {
+                    (l2.children || []).forEach((l3) => {
+                        const path = { l1: l1.name, l2: l2.name, l3: l3.name };
+                        categoryPathMap.set(pathKey(path), path);
+                    });
+                });
+            });
+        }
 
-        async function loadExisting() {
-            const rr = await fetch('/api/rule-templates/' + TEMPLATE_ID);
-            const jj = await rr.json();
-            if (jj.status !== 'ok' || !jj.item) { alert('加载失败'); return; }
-            const t = jj.item;
-            document.getElementById('f-name').value = t.name || '';
-            document.getElementById('f-desc').value = t.description || '';
-            if (t.config) {
-                fillDim(t.config);
-                document.getElementById('f-by-cat1').value = t.config.by_cat1 && Object.keys(t.config.by_cat1).length
-                    ? JSON.stringify(t.config.by_cat1, null, 2)
-                    : '';
+        function currentSelectedPaths() {
+            return Array.from(selectedKeys).map((key) => categoryPathMap.get(key)).filter(Boolean);
+        }
+
+        function l1Key(name) {
+            return String(name || '').trim();
+        }
+
+        function l2Key(l1, l2) {
+            return `${l1Key(l1)}||${String(l2 || '').trim()}`;
+        }
+
+        function syncTreeFromRuleGroupsIfNeeded() {
+            if ((categoryTree.items || []).length > 0) return;
+            const paths = [];
+            ruleGroups.forEach((group) => {
+                ((((group || {}).categories || {}).paths) || []).forEach((path) => paths.push(path));
+            });
+            if (paths.length > 0) {
+                categoryTree = buildTreeFromPaths(paths);
+                rebuildPathMap();
+                document.getElementById('category-source-note').textContent = '当前类目树根据模板里已保存的类目回显。';
             }
         }
 
-        if (TEMPLATE_ID) loadExisting();
+        function metricEnabledCount(metrics) {
+            return METRICS.reduce((sum, metric) => sum + ((metrics && metrics[metric.key] && metrics[metric.key].en) ? 1 : 0), 0);
+        }
 
-        document.getElementById('btn-save').onclick = async () => {
-            let config;
-            try { config = collectConfig(); } catch (e) { alert('按一级类 JSON 格式错误: ' + e); return; }
-            const name = (document.getElementById('f-name').value || '').trim() || '未命名规则';
-            const description = (document.getElementById('f-desc').value || '').trim();
-            const payload = { name, description, config };
+        function defaultMetrics() {
+            return {
+                cat3: { en: true },
+                net: { en: true, max_rel: 0.2 },
+                sell: { en: true, max_diff: 0 },
+                pack: {
+                    en: true,
+                    syn: [
+                        ['听', '罐'],
+                        ['瓶', '支'],
+                        ['袋', '包'],
+                        ['盒', '礼盒'],
+                        ['桶', '筒'],
+                        ['杯', '碗'],
+                        ['片', '枚'],
+                        ['条', '根'],
+                        ['个', '只'],
+                    ],
+                },
+                color: { en: true, syn: [] },
+                size: { en: true, max_rel: 0.125 },
+                model: { en: true, syn: [] },
+            };
+        }
+
+        function setMetricUiState(metricKey, config) {
+            const root = document.querySelector(`.metric-card[data-metric="${metricKey}"]`);
+            if (!root) return;
+            const checkbox = root.querySelector('.metric-en');
+            checkbox.checked = !!config.en;
+            root.querySelector('.metric-body').style.opacity = config.en ? '1' : '.55';
+            if (root.querySelector('.metric-rel')) root.querySelector('.metric-rel').value = config.max_rel ?? '';
+            if (root.querySelector('.metric-diff')) root.querySelector('.metric-diff').value = config.max_diff ?? '';
+            if (root.querySelector('.syn-list')) renderSynRows(metricKey, config.syn || []);
+        }
+
+        function buildMetricCards() {
+            const root = document.getElementById('metrics-root');
+            root.innerHTML = '';
+            METRICS.forEach((metric, idx) => {
+                const card = document.createElement('div');
+                card.className = 'metric-card';
+                card.dataset.metric = metric.key;
+                let body = '';
+                if (metric.type === 'bool') {
+                    body = `
+                        <div class="metric-inline-note">${metric.note}</div>`;
+                } else if (metric.type === 'rel') {
+                    body = `
+                        <div class="metric-row">
+                            <div>
+                                <label class="label">相对容差 max_rel</label>
+                                <input class="metric-rel" type="number" step="${metric.step}" value="${metric.defaultValue}">
+                                <div class="metric-inline-note">${metric.note}</div>
+                            </div>
+                        </div>`;
+                } else if (metric.type === 'diff') {
+                    body = `
+                        <div class="metric-row">
+                            <div>
+                                <label class="label">最大差值 max_diff</label>
+                                <input class="metric-diff" type="number" step="${metric.step}" value="${metric.defaultValue}">
+                                <div class="metric-inline-note">${metric.note}</div>
+                            </div>
+                        </div>`;
+                } else {
+                    body = `
+                        <div class="field" style="margin-bottom:10px;">
+                            <label class="label">同义词组</label>
+                            <div class="syn-list"></div>
+                            <button type="button" class="btn-mini btn-outline add-syn-group" style="padding:8px 12px; margin-top:8px;">+ 新增同义组</button>
+                            <div class="metric-inline-note">${metric.note}</div>
+                        </div>`;
+                }
+                card.innerHTML = `
+                    <div class="metric-head">
+                        <div>
+                            <div class="metric-name">${String(idx + 1).padStart(2, '0')} ${metric.title}</div>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" class="metric-en" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="metric-help">${metric.help}</div>
+                    <div class="metric-body">${body}</div>
+                `;
+                root.appendChild(card);
+            });
+
+            document.querySelectorAll('.metric-en').forEach((el) => {
+                el.addEventListener('change', () => {
+                    const card = el.closest('.metric-card');
+                    card.querySelector('.metric-body').style.opacity = el.checked ? '1' : '.55';
+                });
+            });
+            document.querySelectorAll('.add-syn-group').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    const metricKey = btn.closest('.metric-card').dataset.metric;
+                    const groups = readSynGroups(metricKey);
+                    groups.push([]);
+                    renderSynRows(metricKey, groups);
+                });
+            });
+        }
+
+        function readSynGroups(metricKey) {
+            const root = document.querySelector(`.metric-card[data-metric="${metricKey}"] .syn-list`);
+            if (!root) return [];
+            const rows = [];
+            root.querySelectorAll('.syn-row input').forEach((input) => {
+                const vals = input.value.split(/[,，]/).map((v) => v.trim()).filter(Boolean);
+                if (vals.length) rows.push(uniqueList(vals));
+            });
+            return rows;
+        }
+
+        function renderSynRows(metricKey, groups) {
+            const root = document.querySelector(`.metric-card[data-metric="${metricKey}"] .syn-list`);
+            if (!root) return;
+            root.innerHTML = '';
+            if (!groups.length) {
+                const empty = document.createElement('div');
+                empty.className = 'syn-empty';
+                empty.textContent = '暂无同义词组。';
+                root.appendChild(empty);
+                return;
+            }
+            groups.forEach((group, idx) => {
+                const row = document.createElement('div');
+                row.className = 'syn-row';
+                row.innerHTML = `
+                    <input type="text" value="${(group || []).join(', ')}" placeholder="例如：听, 罐">
+                    <button type="button" class="btn-mini btn-danger" style="padding:8px 10px;">删除</button>
+                `;
+                row.querySelector('button').addEventListener('click', () => {
+                    const next = readSynGroups(metricKey).filter((_, i) => i !== idx);
+                    renderSynRows(metricKey, next);
+                });
+                root.appendChild(row);
+            });
+        }
+
+        function readMetricsFromUi() {
+            const metrics = {};
+            METRICS.forEach((metric) => {
+                const root = document.querySelector(`.metric-card[data-metric="${metric.key}"]`);
+                const en = !!root.querySelector('.metric-en').checked;
+                if (metric.type === 'bool') {
+                    metrics[metric.key] = { en };
+                } else if (metric.type === 'rel') {
+                    metrics[metric.key] = { en, max_rel: parseFloat(root.querySelector('.metric-rel').value || '0') || 0 };
+                } else if (metric.type === 'diff') {
+                    metrics[metric.key] = { en, max_diff: parseFloat(root.querySelector('.metric-diff').value || '0') || 0 };
+                } else {
+                    metrics[metric.key] = { en, syn: readSynGroups(metric.key) };
+                }
+            });
+            return metrics;
+        }
+
+        function setMetricsToUi(metrics) {
+            const merged = Object.assign(defaultMetrics(), metrics || {});
+            METRICS.forEach((metric) => {
+                const cfg = Object.assign({}, defaultMetrics()[metric.key], merged[metric.key] || {});
+                setMetricUiState(metric.key, cfg);
+            });
+        }
+
+        function pathVisible(path, keyword) {
+            if (!keyword) return true;
+            const s = keyword.toLowerCase();
+            return [path.l1, path.l2, path.l3].some((v) => String(v || '').toLowerCase().includes(s));
+        }
+
+        function getVisibleSelectableKeys() {
+            const keyword = document.getElementById('category-search').value.trim().toLowerCase();
+            const occupied = occupiedKeys();
+            const keys = [];
+            (categoryTree.items || []).forEach((l1) => {
+                (l1.children || []).forEach((l2) => {
+                    (l2.children || []).forEach((l3) => {
+                        const path = { l1: l1.name, l2: l2.name, l3: l3.name };
+                        const key = pathKey(path);
+                        if (!pathVisible(path, keyword)) return;
+                        if (occupied.has(key) && !selectedKeys.has(key)) return;
+                        keys.push(key);
+                    });
+                });
+            });
+            return keys;
+        }
+
+        function isTreeFullyExpanded() {
+            const items = categoryTree.items || [];
+            if (!items.length) return false;
+            for (const l1 of items) {
+                if (!expandedL1.has(l1Key(l1.name))) return false;
+                for (const l2 of l1.children || []) {
+                    if (!expandedL2.has(l2Key(l1.name, l2.name))) return false;
+                }
+            }
+            return true;
+        }
+
+        function refreshTreeToolbarLabels() {
+            const ex = document.getElementById('expand-toggle-btn');
+            const sel = document.getElementById('select-toggle-btn');
+            if (ex) ex.textContent = isTreeFullyExpanded() ? '全部收起' : '全部展开';
+            if (sel) {
+                const vis = getVisibleSelectableKeys();
+                const allOn = vis.length > 0 && vis.every((k) => selectedKeys.has(k));
+                sel.textContent = allOn ? '取消全选' : '全选';
+            }
+        }
+
+        function renderCategoryTree() {
+            const root = document.getElementById('category-tree');
+            root.innerHTML = '';
+            const keyword = document.getElementById('category-search').value.trim().toLowerCase();
+            const occupied = occupiedKeys();
+            if (!(categoryTree.items || []).length) {
+                root.innerHTML = '<div class="empty">上传类目文件后，这里会出现一二三级类目树；也可以先从右侧编辑已保存规则组。</div>';
+                refreshTreeToolbarLabels();
+                return;
+            }
+
+            (categoryTree.items || []).forEach((l1) => {
+                const visibleL2 = (l1.children || []).map((l2) => ({
+                    ...l2,
+                    visibleL3: (l2.children || []).filter((l3) => pathVisible({ l1: l1.name, l2: l2.name, l3: l3.name }, keyword)),
+                })).filter((l2) => l2.visibleL3.length || String(l2.name).toLowerCase().includes(keyword) || String(l1.name).toLowerCase().includes(keyword));
+                if (!visibleL2.length) return;
+
+                const block = document.createElement('div');
+                block.className = 'tree-block';
+                const l1NodeKey = l1Key(l1.name);
+                const l1Expanded = keyword ? true : expandedL1.has(l1NodeKey);
+
+                const l1Ids = visibleL2.flatMap((l2) => l2.visibleL3.map((l3) => pathKey({ l1: l1.name, l2: l2.name, l3: l3.name })));
+                block.appendChild(renderNodeCheckbox('l1', l1.name, l1Ids, occupied, `${l1.l3_count} 个三级类目`, {
+                    expanded: l1Expanded,
+                    onToggle: () => {
+                        if (expandedL1.has(l1NodeKey)) expandedL1.delete(l1NodeKey);
+                        else expandedL1.add(l1NodeKey);
+                        renderCategoryTree();
+                    },
+                }));
+                if (!l1Expanded) {
+                    root.appendChild(block);
+                    return;
+                }
+
+                visibleL2.forEach((l2) => {
+                    const l2NodeKey = l2Key(l1.name, l2.name);
+                    const l2Expanded = keyword ? true : expandedL2.has(l2NodeKey);
+                    const l2Ids = l2.visibleL3.map((l3) => pathKey({ l1: l1.name, l2: l2.name, l3: l3.name }));
+                    block.appendChild(renderNodeCheckbox('l2', l2.name, l2Ids, occupied, `${l2.l3_count} 个`, {
+                        expanded: l2Expanded,
+                        onToggle: () => {
+                            if (expandedL2.has(l2NodeKey)) expandedL2.delete(l2NodeKey);
+                            else expandedL2.add(l2NodeKey);
+                            renderCategoryTree();
+                        },
+                    }));
+                    if (!l2Expanded) return;
+                    l2.visibleL3.forEach((l3) => {
+                        const key = pathKey({ l1: l1.name, l2: l2.name, l3: l3.name });
+                        const disabled = occupied.has(key) && !selectedKeys.has(key);
+                        const node = document.createElement('label');
+                        node.className = `node l3 ${disabled ? 'disabled' : ''}`;
+                        node.innerHTML = `
+                            <span class="toggle-spacer"></span>
+                            <input type="checkbox" ${selectedKeys.has(key) ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
+                            <span>${l3.name}</span>
+                            ${disabled ? '<span class="node-note">已配置</span>' : ''}
+                        `;
+                        node.querySelector('input').addEventListener('change', (e) => {
+                            if (e.target.checked) selectedKeys.add(key);
+                            else selectedKeys.delete(key);
+                            renderCategoryTree();
+                            renderDraftSummary();
+                        });
+                        block.appendChild(node);
+                    });
+                });
+                root.appendChild(block);
+            });
+
+            if (!root.children.length) root.innerHTML = '<div class="empty">没有匹配的类目，请换个关键词试试。</div>';
+            refreshTreeToolbarLabels();
+        }
+
+        function renderNodeCheckbox(levelClass, label, keys, occupied, noteText, toggleOptions = null) {
+            const availableKeys = keys.filter((key) => !(occupied.has(key) && !selectedKeys.has(key)));
+            const checkedCount = availableKeys.filter((key) => selectedKeys.has(key)).length;
+            const allChecked = availableKeys.length > 0 && checkedCount === availableKeys.length;
+            const partial = checkedCount > 0 && checkedCount < availableKeys.length;
+            const disabled = availableKeys.length === 0;
+            const node = document.createElement('label');
+            node.className = `node ${levelClass} ${disabled ? 'disabled' : ''}`;
+            node.innerHTML = `
+                ${toggleOptions ? `<button type="button" class="toggle-btn" aria-label="${toggleOptions.expanded ? '收起' : '展开'}">${toggleOptions.expanded ? '▾' : '▸'}</button>` : '<span class="toggle-spacer"></span>'}
+                <input type="checkbox" ${allChecked ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
+                <span>${label}</span>
+                <span class="node-note">${noteText || ''}</span>
+            `;
+            if (toggleOptions) {
+                node.querySelector('.toggle-btn').addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    toggleOptions.onToggle();
+                });
+            }
+            const input = node.querySelector('input');
+            input.indeterminate = partial;
+            input.addEventListener('change', (e) => {
+                if (e.target.checked) availableKeys.forEach((key) => selectedKeys.add(key));
+                else availableKeys.forEach((key) => selectedKeys.delete(key));
+                renderCategoryTree();
+                renderDraftSummary();
+            });
+            return node;
+        }
+
+        function renderDraftSummary() {
+            const paths = currentSelectedPaths();
+            const l1 = uniqueList(paths.map((p) => p.l1));
+            const l2 = uniqueList(paths.map((p) => p.l2));
+            const title = document.getElementById('draft-summary-title');
+            const text = document.getElementById('draft-summary-text');
+            if (!paths.length) {
+                title.textContent = '尚未选择三级类目';
+                text.textContent = '左侧选择类目后，在这里配置规则。';
+                return;
+            }
+            title.textContent = `当前已选 ${paths.length} 个三级类目`;
+            text.textContent = `覆盖 ${l1.length} 个一级类目、${l2.length} 个二级类目。一级类目：${l1.slice(0, 5).join('、')}${l1.length > 5 ? '…' : ''}`;
+        }
+
+        function resetDraft() {
+            selectedKeys = new Set();
+            editingIndex = null;
+            setMetricsToUi(defaultMetrics());
+            renderCategoryTree();
+            renderDraftSummary();
+            renderRuleGroups();
+        }
+
+        function buildAutoGroupName(paths) {
+            const l1 = uniqueList(paths.map((p) => p.l1)).filter(Boolean);
+            if (l1.length === 1) return `${l1[0]}规则`;
+            if (l1.length > 1) return `${l1.slice(0, 2).join(' / ')}规则`;
+            const l3 = uniqueList(paths.map((p) => p.l3)).filter(Boolean);
+            if (l3.length === 1) return `${l3[0]}规则`;
+            return `规则组 ${ruleGroups.length + 1}`;
+        }
+
+        function normalizeGroupDraft(name, paths, metrics) {
+            const cleanPaths = paths.map((path) => ({
+                l1: String(path.l1 || '').trim(),
+                l2: String(path.l2 || '').trim(),
+                l3: String(path.l3 || '').trim(),
+            })).filter((path) => path.l3);
+            return {
+                id: editingIndex != null && ruleGroups[editingIndex] ? ruleGroups[editingIndex].id : `group_${Date.now()}`,
+                name: String(name || '').trim() || buildAutoGroupName(cleanPaths),
+                categories: {
+                    paths: cleanPaths,
+                    l1: uniqueList(cleanPaths.map((p) => p.l1)),
+                    l2: uniqueList(cleanPaths.map((p) => p.l2)),
+                    l3: uniqueList(cleanPaths.map((p) => p.l3)),
+                },
+                metrics,
+            };
+        }
+
+        function renderRuleGroups() {
+            const root = document.getElementById('rule-groups-list');
+            root.innerHTML = '';
+            if (!ruleGroups.length) {
+                root.innerHTML = '<div class="empty">还没有保存规则组。</div>';
+                return;
+            }
+            ruleGroups.forEach((group, idx) => {
+                const card = document.createElement('div');
+                card.className = 'side-card';
+                const l1 = (((group || {}).categories || {}).l1 || []).join('、');
+                const l3Count = (((group || {}).categories || {}).l3 || []).length;
+                card.innerHTML = `
+                    <h3>${escapeHtml(group.name || ('规则组 ' + (idx + 1)))}</h3>
+                    <div class="side-meta">${l3Count} 个三级类目${l1 ? ' · ' + escapeHtml(l1) : ''}</div>
+                    <table class="side-table">
+                        <thead><tr><th>CATEGORY</th><th>METRICS</th></tr></thead>
+                        <tbody>
+                            <tr><td>三级类目</td><td>${l3Count}</td></tr>
+                            <tr><td>一级类目</td><td>${(((group || {}).categories || {}).l1 || []).length}</td></tr>
+                            <tr><td>已启用维度</td><td>${metricEnabledCount(group.metrics)}/${METRICS.length}</td></tr>
+                        </tbody>
+                    </table>
+                    <div class="side-actions">
+                        <button type="button" class="btn-mini btn-outline edit-btn">编辑</button>
+                        <button type="button" class="btn-mini btn-danger del-btn">删除</button>
+                    </div>
+                `;
+                card.querySelector('.edit-btn').addEventListener('click', () => editRuleGroup(idx));
+                card.querySelector('.del-btn').addEventListener('click', () => deleteRuleGroup(idx));
+                root.appendChild(card);
+            });
+        }
+
+        function editRuleGroup(idx) {
+            const group = ruleGroups[idx];
+            if (!group) return;
+            editingIndex = idx;
+            selectedKeys = new Set(((((group || {}).categories || {}).paths) || []).map((path) => pathKey(path)));
+            setMetricsToUi(group.metrics || {});
+            syncTreeFromRuleGroupsIfNeeded();
+            renderCategoryTree();
+            renderDraftSummary();
+            renderRuleGroups();
+        }
+
+        function deleteRuleGroup(idx) {
+            if (!confirm('确定删除这条规则组？')) return;
+            ruleGroups.splice(idx, 1);
+            if (editingIndex === idx) {
+                resetDraft();
+            } else {
+                if (editingIndex != null && editingIndex > idx) editingIndex -= 1;
+                syncTreeFromRuleGroupsIfNeeded();
+                renderCategoryTree();
+                renderDraftSummary();
+                renderRuleGroups();
+            }
+        }
+
+        async function uploadCategoryFile(file) {
+            const fd = new FormData();
+            fd.append('file', file);
+            const r = await fetch('/api/rule-categories/parse', { method: 'POST', body: fd });
+            const j = await r.json();
+            if (j.status !== 'ok' || !j.tree) throw new Error(j.message || '解析失败');
+            categoryTree = j.tree;
+            rebuildPathMap();
+            document.getElementById('category-source-note').textContent = `已加载 ${file.name}，共 ${j.tree.l1_count} 个一级类目 / ${j.tree.l3_count} 个三级类目。`;
+            selectedKeys = new Set(Array.from(selectedKeys).filter((key) => categoryPathMap.has(key)));
+            renderCategoryTree();
+            renderDraftSummary();
+        }
+
+        function escapeHtml(s) {
+            const d = document.createElement('div');
+            d.textContent = s == null ? '' : String(s);
+            return d.innerHTML;
+        }
+
+        async function loadExistingTemplate() {
+            if (!TEMPLATE_ID) return;
+            const r = await fetch('/api/rule-templates/' + TEMPLATE_ID);
+            const j = await r.json();
+            if (j.status !== 'ok' || !j.item) {
+                alert('加载模板失败');
+                return;
+            }
+            const item = j.item;
+            document.getElementById('template-name').value = item.name || '';
+            document.getElementById('template-desc').value = item.description || '';
+            const config = item.config || { v: 3, rule_groups: [] };
+            ruleGroups = Array.isArray(config.rule_groups) ? config.rule_groups : [];
+            syncTreeFromRuleGroupsIfNeeded();
+            renderCategoryTree();
+            renderDraftSummary();
+            renderRuleGroups();
+        }
+
+        /** 无上传、无已存规则组回显类目树时，加载仓库内默认 xlsx 解析结果 */
+        async function tryLoadDefaultCategoryTree() {
+            if ((categoryTree.items || []).length > 0) return;
+            try {
+                const r = await fetch('/api/rule-categories/default');
+                if (r.status === 404) return;
+                const j = await r.json();
+                if (j.status !== 'ok' || !j.tree) return;
+                categoryTree = j.tree;
+                rebuildPathMap();
+                document.getElementById('category-source-note').textContent =
+                    `已加载默认类目（${j.tree.l1_count} 个一级 / ${j.tree.l3_count} 个三级），可用「上传类目文件」替换。`;
+                expandedL1 = new Set((categoryTree.items || []).map((item) => l1Key(item.name)));
+                expandedL2 = new Set(
+                    (categoryTree.items || []).flatMap((l1) =>
+                        (l1.children || []).map((l2) => l2Key(l1.name, l2.name)),
+                    ),
+                );
+                renderCategoryTree();
+                renderDraftSummary();
+            } catch (e) {
+                /* 无默认文件或非本机部署时忽略 */
+            }
+        }
+
+        function collectTemplatePayload() {
+            return {
+                v: 3,
+                rule_groups: ruleGroups,
+            };
+        }
+
+        buildMetricCards();
+        setMetricsToUi(defaultMetrics());
+        renderCategoryTree();
+        renderDraftSummary();
+        renderRuleGroups();
+        (async () => {
+            await loadExistingTemplate();
+            await tryLoadDefaultCategoryTree();
+        })();
+
+        document.getElementById('category-search').addEventListener('input', () => renderCategoryTree());
+        document.getElementById('expand-toggle-btn').addEventListener('click', () => {
+            if (isTreeFullyExpanded()) {
+                expandedL1 = new Set();
+                expandedL2 = new Set();
+            } else {
+                expandedL1 = new Set((categoryTree.items || []).map((item) => l1Key(item.name)));
+                expandedL2 = new Set(
+                    (categoryTree.items || []).flatMap((l1) => (l1.children || []).map((l2) => l2Key(l1.name, l2.name))),
+                );
+            }
+            renderCategoryTree();
+        });
+        document.getElementById('select-toggle-btn').addEventListener('click', () => {
+            const vis = getVisibleSelectableKeys();
+            if (!vis.length) return;
+            const allOn = vis.every((k) => selectedKeys.has(k));
+            if (allOn) vis.forEach((k) => selectedKeys.delete(k));
+            else vis.forEach((k) => selectedKeys.add(k));
+            renderCategoryTree();
+            renderDraftSummary();
+        });
+        document.getElementById('category-file-input').addEventListener('change', async (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (!file) return;
+            try {
+                await uploadCategoryFile(file);
+            } catch (err) {
+                alert(err.message || '上传失败');
+            } finally {
+                e.target.value = '';
+            }
+        });
+
+        document.getElementById('save-group-btn').addEventListener('click', () => {
+            const paths = currentSelectedPaths();
+            if (!paths.length) {
+                alert('请先在左侧至少选择一个三级类目。');
+                return;
+            }
+            const metrics = readMetricsFromUi();
+            const name = '';
+            const group = normalizeGroupDraft(name, paths, metrics);
+            if (editingIndex == null) ruleGroups.push(group);
+            else ruleGroups.splice(editingIndex, 1, group);
+            resetDraft();
+        });
+
+        document.getElementById('clear-draft-btn').addEventListener('click', () => {
+            resetDraft();
+        });
+
+        document.getElementById('submit-template-btn').addEventListener('click', async () => {
+            const name = (document.getElementById('template-name').value || '').trim() || '未命名规则模板';
+            const description = (document.getElementById('template-desc').value || '').trim();
+            if (!ruleGroups.length) {
+                alert('请至少保存一条规则组后再提交。');
+                return;
+            }
+            const payload = { name, description, config: collectTemplatePayload() };
             try {
                 let resp;
                 if (!TEMPLATE_ID) {
-                    resp = await fetch('/api/rule-templates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                    resp = await fetch('/api/rule-templates', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                    });
                 } else {
-                    resp = await fetch('/api/rule-templates/' + TEMPLATE_ID, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                    resp = await fetch('/api/rule-templates/' + TEMPLATE_ID, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                    });
                 }
                 const j = await resp.json();
                 if (j.status === 'ok') {
-                    if (!TEMPLATE_ID && j.id) location.href = '/match-rules/' + j.id;
-                    else location.href = '/match-rules';
-                } else {
-                    alert(j.message || '保存失败');
+                    location.href = '/match-rules';
+                    return;
                 }
-            } catch (e) {
-                alert('网络错误');
+                alert(j.message || '提交失败');
+            } catch (err) {
+                alert('提交失败，请稍后再试。');
             }
-        };
+        });
     </script>
 </body>
 </html>

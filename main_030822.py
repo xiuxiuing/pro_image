@@ -371,7 +371,7 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
     每个竞店：下载图 →（按需）构建 img_*/txt_* 的 FAISS 索引到 output_dir/../cache。
     主店：下载到 query_img → 预计算全量查询图/文向量。
     对每个竞店：先条码字典精确匹配，再对仍未出现「{idx}匹配」列的行做 Faiss top-1，
-    图/文结果按阈值合并后，经 post_match_template 后验（七维等，见 post_match_engine），通过才写入；
+    图/文结果按阈值合并后，经 post_match_template 后验（按三级类目命中的规则组过滤，见 post_match_engine），通过才写入；
     post_match_template 为 None 时使用内置默认。最后写出 output_{output_name}.xlsx。
 
     progress_cb(event, idx, detail) 可选：source_start/source_done、query_start、query_progress。

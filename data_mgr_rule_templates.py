@@ -14,16 +14,21 @@ class DataManagerRuleTemplateMixin:
                 cur = conn.execute(
                     "SELECT id, name, description, config_json, created_at FROM rule_templates ORDER BY id ASC"
                 )
-                return [
-                    {
+                items = []
+                for r in cur.fetchall():
+                    cfg = _pme.template_from_db_json(r[3] or "{}")
+                    summary = _pme.summarize_template(cfg)
+                    items.append({
                         "id": r[0],
                         "name": r[1],
                         "description": r[2] or "",
                         "config_json": r[3] or "{}",
                         "created_at": r[4] or "",
-                    }
-                    for r in cur.fetchall()
-                ]
+                        "group_count": summary["group_count"],
+                        "category3_count": summary["category3_count"],
+                        "enabled_metric_total": summary["enabled_metric_total"],
+                    })
+                return items
             finally:
                 conn.close()
 
@@ -45,6 +50,7 @@ class DataManagerRuleTemplateMixin:
                     "config_json": r[3] or "{}",
                     "created_at": r[4] or "",
                     "updated_at": r[5] or "",
+                    "config": _pme.template_from_db_json(r[3] or "{}"),
                 }
             finally:
                 conn.close()
@@ -83,9 +89,8 @@ class DataManagerRuleTemplateMixin:
             return _pme.get_builtin_default_template()
 
     def create_rule_template(self, name: str, description: str, config: Dict[str, Any]) -> int:
-        cfg = json.dumps(config, ensure_ascii=False, separators=(",", ":")) if config else json.dumps(
-            _pme.get_builtin_default_template(), ensure_ascii=False, separators=(",", ":")
-        )
+        normalized = _pme.normalize_template(config)
+        cfg = json.dumps(normalized, ensure_ascii=False, separators=(",", ":"))
         now = time.strftime("%Y-%m-%d %H:%M:%S")
         with self._db_lock:
             conn = self._get_conn()
@@ -100,7 +105,7 @@ class DataManagerRuleTemplateMixin:
                 conn.close()
 
     def update_rule_template(self, template_id: int, name: str, description: str, config: Dict[str, Any]) -> bool:
-        cfg = json.dumps(config, ensure_ascii=False, separators=(",", ":")) if config else "{}"
+        cfg = json.dumps(_pme.normalize_template(config), ensure_ascii=False, separators=(",", ":"))
         now = time.strftime("%Y-%m-%d %H:%M:%S")
         with self._db_lock:
             conn = self._get_conn()

@@ -215,11 +215,11 @@ class DataManagerBase:
                                 _pme.get_builtin_default_template(), ensure_ascii=False, separators=(",", ":")
                             )
                         except Exception:
-                            _cfg = '{"v":1,"default":{"cat3":{"en":true},"net":{"en":true,"max_rel":0.2},"sell":{"en":true,"max_diff":0.0},"pack":{"en":true,"syn":[]},"color":{"en":true,"syn":[]},"size":{"en":true,"max_rel":0.125},"model":{"en":true,"syn":[]}},"by_cat1":{}}'
+                            _cfg = '{"v":3,"rule_groups":[]}'
                         _now = __import__("time").strftime("%Y-%m-%d %H:%M:%S")
                         conn.execute(
                             "INSERT INTO rule_templates (name, description, config_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-                            ("系统默认后验", "与线网默认参数接近；可另建或编辑规则模板", _cfg, _now, _now),
+                            ("空白规则模板", "按三级类目创建规则组；未覆盖到的类目不做后验过滤", _cfg, _now, _now),
                         )
                         print("Created default rule_templates row.")
 
