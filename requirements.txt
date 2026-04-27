@@ -12,5 +12,6 @@ numexpr==2.10.2
 bottleneck==1.5.0
 transformers
 google-genai
+openai>=1.40.0
 pydantic
 cryptography

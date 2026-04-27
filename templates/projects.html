@@ -697,6 +697,19 @@
                     <label class="form-label">Gemini API Key</label>
                     <input type="password" name="api_key" id="api-key-input" class="form-control" placeholder="输入您的 API Key" style="background: #fff;">
                 </div>
+                <div class="form-group" id="kimi-key-group" style="display: none;">
+                    <label class="form-label">Kimi 兜底 API Key（可选 · Moonshot）</label>
+                    <input type="password" name="kimi_api_key" id="kimi-api-key-input" class="form-control"
+                        placeholder="sk-… 留空则仅 Gemini；某批次 Gemini 耗尽重试后自动换 Kimi" style="background: #fff;">
+                    <div style="font-size:12px; color:#64748b; margin-top:8px; font-weight:500;">
+                        与 Gemini Key 独立；可减轻连续请求导致「中间竞店表全空兜底」的情况
+                    </div>
+                </div>
+                <div class="form-group" id="kimi-model-group" style="display: none;">
+                    <label class="form-label">Kimi 模型（可选）</label>
+                    <input type="text" name="kimi_model_name" id="kimi-model-input" class="form-control"
+                        placeholder="默认 kimi-k2-turbo-preview（以 Moonshot 控制台模型名为准）" style="background: #fff;">
+                </div>
                 <div class="form-group" id="rule-template-group">
                     <label class="form-label">后验规则模板</label>
                     <select name="rule_template_id" id="rule-template-select" class="form-control" style="background:#fff;">
@@ -785,6 +798,10 @@
             document.getElementById('ai-key-group').style.display = useAi ? 'block' : 'none';
             document.getElementById('api-key-input').required = useAi;
             document.getElementById('ai-model-group').style.display = useAi ? 'block' : 'none';
+            const kg = document.getElementById('kimi-key-group');
+            const mg = document.getElementById('kimi-model-group');
+            if (kg) kg.style.display = useAi ? 'block' : 'none';
+            if (mg) mg.style.display = useAi ? 'block' : 'none';
         }
 
         function buildMatchConfigJson() {

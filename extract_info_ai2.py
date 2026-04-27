@@ -6,10 +6,13 @@ import re
 import time
 import json
 import shutil
-from typing import Literal
+from typing import Literal, get_args, Optional
 
 # API key / model name are passed from the frontend
 DEFAULT_MODEL_NAME = "models/gemini-3.1-flash-lite-preview"
+# Gemini 整批失败后可选：Moonshot OpenAI 兼容接口（Kimi）
+DEFAULT_MOONSHOT_MODEL = "kimi-k2-turbo-preview"
+MOONSHOT_BASE_URL = "https://api.moonshot.cn/v1"
 
 PackagingUnit = Literal[
     "袋",
@@ -52,6 +55,16 @@ class ProductInfo(BaseModel):
 class BatchResponse(BaseModel):
     items: list[ProductInfo]
 
+
+ALLOWED_PACKAGING = frozenset(get_args(PackagingUnit))
+
+
+def _ai_log(log_tag: str, msg: str) -> None:
+    """终端可检索前缀：[AI][主.xlsx] ..."""
+    tag = (log_tag or "").strip() or "-"
+    print(f"[AI][{tag}] {msg}", flush=True)
+
+
 _MODEL_EXCLUDE = {"大楷", "中楷", "小楷"}
 _MODEL_DERIVE_PATTERNS = [
     # Bracketed size codes: 【L码】, 【XL码】, 【M码】
@@ -83,10 +96,10 @@ def _postprocess_model(raw_model: str, name: str, spec: str) -> str:
             return v
     return ""
 
-def extract_batch_ai(items, api_key, model_name=None, max_retries=5):
-    client = genai.Client(api_key=api_key)
-    model_name = (model_name or DEFAULT_MODEL_NAME).strip() or DEFAULT_MODEL_NAME
-    prompt = f"""
+
+def _build_extraction_prompt(items) -> str:
+    """与 Gemini 相同的抽取说明，供 Kimi 兜底复用。"""
+    return f"""
     You are a highly accurate product attribute extractor.
 
     Return ONLY valid JSON that matches the provided response schema.
@@ -95,7 +108,7 @@ def extract_batch_ai(items, api_key, model_name=None, max_retries=5):
     Extract fields for each item:
     1. net_content (A单件净含量): per-unit net content only, standardized units: ml / L / g / kg (e.g. 330ml, 1.5L, 18g). If unclear, empty.
        Do NOT compute total net content.
-    2. sell_quantity (A售卖数量): number + selling unit (e.g. 24罐, 6瓶, 7片, 2条, 1个). If unclear, empty.
+    2. sell_quantity (A售卖数量): number + selling unit (e.g. 24, 6, 7, 2, 1). If unclear, empty.
     3. packaging_unit (A包装单位): the unit used in sell_quantity. Choose ONE from:
        ["袋","盒","瓶","罐","桶","箱","听","杯","支","条","片","套","枚","个","只","包","件","板","组","卷","未知"].
        Examples:
@@ -110,6 +123,8 @@ def extract_batch_ai(items, api_key, model_name=None, max_retries=5):
     - Convert full-width to half-width where applicable.
     - Standardize units: 毫升/ml/ML->ml; 升/L/l->L; 克/g/G->g; 千克/公斤/kg->kg
     - Treat x/×/* as multipliers. Example: 330ml*24罐/箱 => net_content=330ml, sell_quantity=24罐, packaging_unit=罐
+
+    Top-level JSON shape: {{"items": [ ... ]}} — same length and order as input.
 
     Examples (few-shot). Follow the same output style:
     Input:
@@ -131,6 +146,146 @@ def extract_batch_ai(items, api_key, model_name=None, max_retries=5):
     {json.dumps(items, ensure_ascii=False, indent=2)}
     """
 
+
+def _strip_markdown_json_fences(text: str) -> str:
+    t = (text or "").strip()
+    if not t.startswith("```"):
+        return t
+    lines = t.splitlines()
+    lines = lines[1:]
+    while lines and lines[-1].strip() == "```":
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
+
+
+def _normalize_batch_dict_for_validate(data: dict) -> dict:
+    if not isinstance(data, dict):
+        return {"items": []}
+    items = data.get("items")
+    if not isinstance(items, list):
+        return {"items": []}
+    out_items = []
+    for it in items:
+        if not isinstance(it, dict):
+            it = {}
+        d = dict(it)
+        pu = d.get("packaging_unit", "未知")
+        if pu not in ALLOWED_PACKAGING:
+            d["packaging_unit"] = "未知"
+        for key in ("color", "size"):
+            v = d.get(key)
+            if v is None:
+                d[key] = []
+            elif isinstance(v, str):
+                d[key] = [v.strip()] if str(v).strip() else []
+            elif isinstance(v, list):
+                d[key] = [str(x) for x in v if x is not None and str(x).strip()]
+            else:
+                d[key] = []
+        for key in ("net_content", "sell_quantity", "model"):
+            v = d.get(key, "")
+            d[key] = "" if v is None else str(v).strip()
+        out_items.append(d)
+    return {"items": out_items}
+
+
+def extract_batch_moonshot(
+    items,
+    api_key: str,
+    model_name: Optional[str] = None,
+    max_retries: int = 5,
+    log_tag: str = "",
+):
+    """Gemini 失败后的可选兜底：Moonshot Kimi（OpenAI 兼容 chat.completions）。"""
+    if not items:
+        return []
+    try:
+        from openai import OpenAI
+    except ImportError:
+        _ai_log(log_tag, "Kimi 兜底跳过: 未安装 openai（pip install openai）")
+        return [ProductInfo() for _ in items]
+
+    model = (model_name or os.environ.get("MOONSHOT_MODEL") or DEFAULT_MOONSHOT_MODEL).strip()
+    client = OpenAI(api_key=api_key, base_url=MOONSHOT_BASE_URL)
+    prompt = _build_extraction_prompt(items)
+    _ai_log(log_tag, f"请求 Kimi(Moonshot) 兜底: model={model!r} items={len(items)}")
+
+    for attempt in range(max_retries):
+        try:
+            r = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a highly accurate product attribute extractor. "
+                            "Return ONLY one JSON object with key \"items\" (array), no markdown fences."
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.2,
+                response_format={"type": "json_object"},
+            )
+            text = (r.choices[0].message.content or "").strip()
+            text = _strip_markdown_json_fences(text)
+            data = json.loads(text)
+            data = _normalize_batch_dict_for_validate(data)
+            batch = BatchResponse.model_validate(data)
+            if len(batch.items) != len(items):
+                _ai_log(
+                    log_tag,
+                    f"Kimi attempt {attempt + 1}/{max_retries}: 条数不一致 {len(batch.items)} vs {len(items)}",
+                )
+                time.sleep(5)
+                continue
+            if batch.items:
+                s0 = batch.items[0]
+                _ai_log(
+                    log_tag,
+                    f"Kimi 兜底本批成功: 条数={len(batch.items)} 样例[0] sell={getattr(s0, 'sell_quantity', '')!r} "
+                    f"pack={getattr(s0, 'packaging_unit', '')!r} net={getattr(s0, 'net_content', '')!r}",
+                )
+            else:
+                _ai_log(log_tag, "Kimi 兜底本批成功: 条数=0（无条目）")
+            return batch.items
+        except Exception as e:
+            err_msg = str(e)
+            if "429" in err_msg or "rate" in err_msg.lower() or "限流" in err_msg:
+                wait_time = (attempt + 1) * 20
+                _ai_log(
+                    log_tag,
+                    f"Kimi attempt {attempt + 1}/{max_retries}: 限流/429，{wait_time}s 后重试 — {err_msg[:180]}",
+                )
+                time.sleep(wait_time)
+            elif "503" in err_msg or "UNAVAILABLE" in err_msg:
+                _ai_log(
+                    log_tag,
+                    f"Kimi attempt {attempt + 1}/{max_retries}: 503/繁忙 — {err_msg[:180]}",
+                )
+                time.sleep(15)
+            else:
+                _ai_log(log_tag, f"Kimi attempt {attempt + 1}/{max_retries}: {type(e).__name__}: {e}")
+                time.sleep(8)
+
+    _ai_log(log_tag, f"Kimi 兜底已放弃 batch_len={len(items)}，使用默认空结果")
+    return [ProductInfo() for _ in items]
+
+
+def extract_batch_ai(
+    items,
+    api_key,
+    model_name=None,
+    max_retries=5,
+    log_tag: str = "",
+    fallback_api_key: Optional[str] = None,
+    fallback_model: Optional[str] = None,
+):
+    client = genai.Client(api_key=api_key)
+    model_name = (model_name or DEFAULT_MODEL_NAME).strip() or DEFAULT_MODEL_NAME
+    _ai_log(log_tag, f"请求 Gemini batch: model={model_name!r} items={len(items)}")
+    prompt = _build_extraction_prompt(items)
+
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
@@ -144,24 +299,70 @@ def extract_batch_ai(items, api_key, model_name=None, max_retries=5):
             if response.parsed and hasattr(response.parsed, 'items'):
                 parsed_items = response.parsed.items
                 if len(parsed_items) == len(items):
+                    if parsed_items:
+                        s0 = parsed_items[0]
+                        _ai_log(
+                            log_tag,
+                            f"本批成功: 条数={len(parsed_items)} 样例[0] sell={getattr(s0, 'sell_quantity', '')!r} "
+                            f"pack={getattr(s0, 'packaging_unit', '')!r} net={getattr(s0, 'net_content', '')!r}",
+                        )
+                    else:
+                        _ai_log(log_tag, "本批成功: 条数=0（无条目）")
                     return parsed_items
                 else:
-                    print(f"Result count mismatch ({len(parsed_items)} vs {len(items)}). Retrying...")
+                    _ai_log(
+                        log_tag,
+                        f"attempt {attempt + 1}/{max_retries}: Result count mismatch "
+                        f"({len(parsed_items)} vs {len(items)}). Retrying...",
+                    )
+            else:
+                # 无 parsed 时此前静默重试，易导致「只有部分文件像提取成功」却看不到原因
+                _ai_log(
+                    log_tag,
+                    f"attempt {attempt + 1}/{max_retries}: no usable parsed response "
+                    f"(batch_len={len(items)}). Retrying...",
+                )
 
         except Exception as e:
             err_msg = str(e)
             if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
                 wait_time = (attempt + 1) * 30
-                print(f"Quota issue (429). Retrying in {wait_time}s... (Attempt {attempt + 1}/{max_retries})")
+                _ai_log(
+                    log_tag,
+                    f"attempt {attempt + 1}/{max_retries}: Quota 429 / RESOURCE_EXHAUSTED. "
+                    f"Sleep {wait_time}s — {err_msg[:200]}",
+                )
                 time.sleep(wait_time)
             elif "503" in err_msg or "UNAVAILABLE" in err_msg:
                 wait_time = 15
-                print(f"Server busy (503). Retrying in {wait_time}s...")
+                _ai_log(
+                    log_tag,
+                    f"attempt {attempt + 1}/{max_retries}: Server 503 / UNAVAILABLE. "
+                    f"Sleep {wait_time}s — {err_msg[:200]}",
+                )
                 time.sleep(wait_time)
             else:
-                print(f"Error in AI extraction: {e}")
+                _ai_log(log_tag, f"attempt {attempt + 1}/{max_retries}: Error — {type(e).__name__}: {e}")
                 time.sleep(10)
 
+    _ai_log(
+        log_tag,
+        f"已放弃 Gemini: {max_retries} 次尝试后仍失败 batch_len={len(items)}。",
+    )
+    fk = (fallback_api_key or "").strip()
+    if fk:
+        _ai_log(log_tag, "改用 Kimi(Moonshot) 兜底本批…")
+        return extract_batch_moonshot(
+            items,
+            api_key=fk,
+            model_name=(fallback_model or "").strip() or None,
+            max_retries=max_retries,
+            log_tag=log_tag,
+        )
+    _ai_log(
+        log_tag,
+        "未配置 Kimi 兜底 Key：本批将写入 ProductInfo 默认空结果（包装多为「未知」、售卖多为空）。",
+    )
     return [ProductInfo() for _ in items]
 
 
@@ -178,7 +379,40 @@ def safe_save(df, file_path):
         return False
 
 
-def process_file_ai(file_path, api_key, batch_size=110, progress_cb=None, model_name=None):
+def _summarize_written_a_columns(df: pd.DataFrame, log_tag: str) -> None:
+    """写回后统计，便于和「主/A 无值、B 有值」对照。"""
+    n = len(df)
+    if n == 0:
+        return
+    sell = df["A售卖数量"].astype(str).str.strip()
+    ne_sell = (sell != "") & (sell.str.lower() != "nan")
+    n_sell = int(ne_sell.sum())
+    pack = df["A包装单位"].astype(str).str.strip()
+    n_unk_pack = int((pack == "未知").sum())
+    net = df["A单件净含量"].astype(str).str.strip()
+    n_net = int(((net != "") & (net.str.lower() != "nan")).sum())
+    _ai_log(
+        log_tag,
+        f"写回后全表统计: 行数={n} | A售卖非空={n_sell} | A净含量非空={n_net} | 包装为「未知」={n_unk_pack}",
+    )
+    if n_sell == 0 and n_unk_pack >= n * 0.9:
+        _ai_log(
+            log_tag,
+            "提示: 售卖全空且包装几乎全为「未知」，高度疑似本文件 Gemini 未返回有效解析（与兜底 ProductInfo 一致），请向上翻看本文件 [AI][...] 报错/重试行。",
+        )
+
+
+def process_file_ai(
+    file_path,
+    api_key,
+    batch_size=110,
+    progress_cb=None,
+    model_name=None,
+    fallback_api_key: Optional[str] = None,
+    fallback_model: Optional[str] = None,
+):
+    log_tag = os.path.basename(file_path) or "unknown.xlsx"
+    _ai_log(log_tag, f"开始处理文件 path={file_path}")
     print(f"Loading {file_path}...")
     try:
         df = pd.read_excel(file_path, engine='openpyxl')
@@ -229,15 +463,17 @@ def process_file_ai(file_path, api_key, batch_size=110, progress_cb=None, model_
     rows_to_process = df[mask_to_process]
     
     if rows_to_process.empty:
-        print(f"All rows in {file_path} are already processed. Skipping AI extraction.")
+        _ai_log(log_tag, f"跳过: 无待处理行（认为 A* 已齐） path={file_path}")
         df.drop(columns=['_temp_input'], inplace=True)
         return
 
     # 2. Get unique inputs from those rows
     unique_inputs = rows_to_process['_temp_input'].unique().tolist()
     total_unique = len(unique_inputs)
-    print(f"Total rows to process: {len(rows_to_process)}")
-    print(f"Unique items to process via AI: {total_unique}")
+    _ai_log(
+        log_tag,
+        f"待处理: 行数={len(rows_to_process)} 去重后条数={total_unique} batch_size={batch_size}",
+    )
 
     # 3. Process unique items in batches
     results_map = {} # combined_name -> ProductInfo
@@ -259,14 +495,21 @@ def process_file_ai(file_path, api_key, batch_size=110, progress_cb=None, model_
         batch_inputs = unique_inputs[i:i + batch_size]
         batch_num = i // batch_size + 1
         total_batches = (total_unique - 1) // batch_size + 1
-        print(f"Processing batch {batch_num}/{total_batches} ({len(batch_inputs)} unique items)...")
+        _ai_log(log_tag, f"子批次 {batch_num}/{total_batches} 条数={len(batch_inputs)}")
         
         if progress_cb:
             progress_cb(batch_num, total_batches)
 
         # Build item list in the same order as batch_inputs using tmp_map.
         batch_items = [tmp_map.get(str(s).strip(), {"name": str(s).strip(), "spec": ""}) for s in batch_inputs]
-        batch_results = extract_batch_ai(batch_items, api_key=api_key, model_name=model_name)
+        batch_results = extract_batch_ai(
+            batch_items,
+            api_key=api_key,
+            model_name=model_name,
+            log_tag=log_tag,
+            fallback_api_key=fallback_api_key,
+            fallback_model=fallback_model,
+        )
         
         for name, res in zip(batch_inputs, batch_results):
             results_map[name] = res
@@ -290,11 +533,13 @@ def process_file_ai(file_path, api_key, batch_size=110, progress_cb=None, model_
 
     df.drop(columns=['_temp_input'], inplace=True)
 
+    _summarize_written_a_columns(df, log_tag)
+
     # 5. Final Save
     if safe_save(df, file_path):
-        print(f"Finished processing {file_path} and saved results.")
+        _ai_log(log_tag, f"已保存: {file_path}")
     else:
-        print(f"CRITICAL: Failed to save results for {file_path}")
+        _ai_log(log_tag, f"CRITICAL 保存失败: {file_path}")
 
 
 if __name__ == "__main__":

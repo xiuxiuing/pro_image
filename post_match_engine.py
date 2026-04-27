@@ -190,10 +190,23 @@ def _parse_size_mm(s: str) -> Optional[float]:
     return None
 
 
+# 与 extract 中「X罐 / X瓶…」的售卖件数一致，避免取到 330ml 里的 330
+_SELL_UNITS = "罐|瓶|包|个|条|片|袋|盒|听|支|杯|件|枚|粒|颗"
+_SELL_NUM_BEFORE_UNIT = re.compile(
+    rf"(\d+(?:\.\d+)?)\s*(?:{_SELL_UNITS})",
+    re.IGNORECASE,
+)
+
+
 def _parse_sell_num(s: str) -> Optional[float]:
     s = _norm_str(s)
     if not s:
         return None
+    # 优先：紧邻「罐/瓶/…」前的数量（如 330ml*24罐、7片/包、1罐）
+    matches = _SELL_NUM_BEFORE_UNIT.findall(s)
+    if matches:
+        return float(matches[-1])
+    # 退化：无单位时取首个数字（纯「24」等）
     m = re.search(r"(\d+(?:\.\d+)?)", s)
     if not m:
         return None
@@ -374,7 +387,8 @@ def rules_for_item(template: Dict[str, Any], query_item: dict) -> Optional[Dict[
 def should_accept_post_match(query_item: dict, hit_item: dict, block: Optional[Dict[str, Any]]) -> bool:
     """
     对单条规则块（六维）做与过滤。未命中任何规则组时 block 为 None，直接放过。
-    某一维关闭则跳过该维。解析失败时默认放过，尽量避免脏数据误杀。
+    某一维关闭则跳过该维。除「售卖数量 sell」外，解析失败时多默认放过，尽量避免脏数据误杀；
+    sell 在两侧若均有文本则须能解析且落在阈值内；仅一侧有值则拦截。
     """
     if not block:
         return True
@@ -404,10 +418,20 @@ def should_accept_post_match(query_item: dict, hit_item: dict, block: Optional[D
     r = block.get("sell") or {}
     if r.get("en", False):
         md = float(r.get("max_diff", 0.0) or 0.0)
-        qv = _parse_sell_num(_g(query_item, (COL_SELL,)))
-        hv = _parse_sell_num(_g(hit_item, (COL_SELL,)))
-        if qv is not None and hv is not None and abs(hv - qv) > md + 1e-9:
+        qs = _g(query_item, (COL_SELL,))
+        hs = _g(hit_item, (COL_SELL,))
+        qv = _parse_sell_num(qs)
+        hv = _parse_sell_num(hs)
+        has_q, has_h = bool(qs), bool(hs)
+        if not has_q and not has_h:
+            pass
+        elif (has_q and not has_h) or (has_h and not has_q):
             return False
+        else:
+            if qv is None or hv is None:
+                return False
+            if abs(hv - qv) > md + 1e-9:
+                return False
 
     # 4. pack
     r = block.get("pack") or {}

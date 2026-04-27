@@ -831,7 +831,53 @@
 
         .modal-body > .search-box {
             flex-shrink: 0;
-            margin-bottom: 16px;
+            margin-bottom: 12px;
+        }
+
+        /* 手动关联竞店：搜索框下方固定展示当前主店 SKU，仅列表区域滚动 */
+        .modal-main-store-summary {
+            flex-shrink: 0;
+            margin-bottom: 12px;
+            padding: 12px 14px;
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            font-size: 13px;
+            line-height: 1.45;
+        }
+
+        .modal-main-store-summary[hidden] {
+            display: none !important;
+        }
+
+        .modal-main-store-summary__title {
+            font-size: 11px;
+            font-weight: 600;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin-bottom: 8px;
+        }
+
+        .modal-main-store-summary__name {
+            font-weight: 600;
+            color: var(--text-main);
+            margin-bottom: 6px;
+            word-break: break-word;
+        }
+
+        .modal-main-store-summary__meta {
+            font-size: 12px;
+            color: #64748b;
+        }
+
+        .modal-main-store-summary__meta + .modal-main-store-summary__meta {
+            margin-top: 4px;
+        }
+
+        .modal-main-store-summary__meta span:first-child {
+            color: #94a3b8;
+            margin-right: 6px;
         }
 
         .modal-list-scroll {
@@ -1070,6 +1116,17 @@
         }
 
         /* Pagination Styles */
+        /* 竞店多列对比时：本行销量最高（不抢眼） */
+        .comp-sales-highest {
+            display: inline-block;
+            margin-left: 6px;
+            font-size: 10px;
+            font-weight: 600;
+            color: #64748b;
+            letter-spacing: 0.04em;
+            vertical-align: 1px;
+        }
+
         .info-group {
             display: flex;
             justify-content: space-between;
@@ -1628,6 +1685,16 @@
             </div>
             <div class="modal-body">
                 <input type="text" class="search-box" id="modalSearch" placeholder="搜索商品名/条码...">
+                <div id="modalMainStoreSummary" class="modal-main-store-summary" hidden>
+                    <div class="modal-main-store-summary__title">主店</div>
+                    <div class="modal-main-store-summary__name" id="modalMainStoreName">—</div>
+                    <div class="modal-main-store-summary__meta">
+                        <span>规格</span><span id="modalMainStoreSpec">—</span>
+                    </div>
+                    <div class="modal-main-store-summary__meta">
+                        <span>SKU</span><span id="modalMainStoreSku">—</span>
+                    </div>
+                </div>
                 <div id="modalList" class="modal-list-scroll"></div>
             </div>
         </div>
@@ -1647,7 +1714,7 @@
         let mainStoreName = "主店";       // 主店名称 (Target)
         let currentLinkAction = null;    // 当前正在进行的关联操作上下文
         let allStoreProducts = {};       // 缓存各竞店的商品列表 (用于人工校准弹窗)
-        let allBaseColumns = [];         // 数据中的所有可用字段名（已剔除不展示字段，如 A*）
+        let allBaseColumns = [];         // 数据中的所有可用字段名（不含行内元数据键，见 internalKeys）
         let visibleColumns = [];         // 当前用户选择展示的字段名
         let advancedFilters = {};        // 高级筛选条件 (字段: 关键字)
         let currentSort = { field: null, order: null }; // 当前排序状态
@@ -1823,8 +1890,6 @@
             gridData.forEach(row => {
                 Object.keys(row).forEach(key => {
                     const baseKey = key.replace(/^\d+/, '');
-                    // 过滤掉 A* 字段（AI 旧提取列），不在“展示筛选”中出现
-                    if (String(baseKey).startsWith('A')) return;
                     if (!internalKeys.includes(baseKey) && !internalKeys.includes(key)) {
                         allKeys.add(baseKey);
                     }
@@ -1869,7 +1934,6 @@
             if (savedVisible && Array.isArray(savedVisible)) {
                 // Use saved visibility for existing keys, ignore obsolete ones
                 visibleColumns = savedVisible
-                    .filter(k => !String(k || '').startsWith('A'))
                     .filter(k => k === '主图链接' || currentKeys.includes(k));
             } else {
                 // First time initialization
@@ -1979,7 +2043,7 @@
 
         function toggleAllColumns(show) {
             if (show) {
-                visibleColumns = ['主图链接', ...allBaseColumns.filter(k => !String(k || '').startsWith('A'))];
+                visibleColumns = ['主图链接', ...allBaseColumns.filter(k => k !== '主图链接')];
             } else {
                 visibleColumns = ['主图链接'];
             }
@@ -2344,6 +2408,26 @@
             return gridData.find(r => String(r.skuId) === String(skuId)) || null;
         }
 
+        /** 本行在「已关联赛店」中销量取最大值，用于标出谁是最高的（可并列） */
+        function getRowMaxCompSalesAmongLinked(row) {
+            if (!row || !storeSources || !storeSources.length) return { max: null, storeIds: [] };
+            let max = -Infinity;
+            const atMax = [];
+            storeSources.forEach(s => {
+                if (!row[s.id + 'skuId']) return;
+                const cs = parseFloat(row[s.id + '销售']) || 0;
+                if (cs > max) {
+                    max = cs;
+                    atMax.length = 0;
+                    atMax.push(String(s.id));
+                } else if (Math.abs(cs - max) < 1e-9) {
+                    atMax.push(String(s.id));
+                }
+            });
+            if (max === -Infinity) return { max: null, storeIds: [] };
+            return { max, storeIds: atMax };
+        }
+
         function isEliminatedRow(row) {
             return String(row?.['淘汰标记'] ?? '') === '1' || String(row?.['是否淘汰'] ?? '') === '是';
         }
@@ -2556,6 +2640,7 @@
                     let displayVal = val;
                     let extraStyle = "";
                     let color = isPriceField ? "var(--text-main)" : "inherit";
+                    let salesMaxMark = '';
 
                     if (isSalesField && isMain) {
                         const mainSales = parseFloat(val) || 0;
@@ -2575,6 +2660,17 @@
                             displayVal = `${displayBase}${diffText}`;
                             if (diff < 0) extraStyle = "background: #ef4444; color: #fff; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 13px;";
                         }
+                    } else if (isSalesField && !isMain) {
+                        const linkedN = (storeSources || []).filter(s => row[s.id + 'skuId']).length;
+                        if (linkedN > 1) {
+                            const { max, storeIds } = getRowMaxCompSalesAmongLinked(row);
+                            if (max !== null && storeIds && storeIds.includes(String(storeId))) {
+                                const my = parseFloat(val) || 0;
+                                if (Math.abs(my - max) < 1e-9) {
+                                    salesMaxMark = '<span class="comp-sales-highest" title="本行已关联赛店中，当前列销量最高（可并列）">最高</span>';
+                                }
+                            }
+                        }
                     }
 
                     const html = `
@@ -2583,7 +2679,7 @@
                     <div class="info-stats" style="flex: 1; text-align: left; font-weight: 700; ${color ? 'color:' + color + ';' : ''}">
                         <span style="${extraStyle ? extraStyle + ' color: #fff !important;' : ''}">
                             ${isPriceField && val !== '-' ? '¥' : ''}${displayVal}
-                        </span>
+                        </span>${salesMaxMark}
                     </div>
                 </div>`;
 
@@ -2662,14 +2758,14 @@
         
         <div class="card-actions">
             ${isMain ? `
+                <button class="action-btn btn-eliminate" onclick="eliminate('${mainSkuId}')">
+                    ${isEliminatedRow(row) ? '恢复商品' : '标记淘汰'}
+                </button>
                 <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-size:11px; color:#64748b;">
                     <input type="checkbox" ${row['is_handled']==='1' ? 'checked' : ''}
                         onchange="toggleHandled('${mainSkuId}', this.checked)">
                     已处理
                 </label>
-                <button class="action-btn btn-eliminate" onclick="eliminate('${mainSkuId}')">
-                    ${isEliminatedRow(row) ? '恢复商品' : '标记淘汰'}
-                </button>
             ` : `
                 ${!isUnlinkedMode ? `
                     <button type="button" class="ref-icon-btn ref-btn-image ${row['ref_image_store'] === storeId ? 'ref-active-image' : ''}" onclick="toggleRef('${mainSkuId}', '${storeId}', 'image')" title="用此图片">📷</button>
@@ -2871,6 +2967,7 @@
             document.querySelector('#linkModal .modal-header h3').innerText = '选择对应商品';
             document.getElementById('linkModal').style.display = 'flex';
             document.getElementById('modalSearch').value = "";
+            updateModalMainStoreSummary(mainSkuId);
             if (!allStoreProducts[storeId]) {
                 const res = await fetch(`/api/store_products/${storeId}`);
                 allStoreProducts[storeId] = await res.json();
@@ -2889,9 +2986,39 @@
             if (el) el.focus({ preventScroll: true });
         }
 
+        function updateModalMainStoreSummary(mainSkuId) {
+            const box = document.getElementById('modalMainStoreSummary');
+            const nameEl = document.getElementById('modalMainStoreName');
+            const specEl = document.getElementById('modalMainStoreSpec');
+            const skuEl = document.getElementById('modalMainStoreSku');
+            if (!box || !nameEl || !specEl || !skuEl) return;
+            if (linkModalMode !== 'store_comp') {
+                box.hidden = true;
+                return;
+            }
+            if (!mainSkuId) {
+                box.hidden = true;
+                return;
+            }
+            const row = getRowBySku(mainSkuId);
+            box.hidden = false;
+            const titleEl = box.querySelector('.modal-main-store-summary__title');
+            if (titleEl) titleEl.textContent = (typeof mainStoreName === 'string' && mainStoreName.trim()) ? mainStoreName.trim() : '主店';
+            if (row) {
+                nameEl.textContent = row['商品名称'] || '—';
+                specEl.textContent = (row['规格名称'] || row['规格名'] || row['规格'] || '—');
+                skuEl.textContent = String(row['skuId'] != null && row['skuId'] !== '' ? row['skuId'] : '—');
+            } else {
+                nameEl.textContent = '—';
+                specEl.textContent = '—';
+                skuEl.textContent = String(mainSkuId);
+            }
+        }
+
         async function openMainLinkModalFromPool(storeId, compSkuId) {
             linkModalMode = "main_pool";
             currentLinkAction = { storeId, compSkuId };
+            updateModalMainStoreSummary();
             document.querySelector('#linkModal .modal-header h3').innerText = '选择主店商品';
             document.getElementById('linkModal').style.display = 'flex';
             document.getElementById('modalSearch').value = "";

@@ -415,6 +415,8 @@ def handle_projects():
         use_ai = request.form.get('use_ai') == 'on'
         api_key = request.form.get('api_key')
         ai_model_name = (request.form.get('ai_model_name') or "").strip()
+        kimi_api_key = (request.form.get('kimi_api_key') or "").strip()
+        kimi_model_name = (request.form.get('kimi_model_name') or "").strip()
 
         main_name = os.path.basename(final_main_path).replace('.xlsx','').replace('.xls','')
         comp_names = [os.path.basename(p).replace('.xlsx','').replace('.xls','') for p in final_comp_paths]
@@ -428,12 +430,30 @@ def handle_projects():
             try:
                 if has_ai:
                     all_ai_paths = [final_main_path] + final_comp_paths
+                    try:
+                        _ai_gap = int(os.environ.get("PROIMAGE_AI_INTER_FILE_SLEEP_SEC", "8") or "8")
+                    except ValueError:
+                        _ai_gap = 8
+                    _ai_gap = max(0, _ai_gap)
                     for fi, fp in enumerate(all_ai_paths):
                         _update_step(pid, fi, "running")
                         def _ai_cb(batch, total, _fi=fi):
                             _update_step(pid, _fi, "running", f"batch {batch}/{total}")
-                        extract_info_ai2.process_file_ai(fp, api_key, progress_cb=_ai_cb, model_name=ai_model_name)
+                        extract_info_ai2.process_file_ai(
+                            fp,
+                            api_key,
+                            progress_cb=_ai_cb,
+                            model_name=ai_model_name,
+                            fallback_api_key=kimi_api_key or None,
+                            fallback_model=kimi_model_name or None,
+                        )
                         _update_step(pid, fi, "done")
+                        if fi + 1 < len(all_ai_paths) and _ai_gap > 0:
+                            print(
+                                f"[BG] Project {pid} AI: 间歇 {_ai_gap}s 后处理下一文件（减轻 Gemini 连续请求 429/限流）",
+                                flush=True,
+                            )
+                            time.sleep(_ai_gap)
                     print(f"[BG] Project {pid} AI extraction done in {time.time()-_t0:.1f}s", flush=True)
 
                 analysis_base = ai_file_count

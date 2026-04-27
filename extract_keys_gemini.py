@@ -63,7 +63,7 @@ class ProductKeyExtract(BaseModel):
     category3: str = ""
 
     net_content: str = Field(default="", description="单件净含量：ml/L/g/kg")
-    sell_quantity: str = Field(default="", description="售卖数量：如 24罐/6瓶/7片/2条/1个")
+    sell_quantity: str = Field(default="", description="售卖数量：如 24/6/7/2/1")
     packaging_unit: PackagingUnit = Field(default="未知", description="包装单位（罐/瓶/袋/片/条/个/箱…），不确定填 未知")
 
     color: list[str] = Field(default_factory=list)
