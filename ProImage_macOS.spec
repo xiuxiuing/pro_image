@@ -36,7 +36,7 @@ a = Analysis(
     binaries=[],
     datas=_datas,
     hiddenimports=[
-        'flask', 'pandas', 'numpy', 'torch', 'torchvision', 'torchaudio',
+        'flask', 'pandas', 'numpy', 'torch',
         'openpyxl', 'PIL', 'PIL.Image', 'faiss',
         'transformers', 'google.genai', 'pydantic', 'cryptography',
         'data_mgr', 'data_mgr_base', 'data_mgr_import', 'data_mgr_query', 'data_mgr_ops', 'data_mgr_export',
@@ -48,7 +48,11 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        'matplotlib', 'notebook', 'scipy.io.wavfile', 'tkinter',
+        'PIL.ImageQt', 'PIL.ImageTk', 'IPython', 'jupyter_client',
+        'torch.utils.tensorboard', 'pydoc',
+    ],
     noarchive=False,
     optimize=0,
 )
@@ -63,8 +67,8 @@ exe = EXE(
     name='ProImage_AI',
     debug=False,
     bootloader_ignore_signals=False,
-    strip=False,
-    upx=False,
+    strip=True,
+    upx=True,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=True,
@@ -78,8 +82,8 @@ coll = COLLECT(
     a.binaries,
     a.zipfiles,
     a.datas,
-    strip=False,
-    upx=False,
+    strip=True,
+    upx=True,
     upx_exclude=[],
     name='ProImage_AI',
 )

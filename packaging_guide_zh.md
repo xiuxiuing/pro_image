@@ -13,6 +13,7 @@
 2. **安装必要工具**：
    ```bash
    pip3 install pyarmor pyinstaller
+   # 注意：本项目已优化，不再需要 torchvision 和 torchaudio 以减小体积
    ```
 3. **（macOS）将用户级 bin 目录加入 PATH**（若 pip 使用 `--user` 安装）：
    ```bash
@@ -105,6 +106,14 @@ rm -rf dist/obfuscated
    ./dist/ProImage_AI.app/Contents/MacOS/ProImage_AI
    ```
    确认无 `ModuleNotFoundError` 后再分发。
+
+### 优化说明 (Optimizations)
+
+本次打包配置已进行以下优化：
+- **体积缩减**：排除了 `torchvision`、`torchaudio` 及 `matplotlib` 等大型未直接使用的库。
+- **字节码优化**：设置 `optimize=2`（相当于 `python -OO`），移除文档字符串和断言。
+- **符号剥离 (macOS)**：开启 `strip=True` 移除调试符号。
+- **健壮性增强**：`.spec` 文件现在能自动识别环境路径，并更可靠地处理混淆与源码模式切换。
 
 ---
 
