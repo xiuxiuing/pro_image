@@ -23,6 +23,7 @@ import threading
 import traceback
 import io
 import json
+from werkzeug.utils import secure_filename
 from openpyxl import Workbook, load_workbook
 import utils
 
@@ -188,6 +189,16 @@ def _validate_upload(file_storage, label):
     if size > MAX_FILE_SIZE:
         return f"{label}：文件过大 ({size // 1024 // 1024}MB)，上限 {MAX_FILE_SIZE // 1024 // 1024}MB"
     return None
+
+
+def _safe_upload_filename(filename, fallback):
+    base = secure_filename(filename or "")
+    orig_ext = os.path.splitext(filename or "")[1].lower()
+    if not base:
+        base = fallback
+    elif orig_ext and not os.path.splitext(base)[1]:
+        base = base + orig_ext
+    return base
 
 
 def _norm_cell(v):
@@ -358,16 +369,20 @@ def handle_projects():
         sources_dir = os.path.join(proj_dir, "sources")
         os.makedirs(sources_dir, exist_ok=True)
         
-        # Save Main Store File
-        main_path = os.path.join(sources_dir, main_file.filename)
+        # Save files with role prefixes. Main and competitor uploads can have the
+        # same original filename; storing them directly in one directory would
+        # let the later competitor save overwrite the main file.
+        main_saved_name = "main__" + _safe_upload_filename(main_file.filename, "main.xlsx")
+        main_path = os.path.join(sources_dir, main_saved_name)
         main_file.save(main_path)
         main_store_name = main_file.filename.replace(".xlsx", "").replace(".xls", "")
         
         # Save Competitor Store Files
         comp_infos = []
         comp_paths = []
-        for f in valid_comp_files:
-            path = os.path.join(sources_dir, f.filename)
+        for idx, f in enumerate(valid_comp_files):
+            comp_saved_name = f"comp_{idx}__" + _safe_upload_filename(f.filename, f"comp_{idx}.xlsx")
+            path = os.path.join(sources_dir, comp_saved_name)
             f.save(path)
             comp_paths.append(path)
             comp_infos.append({"path": path, "store_name": f.filename.replace(".xlsx", "").replace(".xls", "")})

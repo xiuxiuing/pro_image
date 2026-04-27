@@ -449,7 +449,7 @@ class ExtractedProductKeys:
     net_content: str
     """单件净含量（如 18g、500ml、1.5L）。"""
     sell_quantity: str
-    """售卖数量（如 5袋、7片、1包）。"""
+    """售卖数量（规则底层会保留单位，如 5袋、7片、1包；AI 写回层会拆成数量值 + 包装单位）。"""
     packaging_form: str
     """包装形式（袋装/盒装/瓶装/罐装/桶装/箱装/听装/杯装/条装/片装/套装）。"""
     colors: tuple[str, ...]

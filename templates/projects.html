@@ -425,9 +425,12 @@
             background: rgba(0, 0, 0, 0.5);
             display: none;
             justify-content: center;
-            align-items: center;
+            align-items: flex-start;
             z-index: 1000;
             padding: 20px;
+            box-sizing: border-box;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
         }
 
         .modal-content {
@@ -438,6 +441,9 @@
             padding: 56px;
             box-shadow: 0 40px 100px rgba(0, 0, 0, 0.1);
             position: relative;
+            max-height: calc(100dvh - 40px);
+            overflow-y: auto;
+            box-sizing: border-box;
         }
 
         .modal-title {
@@ -470,6 +476,12 @@
             font-size: 16px;
             outline: none;
             box-sizing: border-box;
+        }
+
+        .file-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
         }
 
         .btn {
@@ -596,6 +608,38 @@
             border-color: #fde68a;
             background: rgba(255, 251, 235, 0.95);
             color: #b45309;
+        }
+
+        @media (max-height: 760px), (max-width: 720px) {
+            .modal-backdrop {
+                padding: 12px;
+            }
+
+            .modal-content {
+                max-height: calc(100dvh - 24px);
+                border-radius: 24px;
+                padding: 28px;
+            }
+
+            .modal-title {
+                font-size: 26px;
+                margin-bottom: 24px;
+            }
+
+            .mode-toggle {
+                margin-bottom: 24px;
+            }
+
+            .form-group {
+                margin-bottom: 18px;
+            }
+        }
+
+        @media (max-width: 720px) {
+            .file-grid {
+                grid-template-columns: 1fr;
+                gap: 0;
+            }
         }
     </style>
 </head>
@@ -725,7 +769,7 @@
                 </div>
 
                 <!-- Always Visible Source File Section -->
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+                <div class="file-grid">
                     <div class="form-group">
                         <label class="form-label">主店文件 (必填)</label>
                         <input type="file" name="main_file" class="form-control" accept=".xlsx,.xls" required>
