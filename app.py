@@ -22,6 +22,7 @@ import time
 import threading
 import traceback
 import io
+import json
 from openpyxl import Workbook, load_workbook
 import utils
 
@@ -77,6 +78,7 @@ def _resolve_app_paths():
 resource_root, data_root = _resolve_app_paths()
 # 后验规则页默认类目表（与「下载模板」同源时可复制到 data/default_meituan_categories.xlsx）
 DEFAULT_RULE_CATEGORIES_XLSX = os.path.join(resource_root, "data", "default_meituan_categories.xlsx")
+CATEGORY_L1_BUCKET_TAGS_JSON = os.path.join(resource_root, "data", "category_l1_bucket_tags.json")
 # 冻结版：分析线程里相对路径 img/、query_img/ 与 DataManager 使用同一根目录
 if getattr(sys, 'frozen', False):
     os.chdir(data_root)
@@ -519,7 +521,9 @@ def api_rule_templates():
     if request.method == "GET":
         return jsonify({"status": "ok", "items": dm.list_rule_templates()})
     d = request.get_json(silent=True) or {}
-    name = (d.get("name") or "").strip() or "未命名规则"
+    name = (d.get("name") or "").strip()
+    if not name:
+        return jsonify({"status": "error", "message": "模板名称不能为空"}), 400
     desc = (d.get("description") or "").strip()
     config = d.get("config")
     if not isinstance(config, dict):
@@ -540,7 +544,9 @@ def api_rule_template_one(tid):
             return jsonify({"status": "error", "message": err or "删除失败"}), 400
         return jsonify({"status": "ok"})
     d = request.get_json(silent=True) or {}
-    name = (d.get("name") or "").strip() or "未命名规则"
+    name = (d.get("name") or "").strip()
+    if not name:
+        return jsonify({"status": "error", "message": "模板名称不能为空"}), 400
     desc = (d.get("description") or "").strip()
     config = d.get("config")
     if not isinstance(config, dict):
@@ -609,6 +615,22 @@ def api_rule_categories_default():
         return jsonify({"status": "ok", "tree": tree})
     except Exception as e:
         return jsonify({"status": "error", "message": f"解析失败：{e}"}), 500
+
+
+@app.route("/api/rule-categories/bucket-tags", methods=["GET"])
+def api_rule_categories_bucket_tags():
+    """规则编辑页：一级类目快捷标签（枚举），用于批量勾选其下三级类目。"""
+    if not os.path.isfile(CATEGORY_L1_BUCKET_TAGS_JSON):
+        return jsonify({"status": "ok", "version": 0, "tags": []})
+    try:
+        with open(CATEGORY_L1_BUCKET_TAGS_JSON, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        tags = data.get("tags") if isinstance(data, dict) else []
+        if not isinstance(tags, list):
+            tags = []
+        return jsonify({"status": "ok", "version": int(data.get("version", 1) if isinstance(data, dict) else 1), "tags": tags})
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"读取标签配置失败：{e}"}), 500
 
 
 @app.route("/api/config", methods=['GET'])

@@ -62,13 +62,25 @@
             display: grid;
             grid-template-columns: 290px minmax(560px, 1fr) 300px;
             gap: 18px;
-            align-items: start;
+            align-items: stretch;
+        }
+        /* 宽屏：三栏外框等高（以视口为参照，内容在栏内滚动） */
+        @media (min-width: 1241px) {
+            .layout {
+                height: calc(100vh - 140px);
+                min-height: 420px;
+                max-height: calc(100vh - 100px);
+            }
         }
         .panel {
             background: var(--panel);
             border: 1px solid var(--border);
             border-radius: var(--radius);
             box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            overflow: hidden;
         }
         .panel-head {
             padding: 18px 18px 14px;
@@ -85,7 +97,58 @@
             color: var(--muted);
             line-height: 1.6;
         }
-        .panel-body { padding: 16px 18px 18px; }
+        .panel-body {
+            padding: 16px 18px 18px;
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        /* 左栏：顶部固定 + 类目树占满剩余高度并滚动 */
+        .panel-body--left .category-tree-scroll {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            margin-top: 4px;
+        }
+        .panel-body--left .category-tree-scroll .tree {
+            flex: 1;
+            min-height: 0;
+            max-height: none;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            padding-right: 4px;
+        }
+        /* 中栏：规则卡片区滚动，底部按钮固定 */
+        .panel-body--middle .panel-draft-top {
+            flex-shrink: 0;
+        }
+        .panel-body--middle .metrics-scroll-wrap {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            margin: 0 -4px 0 0;
+            padding-right: 4px;
+        }
+        .panel-body--middle .footer-actions {
+            flex-shrink: 0;
+            margin-top: 12px;
+        }
+        /* 右栏：列表区滚动，提交/取消贴底 */
+        .panel-body--right .rule-groups-scroll {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        .panel-body--right .footer-actions {
+            flex-shrink: 0;
+            margin-top: auto;
+            padding-top: 12px;
+        }
         .field { margin-bottom: 14px; }
         .label {
             display: block;
@@ -94,6 +157,7 @@
             margin-bottom: 7px;
             color: #334155;
         }
+        .label-req { color: #b91c1c; font-weight: 800; }
         input[type="text"], input[type="number"], .search, textarea {
             width: 100%;
             border: 1px solid #d9e2ef;
@@ -139,7 +203,27 @@
         }
         .stack { display: flex; flex-direction: column; gap: 10px; }
         .btn-row { display: flex; gap: 10px; flex-wrap: wrap; }
-        .search { margin-bottom: 14px; }
+        .bucket-tags-wrap { margin-bottom: 10px; }
+        .bucket-tags-hint {
+            font-size: 11px;
+            color: #64748b;
+            margin: 0 0 6px;
+            line-height: 1.45;
+        }
+        .bucket-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+        .bucket-tag {
+            padding: 3px 9px;
+            font-size: 11px;
+            font-weight: 600;
+            border-radius: 999px;
+            border: 1px solid #dbe3ef;
+            background: #fff;
+            color: #334155;
+            cursor: pointer;
+            line-height: 1.3;
+        }
+        .bucket-tag:hover { border-color: var(--primary); color: #1d4ed8; background: #f8fbff; }
+        .bucket-tag.active { background: #dbeafe; border-color: #93c5fd; color: #1d4ed8; }
         .tree-toolbar {
             display: flex;
             flex-direction: row;
@@ -158,8 +242,6 @@
             white-space: nowrap;
         }
         .tree {
-            max-height: 620px;
-            overflow: auto;
             padding-right: 4px;
         }
         .tree-block { margin-bottom: 12px; }
@@ -297,6 +379,17 @@
             font-size: 11px;
             color: #94a3b8;
         }
+        .metric-pct-input {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .metric-pct-input .metric-rel { max-width: 140px; }
+        .metric-pct-suffix {
+            font-size: 14px;
+            font-weight: 700;
+            color: #64748b;
+        }
         .syn-list { display: flex; flex-direction: column; gap: 8px; }
         .syn-row {
             display: grid;
@@ -370,7 +463,20 @@
             line-height: 1.6;
         }
         @media (max-width: 1240px) {
-            .layout { grid-template-columns: 1fr; }
+            .layout {
+                grid-template-columns: 1fr;
+                height: auto !important;
+                max-height: none !important;
+                min-height: 0 !important;
+            }
+            .panel { overflow: visible; }
+            .panel-body { overflow: visible; height: auto; }
+            .panel-body--left .category-tree-scroll .tree {
+                max-height: 520px;
+                overflow-y: auto;
+            }
+            .panel-body--middle .metrics-scroll-wrap { overflow: visible; max-height: none; }
+            .panel-body--right .rule-groups-scroll { overflow: visible; max-height: none; }
         }
         @media (max-width: 720px) {
             .metric-row { grid-template-columns: 1fr; }
@@ -391,7 +497,7 @@
                 <div class="panel-head">
                     <h2>类目导入与选择</h2>
                 </div>
-                <div class="panel-body">
+                <div class="panel-body panel-body--left">
                     <div class="stack">
                         <div class="btn-row">
                             <label class="btn btn-primary" style="position:relative; overflow:hidden;">
@@ -403,12 +509,17 @@
                         <div class="notice" id="category-source-note">尚未上传类目文件。</div>
                     </div>
 
-                    <input id="category-search" class="search" type="text" placeholder="筛选一级 / 二级 / 三级类目">
+                    <div class="bucket-tags-wrap">
+                        <p class="bucket-tags-hint">快捷选类：按业务类型归组一级类目，点击即可勾选/取消该组下全部可选的三级（已占用在其它规则组的除外）。</p>
+                        <div id="bucket-tags" class="bucket-tags" role="group" aria-label="一级类目快捷标签"></div>
+                    </div>
                     <div class="tree-toolbar" role="toolbar" aria-label="类目树操作">
                         <button type="button" class="btn-mini btn-outline tree-toolbar-btn" id="expand-toggle-btn">全部展开</button>
                         <button type="button" class="btn-mini btn-outline tree-toolbar-btn" id="select-toggle-btn">全选</button>
                     </div>
-                    <div id="category-tree" class="tree"></div>
+                    <div class="category-tree-scroll">
+                        <div id="category-tree" class="tree"></div>
+                    </div>
                 </div>
             </section>
 
@@ -416,22 +527,26 @@
                 <div class="panel-head">
                     <h2>当前规则组</h2>
                 </div>
-                <div class="panel-body">
-                    <div class="field">
-                        <label class="label">模板名称</label>
-                        <input id="template-name" type="text" placeholder="例如：商品后验规则（饮料 / 生鲜）" value="{{ template_name or '' }}">
-                    </div>
-                    <div class="field">
-                        <label class="label">模板说明</label>
-                        <input id="template-desc" type="text" placeholder="可选，给团队看的说明文字">
+                <div class="panel-body panel-body--middle">
+                    <div class="panel-draft-top">
+                        <div class="field">
+                            <label class="label" for="template-name">模板名称 <span class="label-req" title="必填">*</span></label>
+                            <input id="template-name" name="template_name" type="text" required autocomplete="off" placeholder="例如：商品后验规则（饮料 / 生鲜）" value="{{ template_name or '' }}" aria-required="true">
+                        </div>
+                        <div class="field">
+                            <label class="label">模板说明</label>
+                            <input id="template-desc" type="text" placeholder="可选，给团队看的说明文字">
+                        </div>
+
+                        <div class="summary">
+                            <div class="summary-title" id="draft-summary-title">尚未选择三级类目</div>
+                            <div class="summary-text" id="draft-summary-text">左侧选择三级类目后，在这里配置规则。</div>
+                        </div>
                     </div>
 
-                    <div class="summary">
-                        <div class="summary-title" id="draft-summary-title">尚未选择三级类目</div>
-                        <div class="summary-text" id="draft-summary-text">左侧选择三级类目后，在这里配置规则。</div>
+                    <div class="metrics-scroll-wrap">
+                        <div id="metrics-root"></div>
                     </div>
-
-                    <div id="metrics-root"></div>
 
                     <div class="footer-actions">
                         <button type="button" class="btn btn-primary" id="save-group-btn">保存当前规则组</button>
@@ -444,8 +559,8 @@
                 <div class="panel-head">
                     <h2>已保存规则组</h2>
                 </div>
-                <div class="panel-body">
-                    <div id="rule-groups-list"></div>
+                <div class="panel-body panel-body--right">
+                    <div id="rule-groups-list" class="rule-groups-scroll"></div>
                     <div class="footer-actions">
                         <button type="button" class="btn btn-primary" id="submit-template-btn" style="flex:1;">提交模板</button>
                         <a class="btn btn-soft" href="/match-rules" style="text-decoration:none; text-align:center;">取消</a>
@@ -459,16 +574,17 @@
         const TEMPLATE_ID = {{ template_id|int }};
         const METRICS = [
             { key: 'cat3', title: '三级类目一致', type: 'bool', help: '开启后，竞店候选商品的三级类目必须与主店商品三级类目一致；关闭后允许跨三级类目候选继续由其他维度判断。', note: '建议默认开启，只有明确需要放宽跨三级类目匹配时再关闭。' },
-            { key: 'net', title: '单件净含量', type: 'rel', help: '按 AI 提取的净含量比较；仅在双方都能解析且单位一致时才计算相对偏差。', defaultValue: 0.2, step: 0.01, note: '建议从 0.2 起步，表示允许约 ±20% 相对差。' },
+            { key: 'net', title: '单件净含量', type: 'rel', help: '按 AI 提取的净含量比较；仅在双方都能解析且单位一致时才计算相对偏差。', defaultValue: 20, step: 0.1, note: '填写相对主店可接受的偏差百分比，例如 20 表示约 ±20%。' },
             { key: 'sell', title: '售卖数量', type: 'diff', help: '从售卖数量文本中取第一个数字比较；差值超过阈值则拦截。', defaultValue: 0, step: 0.1, note: '为 0 时，数量须完全一致。' },
             { key: 'pack', title: '包装单位', type: 'syn', help: '例如“听 / 罐”“瓶 / 支”可配置为同义词组。', note: '仅在双方都有值时比较。' },
             { key: 'color', title: '颜色', type: 'syn', help: '多色会先拆分再排序比较；同义词可消除“乳白≈白”这类写法差异。', note: '建议只在该品类颜色信息稳定时启用。' },
-            { key: 'size', title: '尺寸', type: 'rel', help: '从尺寸文本里提取 mm / cm / m 比较；只在双方都能解析时计算相对偏差。', defaultValue: 0.125, step: 0.005, note: '0.125 约等于允许 ±12.5% 相对差。' },
+            { key: 'size', title: '尺寸', type: 'rel', help: '从尺寸文本里提取 mm / cm / m 比较；只在双方都能解析时计算相对偏差。', defaultValue: 12.5, step: 0.1, note: '填写相对主店尺寸可接受的偏差百分比，例如 12.5 表示约 ±12.5%。' },
             { key: 'model', title: '型号', type: 'syn', help: '按型号文本比较，可用同义词组消除型号别名或缩写差异。', note: '适合型号特征明确的商品。' },
         ];
 
         let categoryTree = { items: [], l1_count: 0, l3_count: 0 };
         let categoryPathMap = new Map();
+        let bucketTagList = [];
         let selectedKeys = new Set();
         let ruleGroups = [];
         let editingIndex = null;
@@ -582,21 +698,49 @@
                 pack: {
                     en: true,
                     syn: [
-                        ['听', '罐'],
-                        ['瓶', '支'],
-                        ['袋', '包'],
-                        ['盒', '礼盒'],
-                        ['桶', '筒'],
-                        ['杯', '碗'],
-                        ['片', '枚'],
-                        ['条', '根'],
-                        ['个', '只'],
+                        // 组1：瓶/听/罐/杯等；组2：袋/包/盒及计数单位等（与 post_match_engine._METRIC_DEFAULTS 保持一致）
+                        [
+                            '瓶', '听', '支', '罐', '小瓶', '玻璃瓶', 'PET瓶', '易拉罐', '铁罐', '易开罐',
+                            '杯', '杯装', '塑杯', '纸杯', '件',
+                        ],
+                        [
+                            '袋', '包', '小袋', '小包', '真空袋', '自立袋', '盒', '纸盒', '礼盒', '小盒', '方盒',
+                            '根', '条', '棒', '枚', '个', '只', '颗', '粒',
+                        ],
                     ],
                 },
-                color: { en: true, syn: [] },
+                color: {
+                    en: true,
+                    syn: [
+                        [
+                            '黑色', '纯黑', '炭黑', '曜石黑', '哑光黑', '墨黑', '酷黑', '深灰', '铁灰', '烟灰', '高级灰', '碳灰', '中灰',
+                            '藏青', '藏蓝', '海军蓝', '午夜蓝', '深宝蓝', '墨蓝', '咖啡色', '深棕', '巧克力色', '焦糖色', '栗色', '古铜色',
+                            '墨绿', '墨玉绿', '森林绿', '军绿', '暗绿', '深翠', '深紫', '葡萄紫', '暗紫', '紫罗兰(深)', '魅紫',
+                            '酒红', '枣红', '暗红', '勃艮第红', '赭石色',
+                        ],
+                        [
+                            '白色', '纯白', '象牙白', '奶白', '米白', '珍珠白', '月光白', '浅灰', '银灰', '麻灰', '亮灰', '冰川灰',
+                            '米色', '杏色', '浅咖', '香槟金', '燕麦色', '浅黄', '驼色', '粉色', '浅粉', '樱花粉', '肉粉', '藕粉',
+                            '淡粉', '水粉', '浅蓝', '天蓝', '水鸟蓝', '冰蓝色', '淡蓝', '浅绿', '薄荷绿', '淡绿', '果绿', '嫩草绿',
+                            '透明', '无色', '全透', '磨砂透',
+                        ],
+                    ],
+                },
                 size: { en: true, max_rel: 0.125 },
                 model: { en: true, syn: [] },
             };
+        }
+
+        /** 存库仍为 ratio(0.2=20%)；仅界面用百分比 */
+        function maxRelRatioToPercentInput(r) {
+            if (r == null || r === '' || Number.isNaN(Number(r))) return '';
+            const p = Number(r) * 100;
+            return String(Math.round(p * 1000) / 1000);
+        }
+        function percentInputToMaxRelRatio(s) {
+            const p = parseFloat(s);
+            if (!Number.isFinite(p) || p < 0) return 0;
+            return p / 100;
         }
 
         function setMetricUiState(metricKey, config) {
@@ -605,7 +749,10 @@
             const checkbox = root.querySelector('.metric-en');
             checkbox.checked = !!config.en;
             root.querySelector('.metric-body').style.opacity = config.en ? '1' : '.55';
-            if (root.querySelector('.metric-rel')) root.querySelector('.metric-rel').value = config.max_rel ?? '';
+            if (root.querySelector('.metric-rel')) {
+                const mr = config.max_rel;
+                root.querySelector('.metric-rel').value = maxRelRatioToPercentInput(mr);
+            }
             if (root.querySelector('.metric-diff')) root.querySelector('.metric-diff').value = config.max_diff ?? '';
             if (root.querySelector('.syn-list')) renderSynRows(metricKey, config.syn || []);
         }
@@ -625,8 +772,11 @@
                     body = `
                         <div class="metric-row">
                             <div>
-                                <label class="label">相对容差 max_rel</label>
-                                <input class="metric-rel" type="number" step="${metric.step}" value="${metric.defaultValue}">
+                                <label class="label">相对容差（%）</label>
+                                <div class="metric-pct-input">
+                                    <input class="metric-rel" type="number" min="0" max="1000" step="${metric.step}" value="${metric.defaultValue}">
+                                    <span class="metric-pct-suffix">%</span>
+                                </div>
                                 <div class="metric-inline-note">${metric.note}</div>
                             </div>
                         </div>`;
@@ -725,7 +875,7 @@
                 if (metric.type === 'bool') {
                     metrics[metric.key] = { en };
                 } else if (metric.type === 'rel') {
-                    metrics[metric.key] = { en, max_rel: parseFloat(root.querySelector('.metric-rel').value || '0') || 0 };
+                    metrics[metric.key] = { en, max_rel: percentInputToMaxRelRatio(root.querySelector('.metric-rel').value) };
                 } else if (metric.type === 'diff') {
                     metrics[metric.key] = { en, max_diff: parseFloat(root.querySelector('.metric-diff').value || '0') || 0 };
                 } else {
@@ -743,14 +893,7 @@
             });
         }
 
-        function pathVisible(path, keyword) {
-            if (!keyword) return true;
-            const s = keyword.toLowerCase();
-            return [path.l1, path.l2, path.l3].some((v) => String(v || '').toLowerCase().includes(s));
-        }
-
         function getVisibleSelectableKeys() {
-            const keyword = document.getElementById('category-search').value.trim().toLowerCase();
             const occupied = occupiedKeys();
             const keys = [];
             (categoryTree.items || []).forEach((l1) => {
@@ -758,13 +901,89 @@
                     (l2.children || []).forEach((l3) => {
                         const path = { l1: l1.name, l2: l2.name, l3: l3.name };
                         const key = pathKey(path);
-                        if (!pathVisible(path, keyword)) return;
                         if (occupied.has(key) && !selectedKeys.has(key)) return;
                         keys.push(key);
                     });
                 });
             });
             return keys;
+        }
+
+        /** 标签配置中的「美团一级类目」在树下对应的所有可勾选 key（受已占用列过滤） */
+        function keysForTagL1Names(l1Names) {
+            const occ = occupiedKeys();
+            const want = new Set(
+                (l1Names || []).map((s) => String(s || '').trim()).filter(Boolean),
+            );
+            const out = [];
+            (categoryTree.items || []).forEach((l1) => {
+                if (!want.has(l1.name)) return;
+                (l1.children || []).forEach((l2) => {
+                    (l2.children || []).forEach((l3) => {
+                        const key = pathKey({ l1: l1.name, l2: l2.name, l3: l3.name });
+                        if (occ.has(key) && !selectedKeys.has(key)) return;
+                        out.push(key);
+                    });
+                });
+            });
+            return out;
+        }
+
+        function updateBucketTagActiveState() {
+            const root = document.getElementById('bucket-tags');
+            if (!root) return;
+            const buttons = root.querySelectorAll('.bucket-tag');
+            bucketTagList.forEach((tag, i) => {
+                const btn = buttons[i];
+                if (!btn) return;
+                const keys = keysForTagL1Names(tag.l1);
+                const allOn = keys.length > 0 && keys.every((k) => selectedKeys.has(k));
+                btn.classList.toggle('active', allOn);
+            });
+        }
+
+        function applyBucketTag(tag) {
+            if (!tag || !Array.isArray(tag.l1)) return;
+            const keys = keysForTagL1Names(tag.l1);
+            if (!keys.length) return;
+            const allOn = keys.every((k) => selectedKeys.has(k));
+            if (allOn) keys.forEach((k) => selectedKeys.delete(k));
+            else keys.forEach((k) => selectedKeys.add(k));
+            (tag.l1 || []).forEach((name) => {
+                const l1 = (categoryTree.items || []).find((x) => x.name === name);
+                if (l1) {
+                    expandedL1.add(l1Key(l1.name));
+                    (l1.children || []).forEach((l2) => {
+                        expandedL2.add(l2Key(l1.name, l2.name));
+                    });
+                }
+            });
+            renderCategoryTree();
+            renderDraftSummary();
+        }
+
+        async function loadBucketTags() {
+            try {
+                const r = await fetch('/api/rule-categories/bucket-tags');
+                const j = await r.json();
+                bucketTagList = j.status === 'ok' && Array.isArray(j.tags) ? j.tags : [];
+            } catch (e) {
+                bucketTagList = [];
+            }
+            const root = document.getElementById('bucket-tags');
+            if (!root) return;
+            root.innerHTML = '';
+            bucketTagList.forEach((tag) => {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'bucket-tag';
+                b.textContent = tag.label || tag.id || '标签';
+                const l1s = (tag.l1 || []).filter(Boolean);
+                b.title = l1s.length ? `包含一级类目：${l1s.join('、')}` : '';
+                b.addEventListener('click', () => applyBucketTag(tag));
+                root.appendChild(b);
+            });
+            updateBucketTagActiveState();
         }
 
         function isTreeFullyExpanded() {
@@ -793,25 +1012,27 @@
         function renderCategoryTree() {
             const root = document.getElementById('category-tree');
             root.innerHTML = '';
-            const keyword = document.getElementById('category-search').value.trim().toLowerCase();
             const occupied = occupiedKeys();
             if (!(categoryTree.items || []).length) {
                 root.innerHTML = '<div class="empty">上传类目文件后，这里会出现一二三级类目树；也可以先从右侧编辑已保存规则组。</div>';
                 refreshTreeToolbarLabels();
+                updateBucketTagActiveState();
                 return;
             }
 
             (categoryTree.items || []).forEach((l1) => {
-                const visibleL2 = (l1.children || []).map((l2) => ({
-                    ...l2,
-                    visibleL3: (l2.children || []).filter((l3) => pathVisible({ l1: l1.name, l2: l2.name, l3: l3.name }, keyword)),
-                })).filter((l2) => l2.visibleL3.length || String(l2.name).toLowerCase().includes(keyword) || String(l1.name).toLowerCase().includes(keyword));
+                const visibleL2 = (l1.children || [])
+                    .map((l2) => ({
+                        ...l2,
+                        visibleL3: l2.children || [],
+                    }))
+                    .filter((l2) => l2.visibleL3.length);
                 if (!visibleL2.length) return;
 
                 const block = document.createElement('div');
                 block.className = 'tree-block';
                 const l1NodeKey = l1Key(l1.name);
-                const l1Expanded = keyword ? true : expandedL1.has(l1NodeKey);
+                const l1Expanded = expandedL1.has(l1NodeKey);
 
                 const l1Ids = visibleL2.flatMap((l2) => l2.visibleL3.map((l3) => pathKey({ l1: l1.name, l2: l2.name, l3: l3.name })));
                 block.appendChild(renderNodeCheckbox('l1', l1.name, l1Ids, occupied, `${l1.l3_count} 个三级类目`, {
@@ -829,7 +1050,7 @@
 
                 visibleL2.forEach((l2) => {
                     const l2NodeKey = l2Key(l1.name, l2.name);
-                    const l2Expanded = keyword ? true : expandedL2.has(l2NodeKey);
+                    const l2Expanded = expandedL2.has(l2NodeKey);
                     const l2Ids = l2.visibleL3.map((l3) => pathKey({ l1: l1.name, l2: l2.name, l3: l3.name }));
                     block.appendChild(renderNodeCheckbox('l2', l2.name, l2Ids, occupied, `${l2.l3_count} 个`, {
                         expanded: l2Expanded,
@@ -863,8 +1084,9 @@
                 root.appendChild(block);
             });
 
-            if (!root.children.length) root.innerHTML = '<div class="empty">没有匹配的类目，请换个关键词试试。</div>';
+            if (!root.children.length) root.innerHTML = '<div class="empty">暂无类目数据。</div>';
             refreshTreeToolbarLabels();
+            updateBucketTagActiveState();
         }
 
         function renderNodeCheckbox(levelClass, label, keys, occupied, noteText, toggleOptions = null) {
@@ -1090,9 +1312,8 @@
         (async () => {
             await loadExistingTemplate();
             await tryLoadDefaultCategoryTree();
+            await loadBucketTags();
         })();
-
-        document.getElementById('category-search').addEventListener('input', () => renderCategoryTree());
         document.getElementById('expand-toggle-btn').addEventListener('click', () => {
             if (isTreeFullyExpanded()) {
                 expandedL1 = new Set();
@@ -1145,7 +1366,13 @@
         });
 
         document.getElementById('submit-template-btn').addEventListener('click', async () => {
-            const name = (document.getElementById('template-name').value || '').trim() || '未命名规则模板';
+            const nameEl = document.getElementById('template-name');
+            const name = (nameEl.value || '').trim();
+            if (!name) {
+                alert('请填写模板名称。');
+                nameEl.focus();
+                return;
+            }
             const description = (document.getElementById('template-desc').value || '').trim();
             if (!ruleGroups.length) {
                 alert('请至少保存一条规则组后再提交。');
