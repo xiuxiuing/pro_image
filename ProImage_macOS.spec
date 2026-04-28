@@ -36,7 +36,7 @@ a = Analysis(
     binaries=[],
     datas=_datas,
     hiddenimports=[
-        'flask', 'pandas', 'numpy', 'torch',
+        'flask', 'pandas', 'numpy', 'torch', 'torchvision', 'torchaudio',
         'openpyxl', 'PIL', 'PIL.Image', 'faiss',
         'transformers', 'google.genai', 'pydantic', 'cryptography',
         'data_mgr', 'data_mgr_base', 'data_mgr_import', 'data_mgr_query', 'data_mgr_ops', 'data_mgr_export',
@@ -51,7 +51,7 @@ a = Analysis(
     excludes=[
         'matplotlib', 'notebook', 'scipy.io.wavfile', 'tkinter',
         'PIL.ImageQt', 'PIL.ImageTk', 'IPython', 'jupyter_client',
-        'torch.utils.tensorboard', 'pydoc',
+        'torch.utils.tensorboard',
     ],
     noarchive=False,
     optimize=0,
