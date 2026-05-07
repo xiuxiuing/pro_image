@@ -36,7 +36,9 @@
             inset: 0;
             z-index: -1;
             overflow: hidden;
-            background: #f8fafc;
+            background:
+                linear-gradient(135deg, rgba(255, 213, 0, 0.18), rgba(255, 255, 255, 0.08) 36%, rgba(226, 232, 240, 0.72)),
+                #f8fafc;
         }
 
         #bg-video {
@@ -49,8 +51,11 @@
             height: auto;
             transform: translate(-50%, -50%);
             object-fit: cover;
-            filter: saturate(1.1) brightness(1.05);
+            display: none;
         }
+
+        body.video-bg-ready #bg-video { display: block; }
+        body.perf-static-bg #bg-video { display: none; }
 
         .dynamic-bg::after {
             content: '';
@@ -172,19 +177,20 @@
             flex-direction: column;
             align-items: center;
             text-align: center;
-            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            transition: transform 0.24s ease, border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
             cursor: pointer;
             text-decoration: none;
             color: inherit;
             box-sizing: border-box;
+            will-change: transform;
         }
 
         .project-card:hover {
-            transform: translateY(-12px) scale(1.02);
+            transform: translateY(-6px);
             background: rgba(255, 255, 255, 0.8);
             border-color: var(--primary-accent);
-            box-shadow: 0 20px 40px rgba(255, 213, 0, 0.15);
+            box-shadow: 0 16px 32px rgba(255, 213, 0, 0.14);
         }
 
         .card-header {
@@ -249,7 +255,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: all 0.2s;
+            transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
             border: none;
             cursor: pointer;
             padding: 0;
@@ -491,7 +497,7 @@
             font-weight: 800;
             cursor: pointer;
             border: none;
-            transition: all 0.2s;
+            transition: background-color 0.2s ease, color 0.2s ease, opacity 0.2s ease;
         }
 
         .btn-new {
@@ -641,13 +647,29 @@
                 gap: 0;
             }
         }
+
+        @media (prefers-reduced-motion: reduce) {
+            #bg-video { display: none !important; }
+            .project-card,
+            .btn-card,
+            .btn,
+            .progress-fill,
+            .pm-bar-fill {
+                transition: none !important;
+            }
+            .card-spinner,
+            .planet-spinner,
+            .pm-step-spinner {
+                animation: none !important;
+            }
+        }
     </style>
 </head>
 
 <body>
     <div class="dynamic-bg">
-        <video id="bg-video" autoplay muted loop playsinline poster="/static/bg_meituan.jpg">
-            <source src="/static/bg.mp4" type="video/mp4">
+        <video id="bg-video" autoplay muted loop playsinline preload="none">
+            <source data-src="/static/bg.mp4" type="video/mp4">
         </video>
     </div>
 
@@ -733,8 +755,12 @@
 
                 <div class="form-group" id="ai-model-group" style="display: none;">
                     <label class="form-label">Gemini 模型名称</label>
-                    <input type="text" name="ai_model_name" id="ai-model-input" class="form-control"
-                        placeholder="例如：models/gemini-3.1-flash-lite-preview（留空则使用默认）" style="background: #fff;">
+                    <select name="ai_model_name" id="ai-model-input" class="form-control" style="background:#fff;">
+                        <option value="" selected>(留空)</option>
+                        <option value="models/gemini-3.1-flash-lite-preview">models/gemini-3.1-flash-lite-preview</option>
+                        <option value="gemini-3.1-flash-lite-preview">gemini-3.1-flash-lite-preview</option>
+                        <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
+                    </select>
                 </div>
                 
                 <div class="form-group" id="ai-key-group" style="display: none;">
@@ -751,11 +777,14 @@
                 </div>
                 <div class="form-group" id="kimi-model-group" style="display: none;">
                     <label class="form-label">Kimi 模型（可选）</label>
-                    <input type="text" name="kimi_model_name" id="kimi-model-input" class="form-control"
-                        placeholder="默认 kimi-k2-turbo-preview（以 Moonshot 控制台模型名为准）" style="background: #fff;">
+                    <select name="kimi_model_name" id="kimi-model-input" class="form-control" style="background:#fff;">
+                        <option value="" selected>(留空)</option>
+                        <option value="kimi-k2.5">kimi-k2.5</option>
+                        <option value="kimi-k2-turbo-preview">kimi-k2-turbo-preview</option>
+                    </select>
                 </div>
                 <div class="form-group" id="rule-template-group">
-                    <label class="form-label">后验规则模板</label>
+                    <label class="form-label">类目规则模板</label>
                     <select name="rule_template_id" id="rule-template-select" class="form-control" style="background:#fff;">
                         <option value="">加载中…</option>
                     </select>
@@ -799,6 +828,35 @@
     </div>
 
     <script>
+        function setupProjectPagePerformance() {
+            const video = document.getElementById('bg-video');
+            if (!video) return;
+            const dpr = window.devicePixelRatio || 1;
+            const physicalWidth = Math.max(window.screen.width || 0, window.innerWidth || 0) * dpr;
+            const physicalHeight = Math.max(window.screen.height || 0, window.innerHeight || 0) * dpr;
+            const isHighPixelDisplay = dpr >= 2 && (physicalWidth >= 2500 || physicalHeight >= 1600);
+            const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+            if (isHighPixelDisplay || reduceMotion) {
+                document.body.classList.add('perf-static-bg');
+                video.pause();
+                video.removeAttribute('src');
+                video.querySelectorAll('source').forEach(s => s.removeAttribute('src'));
+                video.load();
+                return;
+            }
+
+            video.querySelectorAll('source[data-src]').forEach(s => {
+                if (!s.getAttribute('src')) s.setAttribute('src', s.dataset.src);
+            });
+            document.body.classList.add('video-bg-ready');
+            video.load();
+            video.play().catch(() => {
+                document.body.classList.remove('video-bg-ready');
+                document.body.classList.add('perf-static-bg');
+            });
+        }
+
         function openModal() {
             document.getElementById('createModal').style.display = 'flex';
             const warn = document.getElementById('modal-analyzing-warn');
@@ -1267,6 +1325,7 @@
             }
         }
 
+        setupProjectPagePerformance();
         requestNotifyPermission();
         loadRuleTemplates();
         loadProjects();
