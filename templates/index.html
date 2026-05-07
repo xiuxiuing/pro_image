@@ -1726,6 +1726,9 @@
         let totalItems = 0;
         let totalPages = 0;
         let spuCount = 0;
+        let skuCount = 0;
+        let spuEliminatedCount = 0;
+        let skuEliminatedCount = 0;
         let currentFilterMode = 'all'; 
         let isUnlinkedMode = false;      // 是否处于“未关联数据池”模式
         let linkModalMode = "store_comp"; // store_comp | main_pool
@@ -1790,6 +1793,9 @@
                 totalItems = data.total;
                 totalPages = data.pages;
                 spuCount = data.spu_count || 0;
+                skuCount = data.sku_count ?? data.total ?? 0;
+                spuEliminatedCount = data.spu_eliminated_count || 0;
+                skuEliminatedCount = data.sku_eliminated_count || 0;
 
                 if (totalItems === 0 && !searchVal) {
                     if (loadingMsg) loadingMsg.innerText = "当前项目未包含分析结果。";
@@ -1846,6 +1852,9 @@
                 totalItems = data.total || 0;
                 totalPages = data.pages || 0;
                 spuCount = data.spu_count || 0;
+                skuCount = data.sku_count ?? totalItems;
+                spuEliminatedCount = data.spu_eliminated_count || 0;
+                skuEliminatedCount = data.sku_eliminated_count || 0;
                 if (loadingMsg) loadingMsg.style.display = 'none';
                 extractHeaders();
                 renderGrid(false);
@@ -2432,6 +2441,12 @@
             return String(row?.['淘汰标记'] ?? '') === '1' || String(row?.['是否淘汰'] ?? '') === '是';
         }
 
+        function formatCountWithEliminated(count, eliminatedCount) {
+            const n = Number(count) || 0;
+            const e = Number(eliminatedCount) || 0;
+            return e > 0 ? `${n}-${e}` : `${n}`;
+        }
+
         function renderPagination(totalItems, totalPages) {
             const paginEl = document.getElementById('pagination');
             if (!paginEl || totalItems === 0) {
@@ -2451,8 +2466,8 @@
 
             paginEl.innerHTML = `
                 <div class="pagination-info">
-                    <span style="font-weight: bold;">spu : ${spuCount}</span>
-                    <span style="margin-left: 16px; font-weight: bold;">sku : ${totalItems}</span> 
+                    <span style="font-weight: bold;">spu : ${formatCountWithEliminated(spuCount, spuEliminatedCount)}</span>
+                    <span style="margin-left: 16px; font-weight: bold;">sku : ${formatCountWithEliminated(skuCount, skuEliminatedCount)}</span>
                 </div>
                 <div class="pagination-controls">
                     <select class="page-size-selector" onchange="changePageSize(parseInt(this.value))">
@@ -2828,11 +2843,7 @@
                 body: JSON.stringify({ main_sku_id: mainSkuId, handled })
             });
             row['is_handled'] = handled ? '1' : '0';
-            if (showUnhandledOnly && handled) {
-                refreshSingleRow(mainSkuId, { remove: true });
-            } else {
-                refreshSingleRow(mainSkuId);
-            }
+            await filterData(false);
         }
 
         async function toggleAdd(storeId, compSkuId) {
