@@ -111,6 +111,29 @@ class DataManagerQueryMixin:
         s = s[(s != '') & (s.str.lower() != 'nan')]
         return int(s.nunique())
 
+    def _eliminated_grid_mask(self, df):
+        """已标记淘汰的主店商品行。"""
+        if df is None or df.empty:
+            return pd.Series(False, index=df.index if df is not None else None)
+        mask = pd.Series(False, index=df.index)
+        if '淘汰标记' in df.columns:
+            mask |= df['淘汰标记'].fillna('').astype(str).str.strip() == '1'
+        if '是否淘汰' in df.columns:
+            mask |= df['是否淘汰'].fillna('').astype(str).str.strip() == '是'
+        return mask
+
+    def _fully_eliminated_spu_count(self, df, eliminated_mask):
+        """同一 SPU 下的 SKU 全部淘汰时，SPU 才计入淘汰数。"""
+        if df is None or df.empty or '商品名称' not in df.columns:
+            return 0
+        tmp = df[['商品名称']].copy()
+        tmp['商品名称'] = tmp['商品名称'].astype(str).str.strip()
+        tmp = tmp[(tmp['商品名称'] != '') & (tmp['商品名称'].str.lower() != 'nan')]
+        if tmp.empty:
+            return 0
+        tmp['__eliminated'] = eliminated_mask.reindex(tmp.index).fillna(False).astype(bool)
+        return int(tmp.groupby('商品名称')['__eliminated'].all().sum())
+
     def get_grid_data(self):
         if self.grid_df is None or self.grid_df.empty: return {"items": [], "total": 0}
         # Backward compatibility for old calls, but returning paginated for safety
@@ -158,7 +181,11 @@ class DataManagerQueryMixin:
     def get_paginated_grid(self, page=1, limit=50, search="", mode="all", filters_json=None,
                            sort_field="", sort_order="desc", negative_sales_only=False):
         if self.grid_df is None or self.grid_df.empty:
-            return {"items": [], "total": 0, "page": page, "pages": 0, "spu_count": 0}
+            return {
+                "items": [], "total": 0, "page": page, "pages": 0,
+                "sku_count": 0, "sku_eliminated_count": 0,
+                "spu_count": 0, "spu_eliminated_count": 0,
+            }
 
         df = self.grid_df.copy()
 
@@ -229,6 +256,7 @@ class DataManagerQueryMixin:
             num = pd.to_numeric(df[sf], errors="coerce").fillna(0)
             df = df.assign(__sort_k=num).sort_values("__sort_k", ascending=asc).drop(columns=["__sort_k"])
 
+        eliminated_mask = self._eliminated_grid_mask(df)
         total = len(df)
         pages = (total + limit - 1) // limit if limit else 0
         page = max(1, int(page))
@@ -244,7 +272,10 @@ class DataManagerQueryMixin:
             "page": page,
             "limit": limit,
             "pages": pages,
+            "sku_count": total,
+            "sku_eliminated_count": int(eliminated_mask.sum()),
             "spu_count": self._spu_count_from_grid_df(df),
+            "spu_eliminated_count": self._fully_eliminated_spu_count(df, eliminated_mask),
         }
 
     def get_store_products(self, store_id):
