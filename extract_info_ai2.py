@@ -709,6 +709,11 @@ def process_file_ai(
 
     need_cols = target_cols
     need_mask = df[need_cols].map(_cell_empty).any(axis=1) if need_cols else pd.Series(False, index=df.index)
+    
+    if EXTRACTION_SOURCE_COL in df.columns:
+        source_empty = df[EXTRACTION_SOURCE_COL].map(_cell_empty)
+        need_mask = need_mask & source_empty
+
     mask_to_process = df.index.isin(name_ok) & need_mask
     rows_to_process = df[mask_to_process]
     
