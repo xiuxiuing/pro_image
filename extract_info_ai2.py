@@ -6,9 +6,13 @@ import re
 import time
 import json
 import shutil
+import threading
 from typing import Literal, get_args, Optional
 
 from product_text_extract import extract_product_keys
+
+_gemini_key_idx = 0
+_gemini_key_lock = threading.Lock()
 
 # API key / model name are passed from the frontend
 DEFAULT_MODEL_NAME = "models/gemini-3.1-flash-lite-preview"
@@ -493,12 +497,21 @@ def extract_batch_ai(
     fallback_model: Optional[str] = None,
     allow_split: bool = True,
 ):
-    client = genai.Client(api_key=api_key)
+    global _gemini_key_idx
+    keys = [k.strip() for k in str(api_key).split(",") if k.strip()]
+    if not keys:
+        keys = [""]
+
     model_name = (model_name or DEFAULT_MODEL_NAME).strip() or DEFAULT_MODEL_NAME
-    _ai_log(log_tag, f"请求 Gemini batch: model={model_name!r} items={len(items)}")
+    _ai_log(log_tag, f"请求 Gemini batch: model={model_name!r} items={len(items)} keys_count={len(keys)}")
     prompt = _build_extraction_prompt(items)
 
     for attempt in range(max_retries):
+        with _gemini_key_lock:
+            current_key = keys[_gemini_key_idx % len(keys)]
+            _gemini_key_idx += 1
+            
+        client = genai.Client(api_key=current_key)
         try:
             response = client.models.generate_content(
                 model=model_name,
