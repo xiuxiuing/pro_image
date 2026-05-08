@@ -695,7 +695,7 @@ def process_file_ai(
         return (s == "") or (s.lower() in ("nan", "none", "null"))
 
     need_cols = target_cols
-    need_mask = df[need_cols].applymap(_cell_empty).any(axis=1) if need_cols else pd.Series(False, index=df.index)
+    need_mask = df[need_cols].map(_cell_empty).any(axis=1) if need_cols else pd.Series(False, index=df.index)
     mask_to_process = df.index.isin(name_ok) & need_mask
     rows_to_process = df[mask_to_process]
     
