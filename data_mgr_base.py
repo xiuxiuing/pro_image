@@ -195,7 +195,7 @@ class DataManagerBase:
                     if "rule_template_id" not in proj_cols:
                         conn.execute("ALTER TABLE projects ADD COLUMN rule_template_id INTEGER")
 
-                    # --- rule_templates (后验规则模板) ---
+                    # --- rule_templates (类目规则模板) ---
                     conn.execute(
                         """
                         CREATE TABLE IF NOT EXISTS rule_templates (

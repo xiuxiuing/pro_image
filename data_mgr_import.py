@@ -123,6 +123,99 @@ class DataManagerImportMixin:
                     df.rename(columns={src: dst}, inplace=True)
         return df
 
+    def _clean_sku_value(self, value):
+        if value is None:
+            return ""
+        try:
+            if pd.isna(value):
+                return ""
+        except (TypeError, ValueError):
+            pass
+        s = str(value).strip()
+        if s.endswith(".0"):
+            s = s[:-2]
+        if s.lower() in ["", "nan", "none", "nan.0"]:
+            return ""
+        return s
+
+    def _detect_output_prefix_to_store_map(self, res_df, comp_dfs):
+        """
+        Map output column prefixes (0skuId/1skuId/...) to the actual store_id.
+
+        Manual uploads can provide a result file whose competitor column order is
+        different from the current project file order. Matching by column index
+        then imports links under the wrong store. We instead compare each output
+        prefix's SKU values with every competitor source SKU set and choose a
+        one-to-one assignment by strongest overlap, falling back to index order
+        only when the result file has no usable SKU evidence.
+        """
+        prefixes = []
+        for col in res_df.columns:
+            col_s = str(col)
+            if col_s.endswith("skuId") and col_s[:-5].isdigit():
+                prefixes.append(col_s[:-5])
+        prefixes = sorted(set(prefixes), key=lambda x: int(x))
+
+        store_sku_sets = {}
+        for idx, cdf in enumerate(comp_dfs):
+            if cdf is None or cdf.empty or "skuId" not in cdf.columns:
+                store_sku_sets[str(idx)] = set()
+                continue
+            store_sku_sets[str(idx)] = {
+                self._clean_sku_value(v)
+                for v in cdf["skuId"].tolist()
+                if self._clean_sku_value(v)
+            }
+
+        prefix_sku_sets = {}
+        for p in prefixes:
+            col = f"{p}skuId"
+            prefix_sku_sets[p] = {
+                self._clean_sku_value(v)
+                for v in res_df[col].tolist()
+                if self._clean_sku_value(v)
+            }
+
+        candidates = []
+        for p in prefixes:
+            p_skus = prefix_sku_sets.get(p, set())
+            for sid, s_skus in store_sku_sets.items():
+                overlap = len(p_skus & s_skus)
+                ratio = overlap / max(1, len(p_skus))
+                same_index = 1 if p == sid else 0
+                distance = abs(int(p) - int(sid))
+                candidates.append((overlap, ratio, same_index, -distance, p, sid))
+
+        assigned_prefixes = set()
+        assigned_stores = set()
+        prefix_to_store_map = {}
+        for overlap, ratio, same_index, neg_distance, p, sid in sorted(candidates, reverse=True):
+            if overlap <= 0:
+                continue
+            if p in assigned_prefixes or sid in assigned_stores:
+                continue
+            prefix_to_store_map[p] = sid
+            assigned_prefixes.add(p)
+            assigned_stores.add(sid)
+            print(
+                f"Link import: column prefix [{p}*] → store_id [{sid}] "
+                f"(sku overlap={overlap}, ratio={ratio:.2%})",
+                flush=True,
+            )
+
+        for p in prefixes:
+            if p in assigned_prefixes:
+                continue
+            # Safe fallback for generated files where output order already matches
+            # project order, or for empty columns with no SKU evidence.
+            if p in store_sku_sets and p not in assigned_stores:
+                prefix_to_store_map[p] = p
+                assigned_prefixes.add(p)
+                assigned_stores.add(p)
+                print(f"Link import: column prefix [{p}*] → store_id [{p}] (index fallback)", flush=True)
+
+        return prefix_to_store_map
+
     def _import_to_sqlite(self):
         """
         Transactional import: prepare all data in memory first, then write in a
@@ -184,16 +277,7 @@ class DataManagerImportMixin:
             res_data = utils.excel_to_list_dict(self.output_file)
             res_df = pd.DataFrame(res_data)
 
-            # 必须与 run_analysis 写出列名一致：第 i 个竞店表对应前缀 str(i)；
-            # 不再用「全库竞店 sku 反推 store_id」——多店若存在相同 skuId，投票会把多列都映射到同一店，
-            # product_links 中同一 store_id 出现多条，_reconstruct 时 merge 一对多，主表行数变为 主店行数×竞店数。
-            prefix_to_store_map = {}
-            for i in range(10):
-                p = str(i)
-                col = f"{p}skuId"
-                if col in res_df.columns:
-                    prefix_to_store_map[p] = p
-                    print(f"Link import: column prefix [{p}*] → store_id [{p}]", flush=True)
+            prefix_to_store_map = self._detect_output_prefix_to_store_map(res_df, comp_dfs)
 
             final_mappings = FIELD_MAPPINGS.copy()
             for p in prefix_to_store_map.keys():

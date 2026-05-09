@@ -593,7 +593,7 @@
         .license-days-badge-fixed {
             position: fixed;
             top: 16px;
-            right: 20px;
+            left: 20px;
             z-index: 100;
             font-size: 12px;
             font-weight: 700;
@@ -614,6 +614,13 @@
             border-color: #fde68a;
             background: rgba(255, 251, 235, 0.95);
             color: #b45309;
+        }
+
+        @media (max-width: 720px) {
+            .license-days-badge-fixed {
+                top: 12px;
+                left: 12px;
+            }
         }
 
         @media (max-height: 760px), (max-width: 720px) {
@@ -705,7 +712,7 @@
     </div>
 
     <div class="projects-nav">
-        <a href="/match-rules" title="后验规则模板">后验规则</a>
+        <a href="/match-rules" title="类目规则模板">类目规则</a>
     </div>
 
     <div class="container">
@@ -789,7 +796,7 @@
                         <option value="">加载中…</option>
                     </select>
                     <div style="font-size:12px; color:#64748b; margin-top:8px; font-weight:500;">
-                        向量/条码命中后，按模板里“选中的三级类目规则组”做后验校验（可在 <a href="/match-rules" target="_blank" style="color:#334155; font-weight:700;">后验规则</a> 管理）
+                        向量/条码命中后，按模板里“选中的三级类目规则组”做后验校验（可在 <a href="/match-rules" target="_blank" style="color:#334155; font-weight:700;">类目规则</a> 管理）
                     </div>
                 </div>
                 <div class="form-group">
@@ -831,13 +838,9 @@
         function setupProjectPagePerformance() {
             const video = document.getElementById('bg-video');
             if (!video) return;
-            const dpr = window.devicePixelRatio || 1;
-            const physicalWidth = Math.max(window.screen.width || 0, window.innerWidth || 0) * dpr;
-            const physicalHeight = Math.max(window.screen.height || 0, window.innerHeight || 0) * dpr;
-            const isHighPixelDisplay = dpr >= 2 && (physicalWidth >= 2500 || physicalHeight >= 1600);
             const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-            if (isHighPixelDisplay || reduceMotion) {
+            if (reduceMotion) {
                 document.body.classList.add('perf-static-bg');
                 video.pause();
                 video.removeAttribute('src');
@@ -921,7 +924,7 @@
                 if (items.length === 0) {
                     const o = document.createElement('option');
                     o.value = '';
-                    o.textContent = '(无规则模板，请先到「后验规则」创建)';
+                    o.textContent = '(无规则模板，请先到「类目规则」创建)';
                     sel.appendChild(o);
                     return;
                 }
@@ -954,7 +957,7 @@
             if ('Notification' in window && Notification.permission === 'granted') {
                 new Notification(success ? '分析完成' : '分析失败', {
                     body: `项目「${name}」${success ? '已就绪，可进入工作台' : '分析异常，请删除后重试'}`,
-                    icon: '/static/bg_meituan.jpg'
+                    icon: '/static/bg.gif'
                 });
             }
         }

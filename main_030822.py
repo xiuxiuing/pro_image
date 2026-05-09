@@ -1,6 +1,6 @@
 """
 主店 vs 竞店比对流水线：下载图片 → 构建 FAISS 图/文向量索引 → 对主店 SKU 做条码优先匹配，
-再对未匹配项做批量向量检索，合并图/文相似度与三级类目校验后写出 Excel 结果。
+再对未匹配项做批量向量检索，取 topK 候选经类目规则筛选后写出 Excel 结果。
 
 依赖：DINOv2（图）、BGE（文），向量维度见全局 dim。
 """
@@ -73,6 +73,16 @@ if sys.platform == "darwin":
     torch.set_num_interop_threads(1)
 
 dim = 768
+
+
+def _env_int(name, default, min_value=1):
+    try:
+        return max(min_value, int(os.environ.get(name, str(default)) or default))
+    except (TypeError, ValueError):
+        return default
+
+
+MATCH_TOPK = _env_int("PROIMAGE_MATCH_TOPK", 10)
 
 # Define model paths with frozen/MEIPASS support
 models_base = os.path.join(sys._MEIPASS, "models") if getattr(sys, 'frozen', False) else os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
@@ -363,6 +373,32 @@ def _safe_faiss_read_index(path: str):
         print(f"_safe_faiss_read_index failed: {path}: {e}", flush=True)
         return None
 
+
+def _faiss_search_topk(index, vecs, requested_k):
+    """Run a bounded topK FAISS search; returns empty arrays when no index/vector exists."""
+    if index is None or not vecs:
+        return None, None
+    ntotal = int(getattr(index, "ntotal", 0) or 0)
+    if ntotal <= 0:
+        return None, None
+    k = min(max(1, int(requested_k or 1)), ntotal)
+    v_block = np.vstack(vecs)
+    return index.search(v_block, k)
+
+
+def _add_candidate(candidates, sku_id, score, match):
+    """Keep the strongest modality score for each SKU candidate."""
+    try:
+        sid = str(int(sku_id))
+    except Exception:
+        return
+    if sid == "-1":
+        return
+    score = float(score)
+    prev = candidates.get(sid)
+    if prev is None or score > prev[0]:
+        candidates[sid] = (score, match)
+
 # --- Analysis Pipeline ---
 def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", progress_cb=None, match_config=None, post_match_template=None):
     """
@@ -370,8 +406,8 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
 
     每个竞店：下载图 →（按需）构建 img_*/txt_* 的 FAISS 索引到 output_dir/../cache。
     主店：下载到 query_img → 预计算全量查询图/文向量。
-    对每个竞店：先条码字典精确匹配，再对仍未出现「{idx}匹配」列的行做 Faiss top-1，
-    图/文结果按阈值合并后，经 post_match_template 后验（按三级类目命中的规则组过滤，见 post_match_engine），通过才写入；
+    对每个竞店：先条码字典精确匹配，再对仍未出现「{idx}匹配」列的行做 Faiss topK，
+    图/文候选按相似度排序后，经 post_match_template 类目规则过滤，通过才写入；
     post_match_template 为 None 时使用内置默认。最后写出 output_{output_name}.xlsx。
 
     progress_cb(event, idx, detail) 可选：source_start/source_done、query_start、query_progress。
@@ -496,41 +532,40 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
         # Image search
         img_hits = {} # ui -> (s_id, score)
         if search_img_vecs:
-            v_block = np.vstack(search_img_vecs)
-            scores, ids = src["i_idx"].search(v_block, 1)
-            for i, ui in enumerate(search_img_map):
-                img_hits[ui] = (ids[i][0], float(scores[i][0]))
+            scores, ids = _faiss_search_topk(src["i_idx"], search_img_vecs, MATCH_TOPK)
+            if scores is not None and ids is not None:
+                for i, ui in enumerate(search_img_map):
+                    img_hits[ui] = list(zip(ids[i].tolist(), scores[i].tolist()))
                 
         # Text search
         txt_hits = {}
         if search_txt_vecs:
-            v_block = np.vstack(search_txt_vecs)
-            scores, ids = src["t_idx"].search(v_block, 1)
-            for i, ui in enumerate(search_txt_map):
-                txt_hits[ui] = (ids[i][0], float(scores[i][0]))
+            scores, ids = _faiss_search_topk(src["t_idx"], search_txt_vecs, MATCH_TOPK)
+            if scores is not None and ids is not None:
+                for i, ui in enumerate(search_txt_map):
+                    txt_hits[ui] = list(zip(ids[i].tolist(), scores[i].tolist()))
                 
-        # Merge results with thresholds and category check
+        # Merge topK image/text candidates, then let category rules pick the best acceptable hit.
         for ui in unmatched_indices:
             item = query_data[ui]
-            s_id, score, match = -1, 0, ""
-            
-            i_hit = img_hits.get(ui)
-            if i_hit:
-                s_id, score, match = i_hit[0], i_hit[1], "图片匹配"
-                
-            t_hit = txt_hits.get(ui)
-            if t_hit:
-                if score < 0.9 or (t_hit[1] > score):
-                    if t_hit[1] > score:
-                        s_id, score, match = t_hit[0], t_hit[1], "文本匹配"
-            
-            if s_id != -1:
-                hit = src["sku_dict"].get(str(int(s_id)))
-                if hit:
-                    _blk = post_match_engine.rules_for_item(_pm_tmpl, item)
-                    if not post_match_engine.should_accept_post_match(item, hit, _blk):
-                        continue
-                    append_match_result(res_data[ui], hit, score, match, str(idx))
+            candidates = {}
+            for s_id, score in img_hits.get(ui, []):
+                _add_candidate(candidates, s_id, score, "图片匹配")
+            for s_id, score in txt_hits.get(ui, []):
+                _add_candidate(candidates, s_id, score, "文本匹配")
+
+            if not candidates:
+                continue
+
+            _blk = post_match_engine.rules_for_item(_pm_tmpl, item)
+            for sid, (score, match) in sorted(candidates.items(), key=lambda kv: kv[1][0], reverse=True):
+                hit = src["sku_dict"].get(sid)
+                if not hit:
+                    continue
+                if not post_match_engine.should_accept_post_match(item, hit, _blk):
+                    continue
+                append_match_result(res_data[ui], hit, score, match, str(idx))
+                break
 
     out_path = os.path.join(output_dir, f"output_{output_name}.xlsx")
     utils.write_dict_list_to_excel(res_data, out_path)
