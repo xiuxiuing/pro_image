@@ -772,7 +772,10 @@
                 
                 <div class="form-group" id="ai-key-group" style="display: none;">
                     <label class="form-label">Gemini API Key</label>
-                    <input type="password" name="api_key" id="api-key-input" class="form-control" placeholder="输入您的 API Key" style="background: #fff;">
+                    <input type="password" name="api_key" id="api-key-input" class="form-control" placeholder="可填多个 Key，用逗号 / 分号 / 空格分隔" style="background: #fff;">
+                    <div style="font-size:12px; color:#64748b; margin-top:8px; font-weight:500;">
+                        多个 Gemini Key 会按批次轮询使用，例如：key1,key2,key3
+                    </div>
                 </div>
                 <div class="form-group" id="kimi-key-group" style="display: none;">
                     <label class="form-label">Kimi 兜底 API Key（可选 · Moonshot）</label>

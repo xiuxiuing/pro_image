@@ -498,7 +498,7 @@ def extract_batch_ai(
     allow_split: bool = True,
 ):
     global _gemini_key_idx
-    keys = [k.strip() for k in str(api_key).split(",") if k.strip()]
+    keys = [k.strip() for k in re.split(r"[,，;；\s]+", str(api_key)) if k.strip()]
     if not keys:
         keys = [""]
 

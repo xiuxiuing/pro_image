@@ -39,7 +39,8 @@
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 24px;
-            align-items: start;
+            align-items: stretch;
+            grid-auto-rows: minmax(420px, auto);
         }
         section {
             background: var(--panel);
@@ -47,17 +48,25 @@
             border-radius: 8px;
             padding: 24px;
             box-shadow: 0 12px 32px rgba(15, 23, 42, 0.06);
+            min-height: 420px;
+            display: flex;
+            flex-direction: column;
         }
         h2 { margin: 0 0 6px; font-size: 20px; letter-spacing: 0; }
         .hint { color: var(--muted); font-size: 13px; line-height: 1.6; margin: 0 0 22px; }
         .field { margin-bottom: 18px; }
+        form {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+        }
         label {
             display: block;
             font-weight: 700;
             font-size: 13px;
             margin-bottom: 8px;
         }
-        input, select {
+        input, select, textarea {
             width: 100%;
             min-height: 42px;
             border: 1px solid #cbd5e1;
@@ -67,6 +76,7 @@
             color: var(--ink);
             font: inherit;
         }
+        textarea { resize: vertical; line-height: 1.5; }
         input[type="file"] { padding: 8px; }
         .row {
             display: grid;
@@ -78,30 +88,44 @@
             gap: 12px;
             align-items: center;
             flex-wrap: wrap;
-            margin-top: 22px;
+            margin-top: auto;
+            padding-top: 22px;
         }
         button, .download-link {
             border: 0;
             border-radius: 8px;
-            min-height: 42px;
-            padding: 0 18px;
+            width: 148px;
+            height: 42px;
+            padding: 0 14px;
             font-weight: 800;
+            font-size: 13px;
+            line-height: 1;
             cursor: pointer;
             text-decoration: none;
             display: inline-flex;
             align-items: center;
             justify-content: center;
+            white-space: nowrap;
+            box-shadow: none;
         }
-        button.primary { background: var(--blue); color: #fff; }
-        button.secondary { background: #e8eef8; color: #334155; }
+        button.primary,
+        button.secondary,
+        .download-link {
+            background: var(--blue);
+            color: #fff;
+        }
+        header .download-link {
+            background: #111827;
+            width: 116px;
+        }
         button:disabled { opacity: 0.55; cursor: not-allowed; }
-        .download-link { background: var(--green); color: #fff; }
         .progress {
             margin-top: 18px;
             border: 1px solid var(--line);
             border-radius: 8px;
             overflow: hidden;
             display: none;
+            flex-shrink: 0;
         }
         .progress-head {
             display: flex;
@@ -142,6 +166,7 @@
             font-size: 13px;
             color: var(--muted);
             line-height: 1.5;
+            min-height: 20px;
         }
         .message.error { color: var(--red); font-weight: 700; }
         .inline-note {
@@ -149,6 +174,7 @@
             color: var(--muted);
             margin-top: 6px;
         }
+        .inline-note.error { color: var(--red); font-weight: 700; }
         @media (max-width: 900px) {
             main { grid-template-columns: 1fr; width: min(720px, calc(100vw - 28px)); }
             header { padding: 0 18px; }
@@ -159,9 +185,9 @@
 <body>
     <header>
         <div>
-            <h1>运营工具</h1>
+            <h1>运营工具箱</h1>
         </div>
-        <a class="download-link" href="/" style="background:#111827;">返回项目页</a>
+        <a class="download-link" href="/">返回项目页</a>
     </header>
 
     <main>
@@ -189,7 +215,8 @@
                     </div>
                     <div class="field">
                         <label>Gemini API Key</label>
-                        <input type="password" name="api_key" required placeholder="输入 Gemini API Key">
+                        <input type="password" name="api_key" required placeholder="可填多个 Key，用逗号 / 分号 / 空格分隔">
+                        <div class="inline-note">多个 Gemini Key 会按批次轮询使用，例如：key1,key2,key3</div>
                     </div>
                 </div>
                 <div class="row">
@@ -260,6 +287,61 @@
             </div>
             <div class="message" id="output-message"></div>
         </section>
+
+        <section>
+            <h2>授权文件生成</h2>
+            <p class="hint">填写用户机器指纹 HWID 和授权天数，生成可下载的 license.dat。私钥优先读取本机 vendor/private_key.pem，也可临时上传。</p>
+            <form id="license-form">
+                <div class="field">
+                    <label>用户 HWID</label>
+                    <textarea name="hwids" rows="5" required placeholder="多个 HWID 可换行或用逗号分隔"></textarea>
+                </div>
+                <div class="row">
+                    <div class="field">
+                        <label>有效天数</label>
+                        <input type="number" name="days" min="1" max="3650" value="30" required>
+                    </div>
+                    <div class="field">
+                        <label>private_key.pem（可选）</label>
+                        <input type="file" name="private_key" accept=".pem">
+                        <div class="inline-note" id="private-key-status">正在检查默认私钥...</div>
+                    </div>
+                </div>
+                <div class="actions">
+                    <button class="primary" type="submit" id="license-submit">生成 license.dat</button>
+                    <a id="license-download" class="download-link" style="display:none;">下载 license.dat</a>
+                </div>
+            </form>
+            <div class="progress" id="license-progress">
+                <div class="progress-head"><span id="license-status">等待中</span><span id="license-task-id"></span></div>
+                <div class="steps" id="license-steps"></div>
+            </div>
+            <div class="message" id="license-message"></div>
+        </section>
+
+        <section>
+            <h2>程序打包</h2>
+            <p class="hint">复用现有 PyInstaller spec 打包程序。本机是什么系统，就只能打对应系统产物；Windows 包需要在 Windows 打包机上运行。</p>
+            <form id="package-form">
+                <div class="field">
+                    <label>打包目标</label>
+                    <select name="target" id="package-target">
+                        <option value="macos">macOS .app</option>
+                        <option value="windows">Windows 程序包</option>
+                    </select>
+                    <div class="inline-note">macOS 使用 ProImage_macOS.spec；Windows 使用 ProImage_Windows.spec。</div>
+                </div>
+                <div class="actions">
+                    <button class="primary" type="submit" id="package-submit">开始打包</button>
+                    <a id="package-download" class="download-link" style="display:none;">下载程序包</a>
+                </div>
+            </form>
+            <div class="progress" id="package-progress">
+                <div class="progress-head"><span id="package-status">等待中</span><span id="package-task-id"></span></div>
+                <div class="steps" id="package-steps"></div>
+            </div>
+            <div class="message" id="package-message"></div>
+        </section>
     </main>
 
     <script>
@@ -312,6 +394,25 @@
                 select.appendChild(opt);
             });
             if (!select.value && items[0]) select.value = items[0].id;
+        }
+
+        async function loadPrivateKeyStatus() {
+            const el = document.getElementById("private-key-status");
+            try {
+                const resp = await fetch("/api/ops/license-key-status?t=" + Date.now());
+                const data = await resp.json();
+                if (data.status !== "ok") throw new Error(data.message || "默认私钥检查失败");
+                if (data.configured) {
+                    el.textContent = `已默认使用 ${data.path_label}；如需临时替换，可在这里上传新的 private_key.pem。`;
+                    el.classList.remove("error");
+                } else {
+                    el.textContent = "未检测到默认私钥；请上传 private_key.pem，或放到 vendor/private_key.pem。";
+                    el.classList.add("error");
+                }
+            } catch (err) {
+                el.textContent = err.message || "默认私钥检查失败";
+                el.classList.add("error");
+            }
         }
 
         async function pollTask(taskId, kind) {
@@ -413,7 +514,44 @@
             }
         });
 
+        document.getElementById("license-form").addEventListener("submit", async (event) => {
+            event.preventDefault();
+            const btn = document.getElementById("license-submit");
+            btn.disabled = true;
+            document.getElementById("license-download").style.display = "none";
+            setMessage("license-message", "正在生成授权文件。");
+            try {
+                const resp = await fetch("/api/ops/license-generate", { method: "POST", body: new FormData(event.target) });
+                const data = await resp.json();
+                if (data.status !== "ok") throw new Error(data.message || "生成失败");
+                startPolling(data.task_id, "license");
+            } catch (err) {
+                setMessage("license-message", err.message, true);
+            } finally {
+                btn.disabled = false;
+            }
+        });
+
+        document.getElementById("package-form").addEventListener("submit", async (event) => {
+            event.preventDefault();
+            const btn = document.getElementById("package-submit");
+            btn.disabled = true;
+            document.getElementById("package-download").style.display = "none";
+            setMessage("package-message", "已提交打包任务，打包过程可能需要几分钟。");
+            try {
+                const resp = await fetch("/api/ops/package-build", { method: "POST", body: new FormData(event.target) });
+                const data = await resp.json();
+                if (data.status !== "ok") throw new Error(data.message || "提交失败");
+                startPolling(data.task_id, "package");
+            } catch (err) {
+                setMessage("package-message", err.message, true);
+            } finally {
+                btn.disabled = false;
+            }
+        });
+
         loadRuleTemplates();
+        loadPrivateKeyStatus();
     </script>
 </body>
 </html>

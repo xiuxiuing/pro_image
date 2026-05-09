@@ -25,6 +25,9 @@ import io
 import json
 import uuid
 import zipfile
+import subprocess
+import platform
+import datetime
 from werkzeug.utils import secure_filename
 from openpyxl import Workbook, load_workbook
 import utils
@@ -472,6 +475,98 @@ def _ops_rule_template_from_request(raw_rule_id):
     return t
 
 
+def _ops_load_private_key(uploaded_key=None):
+    from cryptography.hazmat.primitives import serialization
+
+    key_bytes = None
+    if uploaded_key and uploaded_key.filename:
+        key_bytes = uploaded_key.read()
+        uploaded_key.seek(0)
+    else:
+        for p in (
+            os.path.join(resource_root, "vendor", "private_key.pem"),
+            os.path.join(data_root, "vendor", "private_key.pem"),
+            os.path.join(resource_root, "private_key.pem"),
+            os.path.join(data_root, "private_key.pem"),
+        ):
+            if os.path.isfile(p):
+                with open(p, "rb") as f:
+                    key_bytes = f.read()
+                break
+    if not key_bytes:
+        raise ValueError("未找到 private_key.pem；请上传私钥文件，或放到 vendor/private_key.pem")
+    return serialization.load_pem_private_key(key_bytes, password=None)
+
+
+def _ops_default_private_key_status():
+    candidates = (
+        (os.path.join(resource_root, "vendor", "private_key.pem"), "vendor/private_key.pem"),
+        (os.path.join(data_root, "vendor", "private_key.pem"), "vendor/private_key.pem"),
+        (os.path.join(resource_root, "private_key.pem"), "private_key.pem"),
+        (os.path.join(data_root, "private_key.pem"), "private_key.pem"),
+    )
+    for path, label in candidates:
+        if os.path.isfile(path):
+            return {"configured": True, "path_label": label}
+    return {"configured": False, "path_label": ""}
+
+
+def _ops_create_license_file(hwids, expires_days, out_path, uploaded_key=None):
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import padding
+    import base64
+
+    private_key = _ops_load_private_key(uploaded_key)
+    expires = (datetime.datetime.now() + datetime.timedelta(days=int(expires_days))).strftime("%Y-%m-%d")
+    data = {"hwids": hwids, "expires": expires, "version": "1.0"}
+    data_json = json.dumps(data, ensure_ascii=False)
+    data_b64 = base64.b64encode(data_json.encode()).decode()
+    signature = private_key.sign(
+        data_json.encode(),
+        padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH),
+        hashes.SHA256(),
+    )
+    sig_b64 = base64.b64encode(signature).decode()
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(f"{data_b64}.{sig_b64}")
+    return expires
+
+
+def _ops_run_command(task_id, step_idx, cmd, cwd):
+    _ops_update_step(task_id, step_idx, "running", " ".join(cmd))
+    proc = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    last = ""
+    if proc.stdout:
+        for line in proc.stdout:
+            line = line.rstrip()
+            if not line:
+                continue
+            last = line[-240:]
+            _ops_update_step(task_id, step_idx, "running", last)
+    code = proc.wait()
+    if code != 0:
+        raise RuntimeError(f"命令失败({code}): {' '.join(cmd)}\n{last}")
+    _ops_update_step(task_id, step_idx, "done", "完成")
+
+
+def _ops_zip_path(src_path, zip_path):
+    os.makedirs(os.path.dirname(zip_path), exist_ok=True)
+    base = zip_path[:-4] if zip_path.lower().endswith(".zip") else zip_path
+    if os.path.isdir(src_path):
+        shutil.make_archive(base, "zip", root_dir=os.path.dirname(src_path), base_dir=os.path.basename(src_path))
+    else:
+        _ops_zip_files([{"path": src_path, "arcname": os.path.basename(src_path)}], zip_path)
+    return zip_path if zip_path.lower().endswith(".zip") else base + ".zip"
+
+
 def _ops_license_error_response():
     is_valid, msg = check_license()
     if is_valid:
@@ -752,6 +847,120 @@ def api_ops_task_download(task_id):
     resp.headers["Pragma"] = "no-cache"
     resp.headers["Expires"] = "0"
     return resp
+
+
+@app.route('/api/ops/license-key-status')
+def api_ops_license_key_status():
+    license_err = _ops_license_error_response()
+    if license_err:
+        return license_err
+    status = _ops_default_private_key_status()
+    return jsonify({"status": "ok", **status})
+
+
+@app.route('/api/ops/license-generate', methods=['POST'])
+def api_ops_license_generate():
+    license_err = _ops_license_error_response()
+    if license_err:
+        return license_err
+    raw_hwids = (request.form.get("hwids") or "").strip()
+    hwids = [x.strip().upper() for x in raw_hwids.replace(",", "\n").replace("，", "\n").splitlines() if x.strip()]
+    if not hwids:
+        return jsonify({"status": "error", "message": "请填写至少一个 HWID"}), 400
+    try:
+        days = int((request.form.get("days") or "30").strip())
+    except ValueError:
+        return jsonify({"status": "error", "message": "有效天数必须是数字"}), 400
+    if days <= 0 or days > 3650:
+        return jsonify({"status": "error", "message": "有效天数需在 1 到 3650 之间"}), 400
+
+    task = _ops_create_task("license", ["生成 license.dat"], "授权文件生成中")
+    task_id = task["task_id"]
+    task_dir = _ops_task_dir(task_id)
+    out_path = os.path.join(task_dir, "license.dat")
+    uploaded_key = request.files.get("private_key")
+    try:
+        _ops_set_task(task_id, status="running", started_at=_ops_now())
+        _ops_update_step(task_id, 0, "running", "签名授权")
+        expires = _ops_create_license_file(hwids, days, out_path, uploaded_key=uploaded_key)
+        _ops_update_step(task_id, 0, "done", f"到期日 {expires}")
+        _ops_set_task(
+            task_id,
+            status="done",
+            ended_at=_ops_now(),
+            message=f"license.dat 已生成，到期日 {expires}",
+            result_path=out_path,
+            result_kind="license_dat",
+            download_name="license.dat",
+        )
+    except BaseException as e:
+        traceback.print_exc()
+        _ops_update_step(task_id, 0, "failed", str(e))
+        _ops_fail_task(task_id, e)
+    return jsonify({"status": "ok", "task_id": task_id})
+
+
+@app.route('/api/ops/package-build', methods=['POST'])
+def api_ops_package_build():
+    license_err = _ops_license_error_response()
+    if license_err:
+        return license_err
+    target = (request.form.get("target") or "").strip().lower()
+    if target not in ("macos", "windows"):
+        return jsonify({"status": "error", "message": "请选择 macOS 或 Windows"}), 400
+
+    task = _ops_create_task("package", ["检查环境", "执行打包", "压缩产物"], f"{target} 打包排队中")
+    task_id = task["task_id"]
+
+    def _run_package_bg():
+        _ops_set_task(task_id, status="running", started_at=_ops_now(), message=f"{target} 打包中")
+        try:
+            system = platform.system()
+            _ops_update_step(task_id, 0, "running", f"当前系统 {system}")
+            if target == "macos":
+                if system != "Darwin":
+                    raise RuntimeError("macOS .app 需要在 macOS 打包机上执行")
+                patch_script = os.path.join(resource_root, "tools", "patch_pyinstaller_site_packages.py")
+                if os.path.isfile(patch_script):
+                    _ops_run_command(task_id, 0, [sys.executable, patch_script], resource_root)
+                else:
+                    _ops_update_step(task_id, 0, "done", "未找到 patch 脚本，跳过")
+                spec = "ProImage_macOS.spec"
+                artifact = os.path.join(resource_root, "dist", "ProImage_AI.app")
+                zip_name = f"ProImage_AI_macOS_{time.strftime('%Y%m%d_%H%M%S')}.zip"
+            else:
+                if system != "Windows":
+                    raise RuntimeError("Windows 程序需要在 Windows 打包机上执行")
+                _ops_update_step(task_id, 0, "done", "Windows 环境")
+                spec = "ProImage_Windows.spec"
+                artifact = os.path.join(resource_root, "dist", "ProImage")
+                zip_name = f"ProImage_Windows_{time.strftime('%Y%m%d_%H%M%S')}.zip"
+
+            _ops_run_command(task_id, 1, [sys.executable, "-m", "PyInstaller", "-y", spec], resource_root)
+            if not os.path.exists(artifact):
+                raise RuntimeError(f"打包产物不存在：{artifact}")
+            task_dir = _ops_task_dir(task_id)
+            zip_path = os.path.join(task_dir, zip_name)
+            _ops_update_step(task_id, 2, "running", "压缩产物")
+            _ops_zip_path(artifact, zip_path)
+            _ops_update_step(task_id, 2, "done", "完成")
+            _ops_set_task(
+                task_id,
+                status="done",
+                ended_at=_ops_now(),
+                message="打包完成",
+                result_path=zip_path,
+                result_kind="package_zip",
+                download_name=zip_name,
+            )
+        except BaseException as e:
+            traceback.print_exc()
+            running_idx = next((i for i, s in enumerate((_ops_get_task(task_id) or {}).get("steps", [])) if s["status"] == "running"), 0)
+            _ops_update_step(task_id, running_idx, "failed", str(e))
+            _ops_fail_task(task_id, e)
+
+    threading.Thread(target=_run_package_bg, daemon=True).start()
+    return jsonify({"status": "ok", "task_id": task_id})
 
 @app.route('/api/projects', methods=['GET', 'POST'])
 def handle_projects():
