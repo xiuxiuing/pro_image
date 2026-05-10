@@ -26,12 +26,21 @@
             height: 72px;
             display: flex;
             align-items: center;
-            justify-content: space-between;
+            justify-content: flex-start;
             padding: 0 32px;
             background: #fff;
             border-bottom: 1px solid var(--line);
         }
         h1 { margin: 0; font-size: 24px; letter-spacing: 0; }
+        .brand-link {
+            display: inline-flex;
+            align-items: center;
+            height: 72px;
+            color: var(--ink);
+            text-decoration: none;
+            cursor: pointer;
+        }
+        .brand-link:hover h1 { color: var(--blue); }
         header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
         main {
             width: min(1320px, calc(100vw - 48px));
@@ -114,10 +123,6 @@
             background: var(--blue);
             color: #fff;
         }
-        header .download-link {
-            background: #111827;
-            width: 116px;
-        }
         button:disabled { opacity: 0.55; cursor: not-allowed; }
         .progress {
             margin-top: 18px;
@@ -184,10 +189,9 @@
 </head>
 <body>
     <header>
-        <div>
+        <a class="brand-link" href="/" title="返回项目页">
             <h1>运营工具箱</h1>
-        </div>
-        <a class="download-link" href="/">返回项目页</a>
+        </a>
     </header>
 
     <main>
