@@ -41,7 +41,7 @@ a = Analysis(
         'openpyxl', 'PIL', 'PIL.Image', 'faiss',
         'transformers', 'google.genai', 'openai', 'pydantic', 'cryptography',
         'data_mgr', 'data_mgr_base', 'data_mgr_import', 'data_mgr_query', 'data_mgr_ops', 'data_mgr_export',
-        'data_mgr_rule_templates',
+        'data_mgr_rule_templates', 'app_ops', 'app_data', 'app_ops_extra',
         'license_utils', 'main_030822', 'extract_info_ai2', 'product_text_extract', 'post_match_engine', 'utils',
         'merge_sku_data', 'werkzeug', 'jinja2', 'markupsafe', 'itsdangerous', 
         'click', 'tqdm', 'requests', 'filelock', 'regex', 'safetensors',

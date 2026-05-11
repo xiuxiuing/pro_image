@@ -1,19 +1,33 @@
-import os
+try:
+    _root = os.path.abspath(os.path.dirname(__file__))
+except NameError:
+    _root = os.getcwd()
+
+_obf_app = os.path.join(_root, 'dist', 'obfuscated', 'app.py')
+if os.path.isfile(_obf_app):
+    _entry = [_obf_app]
+    _pathex = [os.path.join(_root, 'dist', 'obfuscated')]
+else:
+    _entry = [os.path.join(_root, 'app.py')]
+    _pathex = [_root]
 
 a = Analysis(
-    ['dist/obfuscated/app.py'],
-    pathex=[os.path.abspath('dist/obfuscated')],
+    _entry,
+    pathex=_pathex,
     binaries=[],
     datas=[
         ('templates', 'templates'), 
         ('static', 'static'),
+        ('data', 'data'),
         ('models', 'models')
     ],
     hiddenimports=[
         'flask', 'pandas', 'numpy', 'torch', 'torchvision', 'torchaudio', 
         'openpyxl', 'PIL', 'PIL.Image', 'faiss', 
-        'transformers', 'google.genai', 'pydantic', 'cryptography',
-        'data_mgr', 'data_mgr_rule_templates', 'post_match_engine', 'license_utils', 'main_030822', 'extract_info_ai2', 'utils',
+        'transformers', 'google.genai', 'openai', 'pydantic', 'cryptography',
+        'data_mgr', 'data_mgr_base', 'data_mgr_import', 'data_mgr_query', 'data_mgr_ops', 'data_mgr_export',
+        'data_mgr_rule_templates', 'app_ops', 'app_data', 'app_ops_extra',
+        'license_utils', 'main_030822', 'extract_info_ai2', 'product_text_extract', 'post_match_engine', 'utils',
         'merge_sku_data', 'werkzeug', 'jinja2', 'markupsafe', 'itsdangerous', 
         'click', 'tqdm', 'requests', 'filelock', 'regex', 'safetensors',
         'scipy',
@@ -21,7 +35,11 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        'matplotlib', 'notebook', 'scipy.io.wavfile', 'tkinter',
+        'PIL.ImageQt', 'PIL.ImageTk', 'IPython', 'jupyter_client',
+        'torch.utils.tensorboard',
+    ],
     noarchive=False,
     optimize=0,
 )

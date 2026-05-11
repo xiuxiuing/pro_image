@@ -52,21 +52,22 @@
 
 ```bash
 pyarmor gen -O dist/obfuscated \
-  app.py data_mgr.py data_mgr_base.py data_mgr_import.py \
-  data_mgr_query.py data_mgr_ops.py data_mgr_export.py data_mgr_rule_templates.py \
-  license_utils.py main_030822.py extract_info_ai2.py product_text_extract.py \
-  post_match_engine.py utils.py merge_sku_data.py
+  app.py app_ops.py app_data.py app_ops_extra.py data_mgr.py data_mgr_base.py \
+  data_mgr_import.py data_mgr_query.py data_mgr_ops.py data_mgr_export.py \
+  data_mgr_rule_templates.py license_utils.py main_030822.py \
+  extract_info_ai2.py product_text_extract.py post_match_engine.py \
+  utils.py merge_sku_data.py
 ```
 
 ### 1.3 验证混淆结果
 
-> **关键步骤**：必须确认 `dist/obfuscated/` 下包含上述 **全部 15 个** `.py` 文件和 `pyarmor_runtime_*` 目录。
+> **关键步骤**：必须确认 `dist/obfuscated/` 下包含上述 **全部 18 个** `.py` 文件和 `pyarmor_runtime_*` 目录。
 > 如果有文件缺失，打包后 `.app`/`.exe` 启动会报 `ModuleNotFoundError`。
 
 ```bash
 ls dist/obfuscated/
 # 预期输出应包含：
-# app.py  data_mgr.py  data_mgr_base.py  data_mgr_export.py
+# app.py app_ops.py  data_mgr.py  data_mgr_base.py  data_mgr_export.py
 # data_mgr_import.py  data_mgr_ops.py  data_mgr_query.py  data_mgr_rule_templates.py
 # extract_info_ai2.py  product_text_extract.py  post_match_engine.py
 # license_utils.py  main_030822.py  merge_sku_data.py  utils.py
