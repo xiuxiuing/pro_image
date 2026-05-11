@@ -191,14 +191,27 @@
             color: var(--text-main);
             box-shadow: var(--shadow-sm);
             border: 1px solid rgba(0, 0, 0, 0.05);
+            background: rgba(255, 255, 255, 0.96);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .store-tab::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--store-accent, #e2e8f0);
         }
 
         .tab-main {
-            border-color: #dbeafe;
+            border-color: #e2e8f0;
         }
 
         .tab-comp {
-            border-color: #fef3c7;
+            border-color: #e2e8f0;
         }
 
         /* Row Layout */
@@ -261,6 +274,44 @@
             align-items: center;
             color: var(--text-muted);
             min-height: 300px;
+        }
+
+        .manual-select-card-btn {
+            min-width: 132px;
+            min-height: 96px;
+            padding: 14px 24px;
+            border: 1.5px dashed #d8dee8;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.46);
+            color: #94a3b8;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+        }
+
+        .manual-select-card-btn:hover {
+            background: rgba(255, 255, 255, 0.68);
+            border-color: #cbd5e1;
+            color: #64748b;
+        }
+
+        .manual-select-plus {
+            width: 42px;
+            height: 42px;
+            border: 1.5px solid currentColor;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            font-weight: 300;
+            line-height: 1;
         }
 
         .card-image {
@@ -456,12 +507,17 @@
             border-top: 1px solid rgba(0, 0, 0, 0.05);
         }
 
-        /* 竞店底栏：图标在整行宽度内均分对齐（主店底栏不变） */
+        /* 竞店底栏：轻量图标工具条（主店底栏不变） */
         .comp-card .card-actions {
             justify-content: space-between;
             align-items: center;
             width: 100%;
             box-sizing: border-box;
+            padding: 9px 12px;
+            gap: 8px;
+            flex-wrap: nowrap;
+            background: rgba(255, 255, 255, 0.96);
+            border-top: 1px solid #edf2f7;
         }
 
         .action-btn {
@@ -489,67 +545,69 @@
         }
 
         .ref-icon-btn {
-            width: 28px;
-            height: 28px;
-            min-width: 28px;
+            width: 32px;
+            height: 32px;
+            min-width: 32px;
             flex: 0 0 auto;
             display: flex;
             align-items: center;
             justify-content: center;
-            border-radius: 6px;
+            border: 0;
+            border-radius: 8px;
+            background: transparent;
+            color: #94a3b8;
             font-size: 13px;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: background 0.18s ease, color 0.18s ease;
             padding: 0;
             line-height: 1;
         }
+
+        .ref-icon-btn svg {
+            width: 24px;
+            height: 24px;
+            stroke-width: 1.8;
+        }
+
         .ref-icon-btn.ref-btn-image {
-            background: #fff;
-            border: 1.5px solid #ea580c;
+            background: transparent;
+            color: #94a3b8;
         }
         .ref-icon-btn.ref-btn-image:hover {
-            background: #fff7ed;
-            transform: translateY(-1px);
-            box-shadow: 0 2px 8px rgba(234, 88, 12, 0.2);
+            background: #f8fafc;
+            color: #64748b;
         }
         .ref-icon-btn.ref-active-image {
-            background: #ea580c !important;
-            border-color: #ea580c !important;
-            box-shadow: 0 2px 8px rgba(234, 88, 12, 0.3);
+            background: #eef2ff !important;
+            color: #6366f1 !important;
         }
         .ref-icon-btn.ref-btn-name {
-            background: #fff;
-            border: 1.5px solid #7c3aed;
+            background: transparent;
+            color: #94a3b8;
         }
         .ref-icon-btn.ref-btn-name:hover {
-            background: #f5f3ff;
-            transform: translateY(-1px);
-            box-shadow: 0 2px 8px rgba(124, 58, 237, 0.2);
+            background: #f8fafc;
+            color: #64748b;
         }
         .ref-icon-btn.ref-active-name {
-            background: #7c3aed !important;
-            border-color: #7c3aed !important;
-            box-shadow: 0 2px 8px rgba(124, 58, 237, 0.3);
+            background: #eef2ff !important;
+            color: #6366f1 !important;
         }
         .ref-icon-btn.ref-btn-unlink {
-            background: #fff;
-            border: 1.5px solid #ef4444;
-            color: #ef4444;
+            background: transparent;
+            color: #94a3b8;
         }
         .ref-icon-btn.ref-btn-unlink:hover {
-            background: #fef2f2;
-            transform: translateY(-1px);
-            box-shadow: 0 2px 8px rgba(239, 68, 68, 0.2);
+            background: #f8fafc;
+            color: #64748b;
         }
         .ref-icon-btn.ref-btn-calibrate {
-            background: #fff;
-            border: 1.5px solid var(--primary-color);
-            color: var(--primary-color);
+            background: transparent;
+            color: #94a3b8;
         }
         .ref-icon-btn.ref-btn-calibrate:hover {
-            background: #eef2ff;
-            transform: translateY(-1px);
-            box-shadow: 0 2px 8px rgba(99, 102, 241, 0.2);
+            background: #f8fafc;
+            color: #64748b;
         }
         .ref-icon-btn.ref-btn-calibrate.ref-btn-calibrate-text {
             width: auto;
@@ -560,46 +618,36 @@
             white-space: nowrap;
         }
         .ref-icon-btn.ref-btn-pricematch {
-            background: #fff;
-            border: 1.5px solid #059669;
-            color: #059669;
+            background: transparent;
+            color: #94a3b8;
         }
         .ref-icon-btn.ref-btn-pricematch:hover {
-            background: #ecfdf5;
-            transform: translateY(-1px);
-            box-shadow: 0 2px 8px rgba(5, 150, 105, 0.2);
+            background: #f8fafc;
+            color: #64748b;
         }
         .ref-icon-btn.ref-active-pricematch {
-            background: #059669 !important;
-            border-color: #059669 !important;
-            color: #fff !important;
-            box-shadow: 0 2px 8px rgba(5, 150, 105, 0.35);
+            background: #ecfdf5 !important;
+            color: #059669 !important;
         }
         .ref-icon-btn.ref-btn-add {
-            background: #fff;
-            border: 1.5px solid #64748b;
-            color: #64748b;
+            background: transparent;
+            color: #94a3b8;
         }
         .ref-icon-btn.ref-btn-add:hover {
             background: #f8fafc;
-            transform: translateY(-1px);
-            box-shadow: 0 2px 8px rgba(100, 116, 139, 0.2);
+            color: #64748b;
         }
         .ref-icon-btn.ref-active-add {
-            background: #16a34a !important;
-            border-color: #16a34a !important;
-            color: #fff !important;
-            box-shadow: 0 2px 8px rgba(22, 163, 74, 0.3);
+            background: #ecfdf5 !important;
+            color: #16a34a !important;
         }
         .ref-icon-btn.ref-btn-link-pool {
-            background: #fff;
-            border: 1.5px solid #ef4444;
-            color: #ef4444;
+            background: transparent;
+            color: #94a3b8;
         }
         .ref-icon-btn.ref-btn-link-pool:hover {
-            background: #fef2f2;
-            transform: translateY(-1px);
-            box-shadow: 0 2px 8px rgba(239, 68, 68, 0.2);
+            background: #f8fafc;
+            color: #64748b;
         }
         .ref-tag {
             display: inline-flex;
@@ -2228,7 +2276,7 @@
                     onclick="toggleUnhandledFilter()">开/关</button>
         </div>
     `;
-            mainHeader.style.backgroundColor = getStoreColor(null);
+            mainHeader.style.setProperty('--store-accent', getStoreColor(null));
             storeHeaderEl.appendChild(mainHeader);
 
             // Competitor Headers
@@ -2246,7 +2294,7 @@
                         onclick="setSort('${field}', 'desc')">↓</button>
             </div>
         `;
-                h.style.backgroundColor = getStoreColor(s.id);
+                h.style.setProperty('--store-accent', getStoreColor(s.id));
                 storeHeaderEl.appendChild(h);
             });
 
@@ -2519,6 +2567,15 @@
             return colors[idx] || 'rgba(0,0,0,0.05)';
         }
 
+        const REF_ICON_IMAGE = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5.5" width="17" height="13" rx="1.8"/><path d="M3.5 10h17"/><path d="M7 15h6"/></svg>';
+        const REF_ICON_EDIT = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h16"/><path d="M14.5 5.5l4 4L8.5 19.5H4.5v-4z"/><path d="M13 7l4 4"/></svg>';
+        const REF_ICON_UNLINK = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l2.46-2.46a5 5 0 0 0-7.07-7.07l-1.35 1.35"/><path d="M14 11a5 5 0 0 0-7.54-.54L4 12.92a5 5 0 0 0 7.07 7.07l1.35-1.35"/><path d="M5 5l14 14"/></svg>';
+        const REF_ICON_CALIBRATE = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3"/><path d="M12 19v3"/><path d="M2 12h3"/><path d="M19 12h3"/><path d="M5.64 5.64l2.12 2.12"/><path d="M16.24 16.24l2.12 2.12"/><path d="M18.36 5.64l-2.12 2.12"/><path d="M7.76 16.24l-2.12 2.12"/></svg>';
+        const REF_ICON_PRICE = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 6v12"/><path d="M15.5 8.5H10.5a2.5 2.5 0 0 0 0 5h3a2.5 2.5 0 0 1 0 5H8.5"/></svg>';
+        const REF_ICON_LINK = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l2.46-2.46a5 5 0 0 0-7.07-7.07l-1.35 1.35"/><path d="M14 11a5 5 0 0 0-7.54-.54L4 12.92a5 5 0 0 0 7.07 7.07l1.35-1.35"/></svg>';
+        const REF_ICON_ADD = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>';
+        const REF_ICON_CHECK = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16.5 9"/></svg>';
+
         /* 
          * --- 商品卡片构造器 ---
          * 根据字段配置动态构建主店或竞店的产品信息卡片
@@ -2535,12 +2592,12 @@
             const compAddMarked = !isMain && row[`${prefix}是否新增`] === '是';
 
             card.className = `product-card ${isMain ? 'main-card' : 'comp-card'}`;
-            card.style.backgroundColor = getStoreColor(storeId);
+            if (isMain) card.style.backgroundColor = getStoreColor(null);
 
             if (!isMain && !isLinked) {
                 card.classList.add('empty-card');
                 if (!isUnlinkedMode) {
-                    card.innerHTML = `<button type="button" class="ref-icon-btn ref-btn-calibrate ref-btn-calibrate-text" onclick="openModal('${storeId}', '${mainSkuId}')" title="手动选择" aria-label="手动选择">手动选择</button>`;
+                    card.innerHTML = `<button type="button" class="manual-select-card-btn" onclick="openModal('${storeId}', '${mainSkuId}')" title="手动选择" aria-label="手动选择"><span class="manual-select-plus">+</span><span>手动选择</span></button>`;
                 } else {
                     card.innerHTML = `<div style="color: #94a3b8; font-size: 11px;">无内容</div>`;
                 }
@@ -2783,17 +2840,17 @@
                 </label>
             ` : `
                 ${!isUnlinkedMode ? `
-                    <button type="button" class="ref-icon-btn ref-btn-image ${row['ref_image_store'] === storeId ? 'ref-active-image' : ''}" onclick="toggleRef('${mainSkuId}', '${storeId}', 'image')" title="用此图片">📷</button>
-                    <button type="button" class="ref-icon-btn ref-btn-name ${row['ref_name_store'] === storeId ? 'ref-active-name' : ''}" onclick="toggleRef('${mainSkuId}', '${storeId}', 'name')" title="用此名称">✏️</button>
-                    <button type="button" class="ref-icon-btn ref-btn-unlink" onclick="unlinkProduct('${storeId}', '${mainSkuId}')" title="取消关联" aria-label="取消关联"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/><line x1="4" y1="4" x2="20" y2="20"/></svg></button>
-                    <button type="button" class="ref-icon-btn ref-btn-calibrate" onclick="openModal('${storeId}', '${mainSkuId}')" title="手动选择" aria-label="手动选择"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
-                    <button type="button" class="ref-icon-btn ref-btn-pricematch ${compPriceMatched ? 'ref-active-pricematch' : ''}" onclick="priceMatch('${storeId}', '${mainSkuId}')" title="${compPriceMatched ? '取消跟价' : '智能跟价'}" aria-label="${compPriceMatched ? '取消跟价' : '智能跟价'}"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></button>
+                    <button type="button" class="ref-icon-btn ref-btn-image ${row['ref_image_store'] === storeId ? 'ref-active-image' : ''}" onclick="toggleRef('${mainSkuId}', '${storeId}', 'image')" title="用此图片" aria-label="用此图片">${REF_ICON_IMAGE}</button>
+                    <button type="button" class="ref-icon-btn ref-btn-name ${row['ref_name_store'] === storeId ? 'ref-active-name' : ''}" onclick="toggleRef('${mainSkuId}', '${storeId}', 'name')" title="用此名称" aria-label="用此名称">${REF_ICON_EDIT}</button>
+                    <button type="button" class="ref-icon-btn ref-btn-unlink" onclick="unlinkProduct('${storeId}', '${mainSkuId}')" title="取消关联" aria-label="取消关联">${REF_ICON_UNLINK}</button>
+                    <button type="button" class="ref-icon-btn ref-btn-calibrate" onclick="openModal('${storeId}', '${mainSkuId}')" title="手动选择" aria-label="手动选择">${REF_ICON_CALIBRATE}</button>
+                    <button type="button" class="ref-icon-btn ref-btn-pricematch ${compPriceMatched ? 'ref-active-pricematch' : ''}" onclick="priceMatch('${storeId}', '${mainSkuId}')" title="${compPriceMatched ? '取消跟价' : '智能跟价'}" aria-label="${compPriceMatched ? '取消跟价' : '智能跟价'}">${REF_ICON_PRICE}</button>
                 ` : ''}
                 ${isUnlinkedMode && row[prefix + '__from_pool'] ? `
-                    <button type="button" class="ref-icon-btn ref-btn-link-pool" onclick="performLinkFromPool('${storeId}', '${compSkuId}')" title="关联商品" aria-label="关联商品"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></button>
-                    <button type="button" class="ref-icon-btn ref-btn-add ${compAddMarked ? 'ref-active-add' : ''}" onclick="toggleAdd('${storeId}', '${compSkuId}')" title="${compAddMarked ? '移除新增' : '标记新增'}" aria-label="${compAddMarked ? '移除新增' : '标记新增'}">${compAddMarked ? '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>' : '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 8v8m-4-4h8"/></svg>'}</button>
+                    <button type="button" class="ref-icon-btn ref-btn-link-pool" onclick="performLinkFromPool('${storeId}', '${compSkuId}')" title="关联商品" aria-label="关联商品">${REF_ICON_LINK}</button>
+                    <button type="button" class="ref-icon-btn ref-btn-add ${compAddMarked ? 'ref-active-add' : ''}" onclick="toggleAdd('${storeId}', '${compSkuId}')" title="${compAddMarked ? '移除新增' : '标记新增'}" aria-label="${compAddMarked ? '移除新增' : '标记新增'}">${compAddMarked ? REF_ICON_CHECK : REF_ICON_ADD}</button>
                 ` : `
-                    <button type="button" class="ref-icon-btn ref-btn-add ${compAddMarked ? 'ref-active-add' : ''}" onclick="toggleAdd('${storeId}', '${compSkuId}')" title="${compAddMarked ? '移除新增' : '标记新增'}" aria-label="${compAddMarked ? '移除新增' : '标记新增'}">${compAddMarked ? '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>' : '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 8v8m-4-4h8"/></svg>'}</button>
+                    <button type="button" class="ref-icon-btn ref-btn-add ${compAddMarked ? 'ref-active-add' : ''}" onclick="toggleAdd('${storeId}', '${compSkuId}')" title="${compAddMarked ? '移除新增' : '标记新增'}" aria-label="${compAddMarked ? '移除新增' : '标记新增'}">${compAddMarked ? REF_ICON_CHECK : REF_ICON_ADD}</button>
                 `}
             `}
         </div>

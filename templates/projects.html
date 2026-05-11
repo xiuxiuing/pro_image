@@ -138,13 +138,19 @@
             overflow: visible;
         }
 
+        .project-carousel-wrap {
+            position: relative;
+            width: min(calc(280px * 3.5 + 32px * 3), calc(100vw - 64px));
+            max-width: calc(280px * 3.5 + 32px * 3);
+        }
+
         .project-grid {
             --card-w: 280px;
             --card-gap: 32px;
             display: flex;
             align-items: stretch;
             gap: var(--card-gap);
-            max-width: calc(var(--card-w) * 3.5 + var(--card-gap) * 3);
+            max-width: 100%;
             overflow-x: auto;
             overflow-y: hidden;
             flex-wrap: nowrap;
@@ -152,6 +158,7 @@
             -webkit-overflow-scrolling: touch;
             padding: 10px 0;
             margin: 0 auto;
+            outline: none;
         }
         .project-grid.grid-centered {
             justify-content: center;
@@ -163,6 +170,40 @@
             -ms-overflow-style: none;
             scrollbar-width: none;
         }
+
+        .project-scroll-btn {
+            position: absolute;
+            top: 50%;
+            z-index: 20;
+            width: 42px;
+            height: 42px;
+            border: 0;
+            border-radius: 999px;
+            background: transparent;
+            color: #0f172a;
+            box-shadow: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 26px;
+            font-weight: 800;
+            line-height: 1;
+            cursor: pointer;
+            transform: translateY(-50%);
+            opacity: 1;
+            transition: opacity 0.18s ease, background-color 0.18s ease, transform 0.18s ease;
+        }
+        .project-scroll-btn:hover {
+            background: transparent;
+            transform: translateY(-50%) scale(1.04);
+        }
+        .project-scroll-btn:disabled,
+        .project-scroll-btn.is-hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        .project-scroll-btn.prev { left: -18px; }
+        .project-scroll-btn.next { right: -18px; }
 
         .project-card {
             background: rgba(255, 255, 255, 0.85);
@@ -653,6 +694,12 @@
                 grid-template-columns: 1fr;
                 gap: 0;
             }
+            .project-carousel-wrap {
+                width: min(100%, calc(100vw - 28px));
+            }
+            .project-scroll-btn {
+                display: none;
+            }
         }
 
         @media (prefers-reduced-motion: reduce) {
@@ -724,8 +771,12 @@
         </header>
 
         <div class="project-section">
-            <div class="project-grid" id="project-list">
-                <!-- Projects injected here -->
+            <div class="project-carousel-wrap">
+                <button class="project-scroll-btn prev is-hidden" type="button" id="project-scroll-prev" aria-label="向左滚动项目">‹</button>
+                <div class="project-grid" id="project-list" tabindex="0" aria-label="项目列表">
+                    <!-- Projects injected here -->
+                </div>
+                <button class="project-scroll-btn next is-hidden" type="button" id="project-scroll-next" aria-label="向右滚动项目">›</button>
             </div>
         </div>
     </div>
@@ -949,6 +1000,76 @@
         let _pollTimer = null;
         let _hasAnalyzing = false;
         let _analyzingIds = new Set();
+        let _projectListHot = false;
+
+        function getProjectList() {
+            return document.getElementById('project-list');
+        }
+
+        function getProjectScrollStep(list) {
+            const card = list?.querySelector('.project-card');
+            const styles = list ? getComputedStyle(list) : null;
+            const gap = parseFloat(styles?.columnGap || styles?.gap || '32') || 32;
+            return card ? card.getBoundingClientRect().width + gap : 312;
+        }
+
+        function updateProjectScrollButtons() {
+            const list = getProjectList();
+            const prev = document.getElementById('project-scroll-prev');
+            const next = document.getElementById('project-scroll-next');
+            if (!list || !prev || !next) return;
+
+            const maxScroll = Math.max(0, list.scrollWidth - list.clientWidth);
+            const hasOverflow = maxScroll > 4;
+            const atStart = list.scrollLeft <= 2;
+            const atEnd = list.scrollLeft >= maxScroll - 2;
+
+            prev.disabled = !hasOverflow || atStart;
+            next.disabled = !hasOverflow || atEnd;
+            prev.classList.toggle('is-hidden', !hasOverflow || atStart);
+            next.classList.toggle('is-hidden', !hasOverflow || atEnd);
+            prev.setAttribute('aria-hidden', String(!hasOverflow || atStart));
+            next.setAttribute('aria-hidden', String(!hasOverflow || atEnd));
+            list.tabIndex = hasOverflow ? 0 : -1;
+        }
+
+        function scrollProjectList(direction) {
+            const list = getProjectList();
+            if (!list) return;
+            list.scrollBy({ left: direction * getProjectScrollStep(list), behavior: 'smooth' });
+            setTimeout(updateProjectScrollButtons, 260);
+        }
+
+        function isTypingTarget(el) {
+            return !!el?.closest?.('input, textarea, select, [contenteditable="true"]');
+        }
+
+        function bindProjectCarouselControls() {
+            const list = getProjectList();
+            const prev = document.getElementById('project-scroll-prev');
+            const next = document.getElementById('project-scroll-next');
+            if (!list || !prev || !next) return;
+
+            prev.addEventListener('click', () => scrollProjectList(-1));
+            next.addEventListener('click', () => scrollProjectList(1));
+            list.addEventListener('scroll', updateProjectScrollButtons, { passive: true });
+            list.addEventListener('mouseenter', () => { _projectListHot = true; });
+            list.addEventListener('mouseleave', () => { _projectListHot = false; });
+            list.addEventListener('focusin', () => { _projectListHot = true; });
+            list.addEventListener('focusout', () => { _projectListHot = false; });
+            window.addEventListener('resize', () => requestAnimationFrame(updateProjectScrollButtons));
+            document.addEventListener('keydown', (event) => {
+                if (!_projectListHot || isTypingTarget(event.target)) return;
+                if (event.key === 'ArrowLeft') {
+                    event.preventDefault();
+                    scrollProjectList(-1);
+                } else if (event.key === 'ArrowRight') {
+                    event.preventDefault();
+                    scrollProjectList(1);
+                }
+            });
+            updateProjectScrollButtons();
+        }
 
         function requestNotifyPermission() {
             if ('Notification' in window && Notification.permission === 'default') {
@@ -1076,6 +1197,7 @@
 
                 const totalCards = projects.length + 1;
                 list.classList.toggle('grid-centered', totalCards <= 3);
+                requestAnimationFrame(updateProjectScrollButtons);
 
                 updateWarningBanner(projects);
 
@@ -1332,6 +1454,7 @@
         }
 
         setupProjectPagePerformance();
+        bindProjectCarouselControls();
         requestNotifyPermission();
         loadRuleTemplates();
         loadProjects();

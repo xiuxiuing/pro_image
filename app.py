@@ -533,6 +533,49 @@ def _ops_create_license_file(hwids, expires_days, out_path, uploaded_key=None):
     return expires
 
 
+_OPS_PYARMOR_FILES = [
+    "app.py",
+    "data_mgr.py",
+    "data_mgr_base.py",
+    "data_mgr_import.py",
+    "data_mgr_query.py",
+    "data_mgr_ops.py",
+    "data_mgr_export.py",
+    "data_mgr_rule_templates.py",
+    "license_utils.py",
+    "main_030822.py",
+    "extract_info_ai2.py",
+    "product_text_extract.py",
+    "post_match_engine.py",
+    "utils.py",
+    "merge_sku_data.py",
+]
+
+
+def _ops_pyarmor_command():
+    pyarmor = shutil.which("pyarmor")
+    if pyarmor:
+        return [pyarmor]
+    user_bin = os.path.join(os.path.expanduser("~"), "Library", f"Python/{sys.version_info.major}.{sys.version_info.minor}", "bin", "pyarmor")
+    if os.path.isfile(user_bin):
+        return [user_bin]
+    return [sys.executable, "-m", "pyarmor"]
+
+
+def _ops_verify_pyarmor_output(obf_dir):
+    missing = [name for name in _OPS_PYARMOR_FILES if not os.path.isfile(os.path.join(obf_dir, name))]
+    runtime_dirs = [
+        name for name in os.listdir(obf_dir) if name.startswith("pyarmor_runtime_") and os.path.isdir(os.path.join(obf_dir, name))
+    ] if os.path.isdir(obf_dir) else []
+    if missing or not runtime_dirs:
+        parts = []
+        if missing:
+            parts.append("缺少文件：" + ", ".join(missing))
+        if not runtime_dirs:
+            parts.append("缺少 pyarmor_runtime_* 目录")
+        raise RuntimeError("PyArmor 混淆结果不完整；" + "；".join(parts))
+
+
 def _ops_run_command(task_id, step_idx, cmd, cwd):
     _ops_update_step(task_id, step_idx, "running", " ".join(cmd))
     proc = subprocess.Popen(
@@ -559,6 +602,12 @@ def _ops_run_command(task_id, step_idx, cmd, cwd):
 
 def _ops_zip_path(src_path, zip_path):
     os.makedirs(os.path.dirname(zip_path), exist_ok=True)
+    if platform.system() == "Darwin" and os.path.isdir(src_path) and src_path.endswith(".app"):
+        subprocess.run(
+            ["ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", src_path, zip_path],
+            check=True,
+        )
+        return zip_path
     base = zip_path[:-4] if zip_path.lower().endswith(".zip") else zip_path
     if os.path.isdir(src_path):
         shutil.make_archive(base, "zip", root_dir=os.path.dirname(src_path), base_dir=os.path.basename(src_path))
@@ -909,7 +958,7 @@ def api_ops_package_build():
     if target not in ("macos", "windows"):
         return jsonify({"status": "error", "message": "请选择 macOS 或 Windows"}), 400
 
-    task = _ops_create_task("package", ["检查环境", "执行打包", "压缩产物"], f"{target} 打包排队中")
+    task = _ops_create_task("package", ["检查环境", "PyArmor 混淆", "PyInstaller 打包", "压缩产物"], f"{target} 打包排队中")
     task_id = task["task_id"]
 
     def _run_package_bg():
@@ -936,14 +985,31 @@ def api_ops_package_build():
                 artifact = os.path.join(resource_root, "dist", "ProImage")
                 zip_name = f"ProImage_Windows_{time.strftime('%Y%m%d_%H%M%S')}.zip"
 
-            _ops_run_command(task_id, 1, [sys.executable, "-m", "PyInstaller", "-y", spec], resource_root)
+            obf_dir = os.path.join(resource_root, "dist", "obfuscated")
+            if os.path.isdir(obf_dir):
+                shutil.rmtree(obf_dir)
+            pyarmor_cmd = _ops_pyarmor_command() + ["gen", "-O", os.path.join("dist", "obfuscated")] + _OPS_PYARMOR_FILES
+            try:
+                _ops_run_command(task_id, 1, pyarmor_cmd, resource_root)
+                _ops_verify_pyarmor_output(obf_dir)
+                _ops_update_step(task_id, 1, "done", f"完成，已生成 {len(_OPS_PYARMOR_FILES)} 个混淆文件")
+            except BaseException as e:
+                if os.path.isdir(obf_dir):
+                    shutil.rmtree(obf_dir)
+                detail = str(e).splitlines()[-1] if str(e).splitlines() else str(e)
+                _ops_update_step(task_id, 1, "done", f"混淆失败，已清理并改用源码模式：{detail[:180]}")
+
+            _ops_run_command(task_id, 2, [sys.executable, "-m", "PyInstaller", "-y", spec], resource_root)
             if not os.path.exists(artifact):
                 raise RuntimeError(f"打包产物不存在：{artifact}")
+            if target == "macos":
+                _ops_run_command(task_id, 2, ["xattr", "-cr", artifact], resource_root)
+                _ops_run_command(task_id, 2, ["codesign", "--force", "--deep", "--sign", "-", artifact], resource_root)
             task_dir = _ops_task_dir(task_id)
             zip_path = os.path.join(task_dir, zip_name)
-            _ops_update_step(task_id, 2, "running", "压缩产物")
+            _ops_update_step(task_id, 3, "running", "压缩产物")
             _ops_zip_path(artifact, zip_path)
-            _ops_update_step(task_id, 2, "done", "完成")
+            _ops_update_step(task_id, 3, "done", "完成")
             _ops_set_task(
                 task_id,
                 status="done",

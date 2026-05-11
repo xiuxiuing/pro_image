@@ -2,7 +2,7 @@
 # 混合方案：Nuitka 编译业务模块 (.pyd) + PyInstaller 打包
 # 步骤：
 #   1. 先用 Nuitka --module 编译业务模块到 nuitka_modules/
-#   2. 准备 _build_src/ 目录（复制 app.py + .pyd + templates + static）
+#   2. 准备 _build_src/ 目录（复制 app.py + .pyd + templates + static + data）
 #   3. python -m PyInstaller -y ProImage_nuitka_Windows.spec
 
 import os, glob
@@ -26,6 +26,7 @@ for so in glob.glob(os.path.join(_src, '*.so')):
 _datas = [
     (os.path.join(_src, 'templates'), 'templates'),
     (os.path.join(_src, 'static'), 'static'),
+    (os.path.join(_src, 'data'), 'data'),
 ] + copy_metadata('regex') + copy_metadata('tqdm') + copy_metadata('transformers')
 
 if os.path.isdir(os.path.join(_root, 'models')):
@@ -39,7 +40,7 @@ a = Analysis(
     hiddenimports=[
         'flask', 'pandas', 'numpy', 'torch', 'torchvision', 'torchaudio',
         'openpyxl', 'PIL', 'PIL.Image', 'faiss',
-        'transformers', 'google.genai', 'pydantic', 'cryptography',
+        'transformers', 'google.genai', 'openai', 'pydantic', 'cryptography',
         'werkzeug', 'jinja2', 'markupsafe', 'itsdangerous',
         'click', 'tqdm', 'requests', 'filelock', 'regex', 'safetensors',
         'scipy', 'sentence_transformers',
@@ -49,9 +50,10 @@ a = Analysis(
     runtime_hooks=[],
     excludes=[
         'data_mgr', 'data_mgr_base', 'data_mgr_import', 'data_mgr_query',
-        'data_mgr_ops', 'data_mgr_export',
+        'data_mgr_ops', 'data_mgr_export', 'data_mgr_rule_templates',
         'license_utils', 'main_030822',
-        'extract_info_ai2', 'utils', 'merge_sku_data',
+        'extract_info_ai2', 'product_text_extract', 'post_match_engine',
+        'utils', 'merge_sku_data',
     ],
     noarchive=False,
     optimize=0,

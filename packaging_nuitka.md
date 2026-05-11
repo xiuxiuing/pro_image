@@ -6,7 +6,7 @@
 
 采用 **Nuitka 编译 + PyInstaller 打包** 的混合方案：
 
-1. **Nuitka `--module`**：将 6 个业务模块编译为原生二进制（`.so` / `.pyd`），无法反编译
+1. **Nuitka `--module`**：将 14 个一方业务模块编译为原生二进制（`.so` / `.pyd`），无法反编译
 2. **PyInstaller**：负责收集第三方依赖、Python 运行时，生成 `.app` / `.exe`
 
 > **为什么不用纯 Nuitka standalone？**
@@ -14,10 +14,10 @@
 
 | 层级 | 文件 | 处理方式 | 保护级别 |
 |------|------|---------|---------|
-| 业务层 | `data_mgr.py` `license_utils.py` `main_030822.py` `extract_info_ai2.py` `utils.py` `merge_sku_data.py` | Nuitka 编译为原生 `.so` / `.pyd` | **极高（无法反编译）** |
+| 业务层 | `data_mgr.py` `data_mgr_base.py` `data_mgr_import.py` `data_mgr_query.py` `data_mgr_ops.py` `data_mgr_export.py` `data_mgr_rule_templates.py` `license_utils.py` `main_030822.py` `extract_info_ai2.py` `product_text_extract.py` `post_match_engine.py` `utils.py` `merge_sku_data.py` | Nuitka 编译为原生 `.so` / `.pyd` | **极高（无法反编译）** |
 | 入口文件 | `app.py` | PyInstaller 打包为 `.pyc` 字节码 | 中（可反编译，仅含路由定义） |
 | 第三方库 | torch, pandas, flask, cryptography 等 | PyInstaller 原样打包 | 无需保护（开源库） |
-| 资源文件 | `templates/`, `static/` | 原样复制 | 不涉及 |
+| 资源文件 | `templates/`, `static/`, `data/` | 原样复制 | 不涉及 |
 
 ### 不打包的内容
 
@@ -85,20 +85,22 @@ lsof -i :5001 && echo "端口仍被占用" || echo "端口已释放"
 
 ### 第 2 步：Nuitka 编译业务模块
 
-将 11 个业务 `.py` 编译为原生 `.so`（约 30 秒）：
+将 14 个业务 `.py` 编译为原生 `.so`（约 30 秒）：
 
 ```bash
 mkdir -p nuitka_modules
 
-for mod in data_mgr data_mgr_base data_mgr_import data_mgr_query data_mgr_ops data_mgr_export license_utils main_030822 extract_info_ai2 utils merge_sku_data; do
+for mod in data_mgr data_mgr_base data_mgr_import data_mgr_query data_mgr_ops data_mgr_export data_mgr_rule_templates license_utils main_030822 extract_info_ai2 product_text_extract post_match_engine utils merge_sku_data; do
   echo "=== 编译 $mod ==="
   python3 -m nuitka --module --output-dir=nuitka_modules "$mod.py"
   echo ""
 done
 ```
 
-验证编译结果（应有 11 个 `.so` 文件）：
-# ... (omitting long list for brevity in replace call, but ensuring it matches requested logic)
+验证编译结果（应有 14 个 `.so` 文件）：
+
+```bash
+ls nuitka_modules/*.cpython-312-darwin.so | wc -l
 ```
 
 ### 第 3 步：准备打包目录并执行 PyInstaller
@@ -106,18 +108,21 @@ done
 ```bash
 # 3a. 创建 _build_src 目录
 rm -rf _build_src
-mkdir -p _build_src/templates _build_src/static
+mkdir -p _build_src/templates _build_src/static _build_src/data
 
 # 3b. 复制入口文件和资源
 cp app.py _build_src/
 cp -r templates/* _build_src/templates/
 cp -r static/* _build_src/static/
+cp -r data/* _build_src/data/
 
 # 3c. 复制 Nuitka 编译的 .so 模块
-for mod in data_mgr data_mgr_base data_mgr_import data_mgr_query data_mgr_ops data_mgr_export license_utils main_030822 extract_info_ai2 utils merge_sku_data; do
+for mod in data_mgr data_mgr_base data_mgr_import data_mgr_query data_mgr_ops data_mgr_export data_mgr_rule_templates license_utils main_030822 extract_info_ai2 product_text_extract post_match_engine utils merge_sku_data; do
   cp "nuitka_modules/${mod}.cpython-312-darwin.so" "_build_src/"
 done
-# ...
+
+# 3d. PyInstaller 打包
+python3 -m PyInstaller -y ProImage_nuitka_macOS.spec
 ```
 
 ### 第 4 步：验证打包结果
@@ -127,7 +132,7 @@ done
 du -sh dist/ProImage_AI.app
 
 # 4b. 确认 .so 文件在位、无 .py 源码泄露
-ls dist/ProImage_AI.app/Contents/Frameworks/ | grep -E "^(data_mgr|license_utils|main_030822|extract_info_ai2|utils|merge_sku_data)\."
+ls dist/ProImage_AI.app/Contents/Frameworks/ | grep -E "^(data_mgr|license_utils|main_030822|extract_info_ai2|product_text_extract|post_match_engine|utils|merge_sku_data)\."
 ```
 
 预期输出（只有 `.so`，无 `.py`）：
@@ -139,10 +144,13 @@ data_mgr_export.cpython-312-darwin.so
 data_mgr_import.cpython-312-darwin.so
 data_mgr_ops.cpython-312-darwin.so
 data_mgr_query.cpython-312-darwin.so
+data_mgr_rule_templates.cpython-312-darwin.so
 extract_info_ai2.cpython-312-darwin.so
 license_utils.cpython-312-darwin.so
 main_030822.cpython-312-darwin.so
 merge_sku_data.cpython-312-darwin.so
+post_match_engine.cpython-312-darwin.so
+product_text_extract.cpython-312-darwin.so
 utils.cpython-312-darwin.so
 ```
 
@@ -179,15 +187,20 @@ rm -rf build/ProImage_nuitka_macOS
 ```powershell
 mkdir nuitka_modules -ErrorAction SilentlyContinue
 
-python -m nuitka --module --output-dir=nuitka_modules data_mgr.py
-python -m nuitka --module --output-dir=nuitka_modules license_utils.py
-python -m nuitka --module --output-dir=nuitka_modules main_030822.py
-python -m nuitka --module --output-dir=nuitka_modules extract_info_ai2.py
-python -m nuitka --module --output-dir=nuitka_modules utils.py
-python -m nuitka --module --output-dir=nuitka_modules merge_sku_data.py
+$mods = @(
+  "data_mgr", "data_mgr_base", "data_mgr_import", "data_mgr_query",
+  "data_mgr_ops", "data_mgr_export", "data_mgr_rule_templates",
+  "license_utils", "main_030822", "extract_info_ai2",
+  "product_text_extract", "post_match_engine", "utils", "merge_sku_data"
+)
+
+foreach ($mod in $mods) {
+  Write-Host "=== 编译 $mod ==="
+  python -m nuitka --module --output-dir=nuitka_modules "$mod.py"
+}
 ```
 
-验证编译结果（应有 6 个 `.pyd` 文件）：
+验证编译结果（应有 14 个 `.pyd` 文件）：
 
 ```powershell
 dir nuitka_modules\*.pyd
@@ -198,20 +211,18 @@ dir nuitka_modules\*.pyd
 ```powershell
 # 创建 _build_src
 Remove-Item -Recurse -Force _build_src -ErrorAction SilentlyContinue
-mkdir _build_src\templates, _build_src\static
+mkdir _build_src\templates, _build_src\static, _build_src\data
 
 # 复制入口和资源
 Copy-Item app.py _build_src\
 Copy-Item templates\* _build_src\templates\ -Recurse
 Copy-Item static\* _build_src\static\ -Recurse
+Copy-Item data\* _build_src\data\ -Recurse
 
 # 复制 .pyd 模块
-Copy-Item nuitka_modules\data_mgr.cp312-win_amd64.pyd _build_src\
-Copy-Item nuitka_modules\license_utils.cp312-win_amd64.pyd _build_src\
-Copy-Item nuitka_modules\main_030822.cp312-win_amd64.pyd _build_src\
-Copy-Item nuitka_modules\extract_info_ai2.cp312-win_amd64.pyd _build_src\
-Copy-Item nuitka_modules\utils.cp312-win_amd64.pyd _build_src\
-Copy-Item nuitka_modules\merge_sku_data.cp312-win_amd64.pyd _build_src\
+foreach ($mod in $mods) {
+  Copy-Item "nuitka_modules\$mod.cp312-win_amd64.pyd" _build_src\
+}
 
 # PyInstaller 打包
 python -m PyInstaller -y ProImage_nuitka_Windows.spec
@@ -241,7 +252,7 @@ python -m PyInstaller -y ProImage_nuitka_Windows.spec
 ### Spec 核心逻辑
 
 ```python
-# _build_src/ 中只有 app.py 和 .so 文件，没有业务 .py 源码
+# _build_src/ 中只有 app.py、资源目录和 .so/.pyd 文件，没有业务 .py 源码
 _entry = ['_build_src/app.py']
 
 # .so 文件作为 binaries 打入
@@ -270,6 +281,7 @@ dist/
             ├── merge_sku_data.cpython-312-darwin.so
             ├── templates/        ← 前端模板
             ├── static/           ← 静态资源
+            ├── data/             ← 默认类目/规则辅助数据
             ├── torch/            ← 第三方库
             ├── numpy/
             └── ...
@@ -286,6 +298,7 @@ dist/
     ├── ...
     ├── templates/
     ├── static/
+    ├── data/
     └── torch/
 ```
 
@@ -338,7 +351,7 @@ hiddenimports=[
 **原因**：`_build_src/` 未正确准备，或 PyInstaller 未收集到第三方依赖
 
 **解决**：
-1. 确认 `_build_src/` 中有 `app.py` + 6 个 `.so` 文件 + `templates/` + `static/`
+1. 确认 `_build_src/` 中有 `app.py` + 14 个 `.so` / `.pyd` 文件 + `templates/` + `static/` + `data/`
 2. 重新执行 `python3 -m PyInstaller -y ProImage_nuitka_macOS.spec`
 3. 正常产物应 > 500MB
 
@@ -384,7 +397,7 @@ rmdir /s /q dist build _build_src nuitka_modules
 
 | 维度 | PyArmor + PyInstaller | 纯 Nuitka standalone | **Nuitka 混合（本方案）** |
 |------|----------------------|---------------------|-------------------------|
-| 代码保护 | .pyc 混淆（可破解） | 原生二进制 | **原生二进制（6 模块）** |
+| 代码保护 | .pyc 混淆（可破解） | 原生二进制 | **原生二进制（14 模块）** |
 | 额外许可证 | PyArmor 需付费 | 无 | **无** |
 | 构建时间 | ~90 秒 | 兼容性问题，无法完成 | **~3 分钟** |
 | 产物大小 | ~635MB | 66MB（缺依赖） | **~635MB** |

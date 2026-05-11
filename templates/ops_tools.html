@@ -325,7 +325,7 @@
 
         <section>
             <h2>程序打包</h2>
-            <p class="hint">复用现有 PyInstaller spec 打包程序。本机是什么系统，就只能打对应系统产物；Windows 包需要在 Windows 打包机上运行。</p>
+            <p class="hint">按 packaging_guide_zh.md 的 PyArmor 旧方案执行：优先混淆 15 个业务文件，再复用 PyInstaller spec 打包；如果混淆失败，会自动清理并改用源码模式继续打包。</p>
             <form id="package-form">
                 <div class="field">
                     <label>打包目标</label>
@@ -333,7 +333,7 @@
                         <option value="macos">macOS .app</option>
                         <option value="windows">Windows 程序包</option>
                     </select>
-                    <div class="inline-note">macOS 使用 ProImage_macOS.spec；Windows 使用 ProImage_Windows.spec。</div>
+                    <div class="inline-note">流程：PyArmor gen -O dist/obfuscated；失败则跳过混淆 → ProImage_macOS.spec / ProImage_Windows.spec → ZIP。</div>
                 </div>
                 <div class="actions">
                     <button class="primary" type="submit" id="package-submit">开始打包</button>

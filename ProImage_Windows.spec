@@ -4,7 +4,7 @@
 #
 # 禁止加入 datas（内部/敏感，勿随 exe 分发）：
 #   packaging_guide_zh.md、BUILD_WINDOWS.md、license.dat、keygen_tool.py、private_key.pem、*.pem 等
-# 仅白名单：templates、static、models（见下方 _datas）
+# 仅白名单：templates、static、data、models（见下方 _datas）
 
 import os
 from PyInstaller.utils.hooks import copy_metadata
@@ -25,6 +25,7 @@ else:
 _datas = [
     ('templates', 'templates'),
     ('static', 'static'),
+    ('data', 'data'),
 ] + copy_metadata('regex') + copy_metadata('tqdm') + copy_metadata('transformers')
 if os.path.isdir(os.path.join(_root, 'models')):
     _datas.append(('models', 'models'))
@@ -37,9 +38,10 @@ a = Analysis(
     hiddenimports=[
         'flask', 'pandas', 'numpy', 'torch', 'torchvision', 'torchaudio',
         'openpyxl', 'PIL', 'PIL.Image', 'faiss',
-        'transformers', 'google.genai', 'pydantic', 'cryptography',
+        'transformers', 'google.genai', 'openai', 'pydantic', 'cryptography',
         'data_mgr', 'data_mgr_base', 'data_mgr_import', 'data_mgr_query', 'data_mgr_ops', 'data_mgr_export',
-        'license_utils', 'main_030822', 'extract_info_ai2', 'utils',
+        'data_mgr_rule_templates',
+        'license_utils', 'main_030822', 'extract_info_ai2', 'product_text_extract', 'post_match_engine', 'utils',
         'merge_sku_data', 'werkzeug', 'jinja2', 'markupsafe', 'itsdangerous', 
         'click', 'tqdm', 'requests', 'filelock', 'regex', 'safetensors',
         'scipy',
