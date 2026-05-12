@@ -12,8 +12,22 @@ pip install pyarmor pyinstaller
 PyArmor obfuscates the Python bytecode, making it unreadable to humans and decompilers.
 
 1.  **Obfuscate the core logic**:
+
+    Windows CMD:
+    ```bat
+    pyarmor gen -O dist\obfuscated app.py app_ops.py app_ops_tasks.py app_ops_extra.py app_data.py app_data_projects.py app_data_rules.py app_data_grid.py data_mgr.py data_mgr_base.py data_mgr_import.py data_mgr_query.py data_mgr_query_unlinked.py data_mgr_ops.py data_mgr_export.py data_mgr_rule_templates.py license_utils.py main_030822.py extract_info_ai2.py extract_info_schema.py extract_info_rules.py product_text_extract.py post_match_engine.py utils.py merge_sku_data.py
+    ```
+
+    macOS / bash:
     ```bash
-    pyarmor gen -O dist/obfuscated app.py data_mgr.py license_utils.py main_030822.py extract_info_ai2.py
+    pyarmor gen -O dist/obfuscated \
+      app.py app_ops.py app_ops_tasks.py app_ops_extra.py \
+      app_data.py app_data_projects.py app_data_rules.py app_data_grid.py \
+      data_mgr.py data_mgr_base.py data_mgr_import.py data_mgr_query.py \
+      data_mgr_query_unlinked.py data_mgr_ops.py data_mgr_export.py \
+      data_mgr_rule_templates.py license_utils.py main_030822.py \
+      extract_info_ai2.py extract_info_schema.py extract_info_rules.py \
+      product_text_extract.py post_match_engine.py utils.py merge_sku_data.py
     ```
     This creates an `obfuscated` directory containing the protected files and a `pyarmor_runtime` package.
 

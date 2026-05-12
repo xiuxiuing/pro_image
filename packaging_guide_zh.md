@@ -33,16 +33,20 @@
 | 文件 | 说明 |
 |------|------|
 | `app.py` | Flask 入口 |
+| `app_ops.py` / `app_ops_tasks.py` / `app_ops_extra.py` | 运营工具与打包辅助接口 |
+| `app_data.py` / `app_data_projects.py` / `app_data_rules.py` / `app_data_grid.py` | 项目、规则、工作台数据接口 |
 | `data_mgr.py` | 数据管理入口 |
 | `data_mgr_base.py` | 数据管理 - 基础 & DB |
 | `data_mgr_import.py` | 数据管理 - 导入逻辑 |
 | `data_mgr_query.py` | 数据管理 - 查询与分页 |
+| `data_mgr_query_unlinked.py` | 数据管理 - 未关联池分页 |
 | `data_mgr_ops.py` | 数据管理 - 业务操作 |
 | `data_mgr_export.py` | 数据管理 - 导出逻辑 |
 | `data_mgr_rule_templates.py` | 数据管理 - 规则模板 |
 | `license_utils.py` | 授权校验 |
 | `main_030822.py` | 核心算法 |
 | `extract_info_ai2.py` | AI 信息提取 |
+| `extract_info_schema.py` / `extract_info_rules.py` | AI 提取 schema 与本地兜底规则 |
 | `product_text_extract.py` | 商品文本规则提取 |
 | `post_match_engine.py` | 匹配后规则引擎 |
 | `utils.py` | 工具函数 |
@@ -50,27 +54,58 @@
 
 ### 1.2 执行混淆
 
+#### Windows CMD
+
+> CMD 中不要使用 `\` 换行；如需换行请用 `^`，且 `^` 后不能有空格。最稳妥是直接使用下面这一行。
+
+```bat
+pyarmor gen -O dist\obfuscated app.py app_ops.py app_ops_tasks.py app_ops_extra.py app_data.py app_data_projects.py app_data_rules.py app_data_grid.py data_mgr.py data_mgr_base.py data_mgr_import.py data_mgr_query.py data_mgr_query_unlinked.py data_mgr_ops.py data_mgr_export.py data_mgr_rule_templates.py license_utils.py main_030822.py extract_info_ai2.py extract_info_schema.py extract_info_rules.py product_text_extract.py post_match_engine.py utils.py merge_sku_data.py
+```
+
+#### Windows PowerShell
+
+```powershell
+$files = @(
+  "app.py", "app_ops.py", "app_ops_tasks.py", "app_ops_extra.py",
+  "app_data.py", "app_data_projects.py", "app_data_rules.py", "app_data_grid.py",
+  "data_mgr.py", "data_mgr_base.py", "data_mgr_import.py", "data_mgr_query.py",
+  "data_mgr_query_unlinked.py", "data_mgr_ops.py", "data_mgr_export.py",
+  "data_mgr_rule_templates.py", "license_utils.py", "main_030822.py",
+  "extract_info_ai2.py", "extract_info_schema.py", "extract_info_rules.py",
+  "product_text_extract.py", "post_match_engine.py", "utils.py", "merge_sku_data.py"
+)
+
+pyarmor gen -O dist\obfuscated @files
+```
+
+#### macOS / bash
+
 ```bash
 pyarmor gen -O dist/obfuscated \
-  app.py app_ops.py app_data.py app_ops_extra.py data_mgr.py data_mgr_base.py \
-  data_mgr_import.py data_mgr_query.py data_mgr_ops.py data_mgr_export.py \
+  app.py app_ops.py app_ops_tasks.py app_ops_extra.py \
+  app_data.py app_data_projects.py app_data_rules.py app_data_grid.py \
+  data_mgr.py data_mgr_base.py data_mgr_import.py data_mgr_query.py \
+  data_mgr_query_unlinked.py data_mgr_ops.py data_mgr_export.py \
   data_mgr_rule_templates.py license_utils.py main_030822.py \
-  extract_info_ai2.py product_text_extract.py post_match_engine.py \
-  utils.py merge_sku_data.py
+  extract_info_ai2.py extract_info_schema.py extract_info_rules.py \
+  product_text_extract.py post_match_engine.py utils.py merge_sku_data.py
 ```
 
 ### 1.3 验证混淆结果
 
-> **关键步骤**：必须确认 `dist/obfuscated/` 下包含上述 **全部 18 个** `.py` 文件和 `pyarmor_runtime_*` 目录。
+> **关键步骤**：必须确认 `dist/obfuscated/` 下包含上述 **全部 25 个** `.py` 文件和 `pyarmor_runtime_*` 目录。
 > 如果有文件缺失，打包后 `.app`/`.exe` 启动会报 `ModuleNotFoundError`。
 
 ```bash
 ls dist/obfuscated/
 # 预期输出应包含：
-# app.py app_ops.py  data_mgr.py  data_mgr_base.py  data_mgr_export.py
-# data_mgr_import.py  data_mgr_ops.py  data_mgr_query.py  data_mgr_rule_templates.py
-# extract_info_ai2.py  product_text_extract.py  post_match_engine.py
-# license_utils.py  main_030822.py  merge_sku_data.py  utils.py
+# app.py app_ops.py app_ops_tasks.py app_ops_extra.py
+# app_data.py app_data_projects.py app_data_rules.py app_data_grid.py
+# data_mgr.py data_mgr_base.py data_mgr_export.py data_mgr_import.py
+# data_mgr_ops.py data_mgr_query.py data_mgr_query_unlinked.py data_mgr_rule_templates.py
+# extract_info_ai2.py extract_info_schema.py extract_info_rules.py
+# product_text_extract.py post_match_engine.py license_utils.py main_030822.py
+# merge_sku_data.py utils.py
 # pyarmor_runtime_000000/
 ```
 
