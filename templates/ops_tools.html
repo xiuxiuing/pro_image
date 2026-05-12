@@ -92,6 +92,44 @@
             grid-template-columns: 1fr 1fr;
             gap: 14px;
         }
+        .role-source-panel {
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 14px;
+            margin-bottom: 18px;
+            background: #f8fafc;
+        }
+        .role-source-panel h3 {
+            margin: 0 0 12px;
+            font-size: 15px;
+        }
+        .source-controls {
+            display: grid;
+            grid-template-columns: 150px 1fr;
+            gap: 12px;
+            align-items: start;
+        }
+        .astar-choice-list {
+            display: grid;
+            gap: 8px;
+            padding: 10px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            background: #fff;
+            min-height: 42px;
+        }
+        .astar-choice-list label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 0;
+            font-weight: 600;
+            color: var(--ink);
+        }
+        .astar-choice-list input {
+            width: auto;
+            min-height: 0;
+        }
         .actions {
             display: flex;
             gap: 12px;
@@ -197,15 +235,12 @@
     <main>
         <section>
             <h2>A* 数据提取</h2>
-            <p class="hint">上传主竞店原始文件，复用现有 Gemini / Kimi / 本地规则兜底提取链路，生成带 A* 字段的文件包。</p>
+            <p class="hint">上传需要提取 A* 字段的原始文件，上传几个处理几个，生成带 A* 字段的文件包。</p>
             <form id="astar-form">
                 <div class="field">
-                    <label>主店文件</label>
-                    <input type="file" name="main_file" accept=".xlsx,.xls" required>
-                </div>
-                <div class="field">
-                    <label>竞店文件</label>
-                    <input type="file" name="comp_files" accept=".xlsx,.xls" multiple required>
+                    <label>原始文件</label>
+                    <input type="file" name="source_files" accept=".xlsx,.xls" multiple required>
+                    <div class="inline-note">不区分主店/竞店；本步骤只负责批量提取 A* 字段。</div>
                 </div>
                 <div class="row">
                     <div class="field">
@@ -252,27 +287,49 @@
 
         <section>
             <h2>Output 文件生成</h2>
-            <p class="hint">上传带 A* 的主竞店文件，或直接使用左侧刚生成的 A* 文件，复用现有向量匹配和类目规则模板生成 output。</p>
+            <p class="hint">按角色选择 A* 文件来源：主店和竞店都可以本地上传，也可以从上一步 A* 提取结果中选择。</p>
             <form id="output-form">
                 <input type="hidden" name="astar_task_id" id="output-astar-task-id">
                 <input type="hidden" name="use_astar_task" id="output-use-astar-task" value="0">
-                <div class="field">
+                <div class="role-source-panel">
+                    <h3>主店 A* 文件</h3>
+                    <div class="source-controls">
+                        <select name="main_source" id="main-source">
+                            <option value="local" selected>本地上传</option>
+                            <option value="task">上一步 A* 结果</option>
+                        </select>
+                        <div>
+                            <div id="main-local-wrap">
+                                <input type="file" name="main_file" accept=".xlsx,.xls">
+                            </div>
+                            <div id="main-task-wrap" style="display:none;">
+                                <select name="astar_main_index" id="astar-main-index"></select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="role-source-panel">
+                    <h3>竞店 A* 文件</h3>
+                    <div class="source-controls">
+                        <select name="comp_source" id="comp-source">
+                            <option value="local" selected>本地上传</option>
+                            <option value="task">上一步 A* 结果</option>
+                        </select>
+                        <div>
+                            <div id="comp-local-wrap">
+                                <input type="file" name="comp_files" accept=".xlsx,.xls" multiple>
+                            </div>
+                            <div id="comp-task-wrap" class="astar-choice-list" style="display:none;"></div>
+                        </div>
+                    </div>
+                    <div class="inline-note" id="task-source-note">上一步 A* 任务完成后，可从结果中选择文件。</div>
+                </div>
+                <div class="field" style="display:none;">
                     <label>输入来源</label>
                     <select id="output-source-mode">
                         <option value="upload" selected>手动上传 A* 文件</option>
                         <option value="task">使用上一步 A* 结果</option>
                     </select>
-                    <div class="inline-note" id="task-source-note">上一步任务完成后可选择。</div>
-                </div>
-                <div id="output-upload-fields">
-                    <div class="field">
-                        <label>主店 A* 文件</label>
-                        <input type="file" name="main_file" accept=".xlsx,.xls">
-                    </div>
-                    <div class="field">
-                        <label>竞店 A* 文件</label>
-                        <input type="file" name="comp_files" accept=".xlsx,.xls" multiple>
-                    </div>
                 </div>
                 <div class="field">
                     <label>类目规则模板</label>
@@ -350,12 +407,21 @@
 
     <script>
         let lastAstarTaskId = "";
+        let lastAstarFiles = [];
         const pollers = {};
 
         function setMessage(id, text, isError = false) {
             const el = document.getElementById(id);
             el.textContent = text || "";
             el.classList.toggle("error", !!isError);
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? "")
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;");
         }
 
         function renderSteps(containerId, steps) {
@@ -378,6 +444,59 @@
                 row.appendChild(text);
                 box.appendChild(row);
             });
+        }
+
+        function renderAstarChoices() {
+            const mainSelect = document.getElementById("astar-main-index");
+            const compWrap = document.getElementById("comp-task-wrap");
+            const files = lastAstarFiles || [];
+            mainSelect.innerHTML = files.length
+                ? files.map(f => `<option value="${f.index}">${escapeHtml(f.original_name || `文件 ${Number(f.index) + 1}`)}</option>`).join("")
+                : '<option value="">暂无可用 A* 文件</option>';
+            compWrap.innerHTML = files.length
+                ? files.map(f => `
+                    <label>
+                        <input type="checkbox" name="astar_comp_indexes" value="${f.index}">
+                        <span>${escapeHtml(f.original_name || `文件 ${Number(f.index) + 1}`)}</span>
+                    </label>
+                `).join("")
+                : '<div class="inline-note error">暂无可用 A* 文件</div>';
+            syncAstarCompChoices();
+        }
+
+        function syncAstarCompChoices() {
+            const mainSource = document.getElementById("main-source").value;
+            const compSource = document.getElementById("comp-source").value;
+            const selectedMain = document.getElementById("astar-main-index").value;
+            document.querySelectorAll('input[name="astar_comp_indexes"]').forEach(input => {
+                const sameAsTaskMain = mainSource === "task" && compSource === "task" && input.value === selectedMain;
+                input.disabled = sameAsTaskMain;
+                if (sameAsTaskMain) input.checked = false;
+            });
+        }
+
+        function updateOutputSourceUI() {
+            const mainSource = document.getElementById("main-source").value;
+            const compSource = document.getElementById("comp-source").value;
+            document.getElementById("main-local-wrap").style.display = mainSource === "local" ? "block" : "none";
+            document.getElementById("main-task-wrap").style.display = mainSource === "task" ? "block" : "none";
+            document.getElementById("comp-local-wrap").style.display = compSource === "local" ? "block" : "none";
+            document.getElementById("comp-task-wrap").style.display = compSource === "task" ? "grid" : "none";
+            const usesTask = mainSource === "task" || compSource === "task";
+            document.getElementById("output-source-mode").value = usesTask ? "task" : "upload";
+            document.getElementById("output-use-astar-task").value = usesTask ? "1" : "0";
+            document.getElementById("output-astar-task-id").value = usesTask ? lastAstarTaskId : "";
+            syncAstarCompChoices();
+        }
+
+        function selectAstarAsCompetitors() {
+            document.getElementById("main-source").value = "local";
+            document.getElementById("comp-source").value = "task";
+            renderAstarChoices();
+            document.querySelectorAll('input[name="astar_comp_indexes"]:not(:disabled)').forEach(input => {
+                input.checked = true;
+            });
+            updateOutputSourceUI();
         }
 
         async function loadRuleTemplates() {
@@ -444,9 +563,11 @@
                 setMessage(messageId, "任务完成，可以下载结果。");
                 if (kind === "astar") {
                     lastAstarTaskId = taskId;
+                    lastAstarFiles = task.astar_files || [];
+                    renderAstarChoices();
                     document.getElementById("use-astar-task").style.display = "inline-flex";
                     document.getElementById("output-astar-task-id").value = taskId;
-                    document.getElementById("task-source-note").textContent = `可使用任务 ${taskId} 的 A* 文件生成 Output。`;
+                    document.getElementById("task-source-note").textContent = `可使用任务 ${taskId} 的 A* 文件；主店和竞店来源可自由切换。`;
                 }
             } else if (task.status === "failed") {
                 clearInterval(pollers[kind]);
@@ -481,26 +602,52 @@
 
         document.getElementById("use-astar-task").addEventListener("click", () => {
             if (!lastAstarTaskId) return;
-            document.getElementById("output-source-mode").value = "task";
+            selectAstarAsCompetitors();
             document.getElementById("output-astar-task-id").value = lastAstarTaskId;
-            document.getElementById("output-use-astar-task").value = "1";
-            document.getElementById("output-upload-fields").style.display = "none";
-            setMessage("output-message", `已选择 A* 任务 ${lastAstarTaskId} 作为输入。`);
+            setMessage("output-message", `已选择 A* 任务 ${lastAstarTaskId}，默认用本地主店 + A* 竞店；可自由切换来源。`);
         });
 
         document.getElementById("output-source-mode").addEventListener("change", (event) => {
             const useTask = event.target.value === "task";
             document.getElementById("output-use-astar-task").value = useTask ? "1" : "0";
             document.getElementById("output-astar-task-id").value = useTask ? lastAstarTaskId : "";
-            document.getElementById("output-upload-fields").style.display = useTask ? "none" : "block";
+            if (useTask) {
+                selectAstarAsCompetitors();
+            } else {
+                document.getElementById("main-source").value = "local";
+                document.getElementById("comp-source").value = "local";
+                updateOutputSourceUI();
+            }
         });
+
+        document.getElementById("main-source").addEventListener("change", updateOutputSourceUI);
+        document.getElementById("comp-source").addEventListener("change", updateOutputSourceUI);
+        document.getElementById("astar-main-index").addEventListener("change", syncAstarCompChoices);
 
         document.getElementById("output-form").addEventListener("submit", async (event) => {
             event.preventDefault();
             const btn = document.getElementById("output-submit");
             const useTask = document.getElementById("output-use-astar-task").value === "1";
+            const mainSource = document.getElementById("main-source").value;
+            const compSource = document.getElementById("comp-source").value;
             if (useTask && !document.getElementById("output-astar-task-id").value) {
                 setMessage("output-message", "还没有可用的 A* 任务结果。", true);
+                return;
+            }
+            if (mainSource === "local" && !event.target.elements["main_file"].files.length) {
+                setMessage("output-message", "请上传主店 A* 文件。", true);
+                return;
+            }
+            if (mainSource === "task" && !document.getElementById("astar-main-index").value) {
+                setMessage("output-message", "请选择主店 A* 文件。", true);
+                return;
+            }
+            if (compSource === "local" && !event.target.elements["comp_files"].files.length) {
+                setMessage("output-message", "请至少上传一个竞店 A* 文件。", true);
+                return;
+            }
+            if (compSource === "task" && !document.querySelectorAll('input[name="astar_comp_indexes"]:checked:not(:disabled)').length) {
+                setMessage("output-message", "请至少选择一个竞店 A* 文件。", true);
                 return;
             }
             btn.disabled = true;
@@ -556,6 +703,8 @@
 
         loadRuleTemplates();
         loadPrivateKeyStatus();
+        renderAstarChoices();
+        updateOutputSourceUI();
     </script>
 </body>
 </html>

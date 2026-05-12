@@ -236,6 +236,18 @@ def match_rules_page():
     if not is_valid: return render_template("activate.html", hwid=CURRENT_HWID)
     return render_template("match_rules.html")
 
+@app.route("/match-rules/new")
+def match_rule_new_page():
+    is_valid, _ = check_license()
+    if not is_valid: return render_template("activate.html", hwid=CURRENT_HWID)
+    return render_template("match_rule_edit.html", template_id=0, template_name="")
+
+@app.route("/match-rules/<int:template_id>")
+def match_rule_edit_page(template_id):
+    is_valid, _ = check_license()
+    if not is_valid: return render_template("activate.html", hwid=CURRENT_HWID)
+    return render_template("match_rule_edit.html", template_id=template_id, template_name="")
+
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5001))
     print(f"Starting server on port {port}...")

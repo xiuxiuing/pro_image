@@ -1913,7 +1913,8 @@
                 spuEliminatedCount = data.spu_eliminated_count || 0;
                 skuEliminatedCount = data.sku_eliminated_count || 0;
 
-                if (totalItems === 0 && !searchVal) {
+                const hasActiveFilters = Object.keys(filtersPayload).length > 0 || currentFilterMode !== 'all' || showNegativeSalesOnly;
+                if (totalItems === 0 && !searchVal && !hasActiveFilters) {
                     if (loadingMsg) loadingMsg.innerText = "当前项目未包含分析结果。";
                     return;
                 }
@@ -2225,7 +2226,7 @@
             filterData();
         }
 
-        const _debouncedFilter = debounce(() => filterData(), 300);
+        const _debouncedFilter = debounce(() => filterData(), 800);
         function updateAdvancedFilter(field, val) {
             advancedFilters[field] = val;
             _debouncedFilter();

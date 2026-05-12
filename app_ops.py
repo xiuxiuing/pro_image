@@ -62,6 +62,12 @@ def _ops_task_dir(task_id):
     return os.path.join(data_root, "uploads", "ops_tasks", task_id)
 
 def _ops_public_task(task):
+    astar_files = []
+    for item in _ops_public_astar_file_choices(task):
+        astar_files.append({
+            "index": item.get("index"),
+            "original_name": item.get("original_name", ""),
+        })
     return {
         "task_id": task.get("task_id"),
         "kind": task.get("kind"),
@@ -76,6 +82,7 @@ def _ops_public_task(task):
         "download_name": task.get("download_name", ""),
         "result_kind": task.get("result_kind", ""),
         "source_task_id": task.get("source_task_id", ""),
+        "astar_files": astar_files,
     }
 
 def _ops_create_task(kind, steps, message=""):
@@ -168,6 +175,47 @@ def _ops_validate_excel_uploads(main_file, comp_files):
         if err:
             return err
     return None
+
+def _ops_validate_source_uploads(source_files):
+    from app import _validate_upload
+    files = [f for f in source_files if f and f.filename]
+    if not files:
+        return "请至少上传一个原始文件"
+    for f in files:
+        err = _validate_upload(f, f"原始文件 ({f.filename})")
+        if err:
+            return err
+    return None
+
+def _ops_collect_astar_source_files():
+    source_files = [f for f in request.files.getlist('source_files') if f and f.filename]
+    if source_files:
+        return source_files
+    main_file = request.files.get('main_file')
+    comp_files = [f for f in request.files.getlist('comp_files') if f and f.filename]
+    return ([main_file] if main_file and main_file.filename else []) + comp_files
+
+def _ops_public_astar_file_choices(task):
+    files = task.get("astar_files") or []
+    if files:
+        return files
+    legacy = []
+    if task.get("astar_main"):
+        legacy.append(task["astar_main"])
+    legacy.extend(task.get("astar_comps") or [])
+    for idx, item in enumerate(legacy):
+        item.setdefault("index", idx)
+    return legacy
+
+def _ops_get_astar_choice(task, raw_idx):
+    try:
+        idx = int(str(raw_idx).strip())
+    except (TypeError, ValueError):
+        raise ValueError("请选择有效的 A* 文件")
+    for item in _ops_public_astar_file_choices(task):
+        if int(item.get("index", -1)) == idx:
+            return item
+    raise ValueError("选择的 A* 文件不存在")
 
 def _ops_validate_astar_input_columns(path):
     wb = load_workbook(path, read_only=True, data_only=True)
@@ -378,9 +426,8 @@ def api_ops_astar_extract():
     license_err = _ops_license_error_response()
     if license_err:
         return license_err
-    main_file = request.files.get('main_file')
-    comp_files = [f for f in request.files.getlist('comp_files') if f and f.filename]
-    err = _ops_validate_excel_uploads(main_file, comp_files)
+    source_files = _ops_collect_astar_source_files()
+    err = _ops_validate_source_uploads(source_files)
     if err:
         return jsonify({"status": "error", "message": err}), 400
 
@@ -391,7 +438,7 @@ def api_ops_astar_extract():
     kimi_api_key = (request.form.get("kimi_api_key") or "").strip()
     kimi_model_name = (request.form.get("kimi_model_name") or "").strip()
 
-    labels = [_ops_file_label(main_file, "主店文件")] + [_ops_file_label(f, f"竞店{i+1}") for i, f in enumerate(comp_files)]
+    labels = [_ops_file_label(f, f"文件{i+1}") for i, f in enumerate(source_files)]
     task = _ops_create_task("astar", [f"A* 提取 {label}" for label in labels], "A* 提取排队中")
     task_id = task["task_id"]
     task_dir = _ops_task_dir(task_id)
@@ -400,19 +447,17 @@ def api_ops_astar_extract():
     os.makedirs(sources_dir, exist_ok=True)
     os.makedirs(astar_dir, exist_ok=True)
 
-    saved_main = _ops_save_file(main_file, sources_dir, "main", 0)
-    saved_comps = [_ops_save_file(f, sources_dir, "comp", i) for i, f in enumerate(comp_files)]
-    astar_main = _ops_copy_to_dir(saved_main["path"], astar_dir, "main", 0, saved_main["original_name"])
-    astar_comps = [
-        _ops_copy_to_dir(item["path"], astar_dir, "comp", i, item["original_name"])
-        for i, item in enumerate(saved_comps)
-    ]
+    saved_sources = [_ops_save_file(f, sources_dir, "source", i) for i, f in enumerate(source_files)]
+    astar_files = []
+    for i, item in enumerate(saved_sources):
+        astar_item = _ops_copy_to_dir(item["path"], astar_dir, "source", i, item["original_name"])
+        astar_item["index"] = i
+        astar_files.append(astar_item)
 
     def _run_astar_bg():
         _ops_set_task(task_id, status="running", started_at=_ops_now(), message="A* 提取中")
         try:
-            items = [astar_main] + astar_comps
-            for idx, item in enumerate(items):
+            for idx, item in enumerate(astar_files):
                 _ops_update_step(task_id, idx, "running", "检查表头")
                 _ops_validate_astar_input_columns(item["path"])
 
@@ -431,10 +476,7 @@ def api_ops_astar_extract():
 
             zip_name = f"A星提取结果_{time.strftime('%Y%m%d_%H%M%S')}.zip"
             zip_path = os.path.join(task_dir, zip_name)
-            zip_items = []
-            zip_items.append({"path": astar_main["path"], "arcname": astar_main["original_name"]})
-            for item in astar_comps:
-                zip_items.append({"path": item["path"], "arcname": item["original_name"]})
+            zip_items = [{"path": item["path"], "arcname": item["original_name"]} for item in astar_files]
             _ops_zip_files(zip_items, zip_path)
             _ops_set_task(
                 task_id,
@@ -444,8 +486,9 @@ def api_ops_astar_extract():
                 result_path=zip_path,
                 result_kind="astar_zip",
                 download_name=zip_name,
-                astar_main=astar_main,
-                astar_comps=astar_comps,
+                astar_files=astar_files,
+                astar_main=astar_files[0] if astar_files else None,
+                astar_comps=astar_files[1:] if len(astar_files) > 1 else [],
             )
         except BaseException as e:
             traceback.print_exc()
@@ -462,6 +505,8 @@ def api_ops_output_generate():
         return license_err
     astar_task_id = (request.form.get("astar_task_id") or "").strip()
     use_astar_task = (request.form.get("use_astar_task") or "").strip() == "1"
+    main_source = (request.form.get("main_source") or "").strip() or "local"
+    comp_source = (request.form.get("comp_source") or "").strip() or "local"
     main_file = request.files.get('main_file')
     comp_files = [f for f in request.files.getlist('comp_files') if f and f.filename]
 
@@ -471,20 +516,78 @@ def api_ops_output_generate():
         return jsonify({"status": "error", "message": str(e)}), 400
 
     from_task = None
-    if use_astar_task and astar_task_id:
+    legacy_task_mode = use_astar_task and not request.form.get("main_source") and not request.form.get("comp_source")
+    needs_astar_task = main_source == "task" or comp_source == "task" or (use_astar_task and astar_task_id)
+    if needs_astar_task and astar_task_id:
         from_task = _ops_get_task(astar_task_id)
         if not from_task or from_task.get("status") != "done":
             return jsonify({"status": "error", "message": "上一步 A* 任务不存在或尚未完成"}), 400
-        if not from_task.get("astar_main") or not from_task.get("astar_comps"):
+        if legacy_task_mode and (not from_task.get("astar_main") or not from_task.get("astar_comps")):
             return jsonify({"status": "error", "message": "上一步任务没有可用的 A* 文件"}), 400
+        if not legacy_task_mode and not _ops_public_astar_file_choices(from_task):
+            return jsonify({"status": "error", "message": "上一步任务没有可用的 A* 文件"}), 400
+    elif main_source == "task" or comp_source == "task":
+        return jsonify({"status": "error", "message": "请先选择可用的上一步 A* 任务"}), 400
+
+    if legacy_task_mode:
+        main_input = {"source": "task", "item": from_task["astar_main"]}
+        comp_inputs = [{"source": "task", "item": item} for item in (from_task.get("astar_comps") or [])]
     else:
+        if main_source == "task":
+            try:
+                main_input = {"source": "task", "item": _ops_get_astar_choice(from_task, request.form.get("astar_main_index"))}
+            except ValueError as e:
+                return jsonify({"status": "error", "message": str(e)}), 400
+        else:
+            from app import _validate_upload
+            if not main_file or not main_file.filename:
+                return jsonify({"status": "error", "message": "请上传主店 A* 文件"}), 400
+            err = _validate_upload(main_file, "主店 A* 文件")
+            if err:
+                return jsonify({"status": "error", "message": err}), 400
+            main_input = {"source": "upload", "file": main_file}
+
+        if comp_source == "task":
+            comp_indexes = request.form.getlist("astar_comp_indexes")
+            if not comp_indexes:
+                return jsonify({"status": "error", "message": "请选择至少一个竞店 A* 文件"}), 400
+            comp_inputs = []
+            seen = set()
+            try:
+                main_task_idx = int(main_input["item"].get("index")) if main_input["source"] == "task" else None
+                for raw_idx in comp_indexes:
+                    item = _ops_get_astar_choice(from_task, raw_idx)
+                    idx = int(item.get("index"))
+                    if idx == main_task_idx:
+                        return jsonify({"status": "error", "message": "竞店 A* 文件不能与主店相同"}), 400
+                    if idx in seen:
+                        continue
+                    seen.add(idx)
+                    comp_inputs.append({"source": "task", "item": item})
+            except ValueError as e:
+                return jsonify({"status": "error", "message": str(e)}), 400
+        else:
+            valid_comp_files = [f for f in comp_files if f and f.filename]
+            if not valid_comp_files:
+                return jsonify({"status": "error", "message": "请至少上传一个竞店 A* 文件"}), 400
+            from app import _validate_upload
+            for f in valid_comp_files:
+                err = _validate_upload(f, f"竞店 A* 文件 ({f.filename})")
+                if err:
+                    return jsonify({"status": "error", "message": err}), 400
+            comp_inputs = [{"source": "upload", "file": f} for f in valid_comp_files]
+
+    if not comp_inputs:
+        return jsonify({"status": "error", "message": "请至少提供一个竞店 A* 文件"}), 400
+
+    if not use_astar_task and main_source == "local" and comp_source == "local":
         err = _ops_validate_excel_uploads(main_file, comp_files)
         if err:
             return jsonify({"status": "error", "message": err}), 400
 
     task = _ops_create_task(
         "output",
-        ["准备文件"] + [f"向量分析 竞店{i+1}" for i in range(len(from_task.get("astar_comps", [])) if from_task else len(comp_files))] + ["查询匹配主店"],
+        ["准备文件"] + [f"向量分析 竞店{i+1}" for i in range(len(comp_inputs))] + ["查询匹配主店"],
         "Output 生成排队中",
     )
     task_id = task["task_id"]
@@ -494,18 +597,22 @@ def api_ops_output_generate():
     os.makedirs(sources_dir, exist_ok=True)
     os.makedirs(outputs_dir, exist_ok=True)
 
-    if from_task:
-        src_main = from_task["astar_main"]
-        src_comps = from_task["astar_comps"]
+    if main_input["source"] == "task":
+        src_main = main_input["item"]
         saved_main = _ops_copy_to_dir(src_main["path"], sources_dir, "main", 0, src_main.get("original_name"))
-        saved_comps = [
-            _ops_copy_to_dir(item["path"], sources_dir, "comp", i, item.get("original_name"))
-            for i, item in enumerate(src_comps)
-        ]
-        _ops_set_task(task_id, source_task_id=astar_task_id)
     else:
-        saved_main = _ops_save_file(main_file, sources_dir, "main", 0)
-        saved_comps = [_ops_save_file(f, sources_dir, "comp", i) for i, f in enumerate(comp_files)]
+        saved_main = _ops_save_file(main_input["file"], sources_dir, "main", 0)
+
+    saved_comps = []
+    for i, comp_input in enumerate(comp_inputs):
+        if comp_input["source"] == "task":
+            item = comp_input["item"]
+            saved_comps.append(_ops_copy_to_dir(item["path"], sources_dir, "comp", i, item.get("original_name")))
+        else:
+            saved_comps.append(_ops_save_file(comp_input["file"], sources_dir, "comp", i))
+
+    if from_task:
+        _ops_set_task(task_id, source_task_id=astar_task_id)
 
     def _run_output_bg():
         _ops_set_task(task_id, status="running", started_at=_ops_now(), message="Output 生成中")

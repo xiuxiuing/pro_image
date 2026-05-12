@@ -140,23 +140,13 @@ class DataManagerQueryMixin:
         return self.get_paginated_grid(page=1, limit=50)
 
     def _grid_filter_col_mask(self, df, col, needle):
-        """Substring match on col and optional prefixed columns (0col, 1col, ...)."""
+        """Substring match on the main-store grid column selected in the filter popup."""
         needle = str(needle).strip().lower()
         if not needle:
             return pd.Series(True, index=df.index)
-        parts = []
         if col in df.columns:
-            parts.append(df[col].astype(str).str.lower().str.contains(needle, regex=False, na=False))
-        for p in range(len(self.store_names) + 5):
-            pc = f"{p}{col}"
-            if pc in df.columns:
-                parts.append(df[pc].astype(str).str.lower().str.contains(needle, regex=False, na=False))
-        if not parts:
-            return pd.Series(True, index=df.index)
-        m = parts[0]
-        for q in parts[1:]:
-            m = m | q
-        return m
+            return df[col].astype(str).str.lower().str.contains(needle, regex=False, na=False)
+        return pd.Series(True, index=df.index)
 
     def _grid_negative_sales_mask(self, df):
         """竞店销量 > 主店销量 — 任一侧满足即保留该行。"""
