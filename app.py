@@ -22,6 +22,7 @@ import time
 import threading
 import traceback
 import platform
+import webbrowser
 from werkzeug.utils import secure_filename
 
 _single_instance_lock_fh = None
@@ -70,16 +71,24 @@ if getattr(sys, 'frozen', False):
 def _acquire_single_instance_lock():
     global _single_instance_lock_fh
     if not getattr(sys, 'frozen', False): return True
+    fh = None
     try:
-        import fcntl
         lock_path = os.path.join(data_root, "ProImage_AI.lock")
         fh = open(lock_path, "w")
-        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if sys.platform.startswith("win"):
+            import msvcrt
+            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         fh.write(str(os.getpid()))
         fh.flush()
         _single_instance_lock_fh = fh
         return True
     except Exception:
+        if fh:
+            try: fh.close()
+            except Exception: pass
         return False
 
 if not _acquire_single_instance_lock(): raise SystemExit(0)
@@ -248,7 +257,20 @@ def match_rule_edit_page(template_id):
     if not is_valid: return render_template("activate.html", hwid=CURRENT_HWID)
     return render_template("match_rule_edit.html", template_id=template_id, template_name="")
 
+def _schedule_open_browser(port):
+    if not getattr(sys, 'frozen', False): return
+    url = f"http://127.0.0.1:{port}"
+    def _open_browser():
+        try:
+            webbrowser.open(url)
+        except Exception:
+            pass
+    timer = threading.Timer(1.5, _open_browser)
+    timer.daemon = True
+    timer.start()
+
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5001))
     print(f"Starting server on port {port}...")
+    _schedule_open_browser(port)
     app.run(host='0.0.0.0', port=port, debug=False)
