@@ -953,6 +953,17 @@
             line-height: 1.45;
         }
 
+        .modal-main-store-summary__inner {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .modal-main-store-summary__body {
+            flex: 1;
+            min-width: 0;
+        }
+
         .modal-main-store-summary[hidden] {
             display: none !important;
         }
@@ -1802,13 +1813,18 @@
             <div class="modal-body">
                 <input type="text" class="search-box" id="modalSearch" placeholder="搜索商品名/条码...">
                 <div id="modalMainStoreSummary" class="modal-main-store-summary" hidden>
-                    <div class="modal-main-store-summary__title">主店</div>
-                    <div class="modal-main-store-summary__name" id="modalMainStoreName">—</div>
-                    <div class="modal-main-store-summary__meta">
-                        <span>规格</span><span id="modalMainStoreSpec">—</span>
-                    </div>
-                    <div class="modal-main-store-summary__meta">
-                        <span>SKU</span><span id="modalMainStoreSku">—</span>
+                    <div class="modal-main-store-summary__inner">
+                        <span class="modal-thumb-zoom"><img id="modalMainStoreImage" src="" alt=""></span>
+                        <div class="modal-main-store-summary__body">
+                            <div class="modal-main-store-summary__title">主店</div>
+                            <div class="modal-main-store-summary__name" id="modalMainStoreName">—</div>
+                            <div class="modal-main-store-summary__meta">
+                                <span>规格</span><span id="modalMainStoreSpec">—</span>
+                            </div>
+                            <div class="modal-main-store-summary__meta">
+                                <span>SKU</span><span id="modalMainStoreSku">—</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div id="modalList" class="modal-list-scroll"></div>
@@ -3148,7 +3164,8 @@
             const nameEl = document.getElementById('modalMainStoreName');
             const specEl = document.getElementById('modalMainStoreSpec');
             const skuEl = document.getElementById('modalMainStoreSku');
-            if (!box || !nameEl || !specEl || !skuEl) return;
+            const imgEl = document.getElementById('modalMainStoreImage');
+            if (!box || !nameEl || !specEl || !skuEl || !imgEl) return;
             if (linkModalMode !== 'store_comp') {
                 box.hidden = true;
                 return;
@@ -3165,10 +3182,13 @@
                 nameEl.textContent = row['商品名称'] || '—';
                 specEl.textContent = (row['规格名称'] || row['规格名'] || row['规格'] || '—');
                 skuEl.textContent = String(row['skuId'] != null && row['skuId'] !== '' ? row['skuId'] : '—');
+                imgEl.src = getImageSrc(row['主图链接'] || row['图片']);
+                imgEl.onerror = () => { imgEl.src = PLACEHOLDER_IMG; };
             } else {
                 nameEl.textContent = '—';
                 specEl.textContent = '—';
                 skuEl.textContent = String(mainSkuId);
+                imgEl.src = PLACEHOLDER_IMG;
             }
         }
 
