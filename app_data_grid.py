@@ -1,5 +1,7 @@
 import os
+import tempfile
 from flask import Blueprint, request, jsonify, send_file, send_from_directory
+from openpyxl import Workbook
 
 grid_bp = Blueprint('data_grid', __name__)
 
@@ -94,7 +96,18 @@ def api_rule_categories_bucket_tags():
 
 @grid_bp.route("/api/config", methods=['GET'])
 def get_config():
+    has_links = False
+    if dm.active_project_id:
+        with dm._db_lock:
+            with dm._get_conn() as conn:
+                row = conn.execute(
+                    "SELECT 1 FROM product_links WHERE project_id = ? LIMIT 1",
+                    (dm.active_project_id,),
+                ).fetchone()
+                has_links = bool(row)
     return jsonify({
+        "project_id": dm.active_project_id,
+        "has_links": has_links,
         "main_store": dm.main_store_name, "target_file": dm.target_file, "output_file": dm.output_file,
         "source_files": dm.source_files, "stores": [{"id": str(i), "name": n, "path": dm.source_files[i]} for i, n in enumerate(dm.store_names)]
     })
@@ -114,6 +127,78 @@ def get_grid_data():
         filters_json=filters_json, sort_field=sort_field, sort_order=sort_order,
         negative_sales_only=negative_sales,
     ))
+
+@grid_bp.route('/api/statistics')
+def get_statistics():
+    return jsonify(dm.get_statistics())
+
+@grid_bp.route('/api/statistics/products')
+def get_statistics_products():
+    return jsonify(dm.get_statistics_products(
+        request.args.get("category", ""),
+        request.args.get("source_type", "main"),
+        request.args.get("store_id", ""),
+    ))
+
+@grid_bp.route('/api/statistics/export')
+def export_statistics():
+    data = dm.get_statistics()
+
+    def whole(value):
+        try:
+            return int(round(float(value or 0)))
+        except (TypeError, ValueError):
+            return 0
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "数据分析"
+    ws.append([
+        "类目来源", "三级分类", "行类型", "店铺",
+        "销售量（单）-数据", "销售量（单）-对比值", "销售量（单）-差值",
+        "销售额（元）-数据", "销售额（元）-对比值", "销售额（元）-差值",
+        "SPU数量-数据", "SPU数量-对比值", "SPU数量-差值",
+        "动销效率(%)-数据", "动销效率(%)-对比值", "动销效率(%)-差值",
+        "类目贡献(%)-数据", "类目贡献(%)-对比值", "类目贡献(%)-差值",
+    ])
+
+    metric_order = ["sales", "sales_amount", "spu", "active_rate", "category_contribution"]
+    tabs = data.get("tabs") or [{
+        "source_type": "main",
+        "source_name": data.get("main_store") or "主店",
+        "items": data.get("items", []),
+    }]
+    for tab in tabs:
+        source_name = tab.get("source_name") or ("主店" if tab.get("source_type") == "main" else tab.get("label", ""))
+        source_label = "主店" if tab.get("source_type") == "main" else source_name
+        for item in tab.get("items", []):
+            category = item.get("category", "")
+            summary = item.get("summary") or {}
+            row = [source_label, category, "主表汇总", source_name]
+            for key in metric_order:
+                block = summary.get(key) or {}
+                row.extend([whole(block.get("main", 0)), whole(block.get("industry_avg", 0)), whole(block.get("avg_diff", 0))])
+            ws.append(row)
+
+            if tab.get("source_type") != "main":
+                continue
+            for comp in item.get("competitors", []):
+                metrics = comp.get("metrics") or {}
+                main_diff = comp.get("main_diff") or comp.get("diff") or {}
+                market_diff = comp.get("market_diff") or {}
+                row = [source_label, category, "竞店明细", comp.get("store_name", "")]
+                for key in metric_order:
+                    row.extend([whole(metrics.get(key, 0)), whole(main_diff.get(key, 0)), whole(market_diff.get(key, 0))])
+                ws.append(row)
+
+    for col in ws.columns:
+        width = max((len(str(cell.value or "")) for cell in col), default=10)
+        ws.column_dimensions[col[0].column_letter].width = min(max(width + 2, 10), 28)
+
+    out_dir = tempfile.gettempdir()
+    out_path = os.path.join(out_dir, f"statistics_{dm.active_project_id or 'project'}.xlsx")
+    wb.save(out_path)
+    return send_file(out_path, as_attachment=True, download_name="数据分析导出.xlsx")
 
 @grid_bp.route('/api/store_products/<store_id>')
 def get_store_products(store_id):

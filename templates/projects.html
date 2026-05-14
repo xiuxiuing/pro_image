@@ -784,75 +784,13 @@
     <!-- Create Project Modal -->
     <div id="createModal" class="modal-backdrop">
         <div class="modal-content">
-            <div class="modal-title">✨ 初始化分析项目</div>
+            <div class="modal-title">创建项目</div>
 
             <div id="modal-analyzing-warn" style="display:none; background:#fef3c7; border:1px solid #fbbf24; border-radius:12px; padding:12px 16px; margin-bottom:20px; font-size:12px; font-weight:600; color:#92400e;">
                 当前有项目正在分析中，同时运行多个分析会影响速度
             </div>
 
-            <div class="mode-toggle">
-                <div class="mode-btn active" id="mode-auto" onclick="switchMode('auto')">🤖 自动 AI 分析</div>
-                <div class="mode-btn" id="mode-manual" onclick="switchMode('manual')">⚡ 跳过分析 (手动上传)</div>
-            </div>
-            
             <form id="create-project-form">
-                <input type="hidden" name="skip_analysis" id="skip-analysis-input" value="false">
-                <input type="hidden" name="match_config_json" id="match-config-json" value="">
-
-                <div class="form-group" id="ai-extraction-toggle-group" style="background: #fff8e1; padding: 20px; border-radius: 20px; margin-bottom: 24px; border: 1px solid #ffe082;">
-                    <label class="form-label" style="display: flex; align-items: center; cursor: pointer; text-transform: none; margin-bottom: 0;">
-                        <input type="checkbox" name="use_ai" id="use-ai-checkbox" style="width: 20px; height: 20px; margin-right: 12px; accent-color: #000;" onchange="toggleAiKey()">
-                        <div>
-                            <span style="font-size: 16px; font-weight: 800;">✨ AI 智能属性提取</span>
-                            <div style="font-size: 12px; font-weight: 500; color: #b45309; margin-top: 4px;">利用 AI 补齐缺失的品牌、规格等核心属性 (推荐)</div>
-                        </div>
-                    </label>
-                </div>
-
-               
-
-                <div class="form-group" id="ai-model-group" style="display: none;">
-                    <label class="form-label">Gemini 模型名称</label>
-                    <select name="ai_model_name" id="ai-model-input" class="form-control" style="background:#fff;">
-                        <option value="" selected>(留空)</option>
-                        <option value="models/gemini-3.1-flash-lite-preview">models/gemini-3.1-flash-lite-preview</option>
-                        <option value="gemini-3.1-flash-lite-preview">gemini-3.1-flash-lite-preview</option>
-                        <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
-                    </select>
-                </div>
-                
-                <div class="form-group" id="ai-key-group" style="display: none;">
-                    <label class="form-label">Gemini API Key</label>
-                    <input type="password" name="api_key" id="api-key-input" class="form-control" placeholder="可填多个 Key，用逗号 / 分号 / 空格分隔" style="background: #fff;">
-                    <div style="font-size:12px; color:#64748b; margin-top:8px; font-weight:500;">
-                        多个 Gemini Key 会按批次轮询使用，例如：key1,key2,key3
-                    </div>
-                </div>
-                <div class="form-group" id="kimi-key-group" style="display: none;">
-                    <label class="form-label">Kimi 兜底 API Key（可选 · Moonshot）</label>
-                    <input type="password" name="kimi_api_key" id="kimi-api-key-input" class="form-control"
-                        placeholder="sk-… 留空则仅 Gemini；某批次 Gemini 耗尽重试后自动换 Kimi" style="background: #fff;">
-                    <div style="font-size:12px; color:#64748b; margin-top:8px; font-weight:500;">
-                        与 Gemini Key 独立；可减轻连续请求导致「中间竞店表全空兜底」的情况
-                    </div>
-                </div>
-                <div class="form-group" id="kimi-model-group" style="display: none;">
-                    <label class="form-label">Kimi 模型（可选）</label>
-                    <select name="kimi_model_name" id="kimi-model-input" class="form-control" style="background:#fff;">
-                        <option value="" selected>(留空)</option>
-                        <option value="kimi-k2.5">kimi-k2.5</option>
-                        <option value="kimi-k2-turbo-preview">kimi-k2-turbo-preview</option>
-                    </select>
-                </div>
-                <div class="form-group" id="rule-template-group">
-                    <label class="form-label">类目规则模板</label>
-                    <select name="rule_template_id" id="rule-template-select" class="form-control" style="background:#fff;">
-                        <option value="">加载中…</option>
-                    </select>
-                    <div style="font-size:12px; color:#64748b; margin-top:8px; font-weight:500;">
-                        向量/条码命中后，按模板里“选中的三级类目规则组”做后验校验（可在 <a href="/match-rules" target="_blank" style="color:#334155; font-weight:700;">类目规则</a> 管理）
-                    </div>
-                </div>
                 <div class="form-group">
                     <label class="form-label">项目名称 (必填)</label>
                     <input type="text" name="name" class="form-control" placeholder="例如: 闪购商品竞对分析" required>
@@ -870,17 +808,8 @@
                     </div>
                 </div>
 
-                <div id="manual-result-section" style="display: none;">
-                    <div class="form-group">
-                        <label class="form-label">比对结果文件 (手工结果 - 必填)</label>
-                        <input type="file" name="result_file" id="result-file-input" class="form-control"
-                            accept=".xlsx,.xls">
-                    </div>
-                </div>
-
                 <div style="margin-top: 48px; display: flex; gap: 16px;">
-                    <button type="submit" class="btn btn-new" style="flex: 2; height: 60px;" id="submit-btn">开始 AI
-                        分析</button>
+                    <button type="submit" class="btn btn-new" style="flex: 2; height: 60px;" id="submit-btn">创建项目</button>
                     <button type="button" class="btn" style="flex: 1; background: #f1f5f9; color: #64748b;"
                         onclick="closeModal()">取消</button>
                 </div>
@@ -918,83 +847,10 @@
             document.getElementById('createModal').style.display = 'flex';
             const warn = document.getElementById('modal-analyzing-warn');
             if (warn) warn.style.display = _hasAnalyzing ? 'block' : 'none';
-            const rtg = document.getElementById('rule-template-group');
-            if (rtg) {
-                const manual = document.getElementById('skip-analysis-input').value === 'true';
-                rtg.style.display = manual ? 'none' : '';
-            }
         }
 
         function closeModal() {
             document.getElementById('createModal').style.display = 'none';
-        }
-
-        function switchMode(mode) {
-            const isManual = mode === 'manual';
-            document.getElementById('skip-analysis-input').value = isManual;
-            document.getElementById('mode-auto').classList.toggle('active', !isManual);
-            document.getElementById('mode-manual').classList.toggle('active', isManual);
-
-            // Manual result file is only needed in manual mode
-            document.getElementById('manual-result-section').style.display = isManual ? 'block' : 'none';
-            document.getElementById('result-file-input').required = isManual;
-
-            document.getElementById('submit-btn').innerText = isManual ? '直接导入结果' : '开始 AI 分析';
-
-            const rtg = document.getElementById('rule-template-group');
-            if (rtg) rtg.style.display = isManual ? 'none' : '';
-
-            // AI toggle is only for auto mode
-            document.getElementById('ai-extraction-toggle-group').style.display = isManual ? 'none' : 'block';
-            if (isManual) {
-                document.getElementById('use-ai-checkbox').checked = false;
-                toggleAiKey();
-            }
-        }
-
-        function toggleAiKey() {
-            const useAi = document.getElementById('use-ai-checkbox').checked;
-            document.getElementById('ai-key-group').style.display = useAi ? 'block' : 'none';
-            document.getElementById('api-key-input').required = useAi;
-            document.getElementById('ai-model-group').style.display = useAi ? 'block' : 'none';
-            const kg = document.getElementById('kimi-key-group');
-            const mg = document.getElementById('kimi-model-group');
-            if (kg) kg.style.display = useAi ? 'block' : 'none';
-            if (mg) mg.style.display = useAi ? 'block' : 'none';
-        }
-
-        function buildMatchConfigJson() {
-            return JSON.stringify({ category_level: 1 });
-        }
-
-        async function loadRuleTemplates() {
-            const sel = document.getElementById('rule-template-select');
-            if (!sel) return;
-            try {
-                const r = await fetch('/api/rule-templates');
-                const j = await r.json();
-                const items = j.items || [];
-                sel.innerHTML = '';
-                if (items.length === 0) {
-                    const o = document.createElement('option');
-                    o.value = '';
-                    o.textContent = '(无规则模板，请先到「类目规则」创建)';
-                    sel.appendChild(o);
-                    return;
-                }
-                items.forEach(t => {
-                    const o = document.createElement('option');
-                    o.value = t.id;
-                    o.textContent = t.name || ('#' + t.id);
-                    sel.appendChild(o);
-                });
-            } catch (e) {
-                sel.innerHTML = '';
-                const o = document.createElement('option');
-                o.value = '';
-                o.textContent = '加载失败';
-                sel.appendChild(o);
-            }
         }
 
         let _pollTimer = null;
@@ -1262,18 +1118,6 @@
             submitBtn.style.opacity = '0.5';
 
             const formData = new FormData(e.target);
-            const isManual = formData.get('skip_analysis') === 'true';
-            // Attach match config JSON for backend storage
-            try {
-                formData.set('match_config_json', buildMatchConfigJson());
-            } catch (e) {
-                // ignore
-            }
-
-            if (isManual) {
-                document.getElementById('loading-overlay').style.display = 'flex';
-                startProgress();
-            }
             closeModal();
 
             try {
@@ -1281,15 +1125,10 @@
                 const res = await resp.json();
                 if (res.status === 'success') {
                     e.target.reset();
-                    switchMode('auto');
-                    if (isManual) {
-                        finishProgress(() => {
-                            location.href = `/dashboard?project_id=${res.project_id}`;
-                        });
-                    } else {
-                        showToast('分析任务已启动，可在列表中查看进度');
-                        loadProjects();
-                    }
+                    showToast('项目创建完成');
+                    await loadProjects();
+                    const list = getProjectList();
+                    if (list) list.scrollTo({ left: 0, behavior: 'smooth' });
                     return;
                 } else {
                     alert('错误: ' + res.message);
@@ -1456,7 +1295,6 @@
         setupProjectPagePerformance();
         bindProjectCarouselControls();
         requestNotifyPermission();
-        loadRuleTemplates();
         loadProjects();
         refreshLicenseDaysBadge();
     </script>

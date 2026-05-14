@@ -1,5 +1,1745 @@
-{# 侧栏「数据分析」子页；若本地曾有完整版请覆盖此文件。 #}
-<div class="dashboard-subpanel">
-    <p class="app-placeholder-title">数据分析</p>
-    <p class="app-placeholder-sub">此页为占位。完整功能可在有对应模块时替换本文件。</p>
+<style>
+    .statistics-panel {
+        flex: 1;
+        min-height: 0;
+        height: 100%;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        padding: 28px;
+        background: #f8f9fa;
+        box-sizing: border-box;
+        color: #303133;
+    }
+    .statistics-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin: -28px -28px 18px;
+        padding: 12px 40px;
+        background: rgba(255, 255, 255, 0.95);
+        border-bottom: 1px solid var(--glass-border);
+        box-shadow: var(--shadow-sm);
+        z-index: 100;
+        flex-shrink: 0;
+    }
+    .statistics-title {
+        margin: 0;
+        font-size: 26px;
+        font-weight: 900;
+        background: linear-gradient(135deg, #0f172a 0%, #4338ca 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+        letter-spacing: -0.01em;
+        line-height: 1.1;
+    }
+    .statistics-title-link {
+        cursor: pointer;
+        display: inline-block;
+        border-radius: 4px;
+    }
+    .statistics-title-link:hover .statistics-title {
+        opacity: 0.86;
+    }
+    .statistics-project-slogan {
+        margin-top: 2px;
+    }
+    .statistics-subtitle {
+        margin: 6px 0 0;
+        color: #606266;
+        font-size: 13px;
+        font-weight: 500;
+    }
+    .statistics-refresh {
+        border: 1px solid #dbe3ef;
+        background: #fff;
+        color: #409eff;
+        border-radius: 6px;
+        padding: 9px 14px;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+    }
+    .statistics-refresh:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+        color: #94a3b8;
+        background: #f8fafc;
+        border-color: #e2e8f0;
+    }
+    .statistics-actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+    }
+    .statistics-primary {
+        border-color: #c7d2fe;
+        background: #eef2ff;
+        color: #4f46e5;
+    }
+    .statistics-toolbar {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 6px;
+        flex-wrap: wrap;
+    }
+    .statistics-filter-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+    .statistics-search {
+        width: min(320px, 100%);
+        border: 1px solid #dbe3ef;
+        background: #fff;
+        border-radius: 6px;
+        padding: 10px 12px;
+        font-size: 13px;
+        color: #303133;
+        outline: none;
+    }
+    .statistics-search:focus {
+        border-color: #409eff;
+        box-shadow: 0 0 0 3px rgba(64, 158, 255, 0.12);
+    }
+    .statistics-tabs {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin: 0;
+        flex-wrap: wrap;
+    }
+    .statistics-tab {
+        width: 72px;
+        height: 30px;
+        border: 1px solid #dbe3ef;
+        background: #fff;
+        color: #475569;
+        border-radius: 6px;
+        padding: 0 8px;
+        font-size: 12px;
+        font-weight: 800;
+        cursor: pointer;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .statistics-tab:hover {
+        border-color: #409eff;
+        color: #409eff;
+        background: #f8fbff;
+    }
+    .statistics-tab.active {
+        border-color: #409eff;
+        color: #0969da;
+        background: #ecf5ff;
+        box-shadow: inset 0 0 0 1px rgba(64, 158, 255, 0.08);
+    }
+    .statistics-page-size {
+        border: 1px solid #dbe3ef;
+        background: #fff;
+        border-radius: 6px;
+        padding: 9px 10px;
+        font-size: 13px;
+        color: #303133;
+    }
+    .statistics-summary-cards {
+        display: flex;
+        align-items: stretch;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+    .statistics-summary-card {
+        min-width: 150px;
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 10px 14px;
+        box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+    }
+    .statistics-summary-label {
+        font-size: 12px;
+        color: #64748b;
+        font-weight: 700;
+        margin-bottom: 5px;
+    }
+    .statistics-summary-value {
+        font-size: 22px;
+        color: #1f2937;
+        font-weight: 800;
+        line-height: 1.1;
+    }
+    .statistics-table-wrap {
+        flex: 1;
+        min-height: 0;
+        position: relative;
+        background: #fff;
+        padding: 24px;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    .statistics-table-wrap::before {
+        content: "";
+        position: sticky;
+        top: 0;
+        display: block;
+        height: 0;
+        z-index: 6;
+        box-shadow: 0 0 0 28px #fff;
+        pointer-events: none;
+    }
+    .statistics-table thead tr:first-child th {
+        position: sticky;
+        top: 0;
+        z-index: 8;
+        height: 43px;
+        background: #f5f7fa;
+    }
+    .statistics-table thead tr:nth-child(2) th {
+        position: sticky;
+        top: 43px;
+        z-index: 7;
+        height: 43px;
+        background: #f5f7fa;
+    }
+    .statistics-table {
+        width: 100%;
+        min-width: 1180px;
+        table-layout: fixed;
+        border-collapse: collapse;
+        font-size: 13px;
+    }
+    .statistics-table th {
+        background: #f5f7fa;
+        color: #303133;
+        font-weight: 700;
+        padding: 12px 8px;
+        border: 1px solid #ebeef5;
+        text-align: center;
+        white-space: nowrap;
+    }
+    .statistics-table thead tr:first-child th:nth-child(2),
+    .statistics-table thead tr:first-child th:nth-child(4),
+    .statistics-table thead tr:first-child th:nth-child(6) {
+        background: #eef6ff;
+        color: #245c9a;
+    }
+    .statistics-table thead tr:first-child th:nth-child(3),
+    .statistics-table thead tr:first-child th:nth-child(5) {
+        background: #f7fbff;
+        color: #245c9a;
+    }
+    .statistics-table thead tr:first-child th:nth-child(n + 2) {
+        border-bottom: 1px solid #dce8f5;
+        font-size: 14px;
+    }
+    .statistics-table thead tr:nth-child(2) th:nth-child(1),
+    .statistics-table thead tr:nth-child(2) th:nth-child(2),
+    .statistics-table thead tr:nth-child(2) th:nth-child(3),
+    .statistics-table thead tr:nth-child(2) th:nth-child(7),
+    .statistics-table thead tr:nth-child(2) th:nth-child(8),
+    .statistics-table thead tr:nth-child(2) th:nth-child(9),
+    .statistics-table thead tr:nth-child(2) th:nth-child(13),
+    .statistics-table thead tr:nth-child(2) th:nth-child(14),
+    .statistics-table thead tr:nth-child(2) th:nth-child(15) {
+        background: #eef6ff;
+    }
+    .statistics-table thead tr:nth-child(2) th:nth-child(4),
+    .statistics-table thead tr:nth-child(2) th:nth-child(5),
+    .statistics-table thead tr:nth-child(2) th:nth-child(6),
+    .statistics-table thead tr:nth-child(2) th:nth-child(10),
+    .statistics-table thead tr:nth-child(2) th:nth-child(11),
+    .statistics-table thead tr:nth-child(2) th:nth-child(12) {
+        background: #f7fbff;
+    }
+    .statistics-table thead tr:first-child th[rowspan],
+    .statistics-table thead tr:first-child th:nth-child(n + 2) {
+        border-left-color: #e8eef6;
+    }
+    .statistics-table thead tr:first-child th:nth-child(n + 2) {
+        border-right-color: #dce8f5;
+    }
+    .statistics-table thead tr:nth-child(2) th:nth-child(3n + 1),
+    .statistics-main-row > td:nth-child(3n + 2) {
+        box-shadow: inset 8px 0 0 rgba(64, 158, 255, 0.035);
+    }
+    .statistics-table thead tr:nth-child(2) th:nth-child(3n),
+    .statistics-main-row > td:nth-child(3n + 4) {
+        border-right-color: #dce8f5;
+    }
+    .statistics-main-row > td:nth-child(2),
+    .statistics-main-row > td:nth-child(3),
+    .statistics-main-row > td:nth-child(4),
+    .statistics-main-row > td:nth-child(8),
+    .statistics-main-row > td:nth-child(9),
+    .statistics-main-row > td:nth-child(10),
+    .statistics-main-row > td:nth-child(14),
+    .statistics-main-row > td:nth-child(15),
+    .statistics-main-row > td:nth-child(16) {
+        background: #fcfdff;
+    }
+    .statistics-main-row > td:nth-child(5),
+    .statistics-main-row > td:nth-child(6),
+    .statistics-main-row > td:nth-child(7),
+    .statistics-main-row > td:nth-child(11),
+    .statistics-main-row > td:nth-child(12),
+    .statistics-main-row > td:nth-child(13) {
+        background: #fff;
+    }
+    .statistics-sort-head {
+        cursor: pointer;
+        user-select: none;
+    }
+    .statistics-sort-head:hover {
+        color: #409eff;
+        background: #ecf5ff;
+    }
+    .statistics-sort-head.is-active {
+        color: #409eff;
+        background: #ecf5ff;
+    }
+    .statistics-sort-head::after {
+        content: " ↕";
+        color: #c0c4cc;
+        font-weight: 600;
+    }
+    .statistics-sort-head.is-active.asc::after {
+        content: " ↑";
+        color: #409eff;
+    }
+    .statistics-sort-head.is-active.desc::after {
+        content: " ↓";
+        color: #409eff;
+    }
+    .statistics-table td {
+        padding: 12px 10px;
+        border: 1px solid #ebeef5;
+        text-align: center;
+        white-space: nowrap;
+    }
+    .statistics-table .text-left { text-align: left; }
+    .statistics-table .text-center { text-align: center; }
+    .statistics-category {
+        font-weight: 700;
+        color: #409eff;
+        text-align: center;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        cursor: pointer;
+        user-select: none;
+    }
+    .statistics-category:hover {
+        color: #1d4ed8;
+        background: #ecf5ff !important;
+    }
+    .statistics-category-static {
+        cursor: default;
+    }
+    .statistics-category-static:hover {
+        color: #409eff;
+        background: inherit !important;
+    }
+    .statistics-main-row:hover td {
+        background: #fdfdfd;
+    }
+    .statistics-expand-row {
+        display: none;
+        background: #fafcff;
+    }
+    .statistics-expand-row td {
+        padding: 0;
+        border-top: none;
+    }
+    .statistics-expand-content {
+        padding: 0;
+        border-left: 0;
+        background: #fafcff;
+    }
+    .statistics-sub-table {
+        width: 100%;
+        table-layout: fixed;
+        border-collapse: collapse;
+        background: transparent;
+    }
+    .statistics-sub-table th {
+        background: #f5f7fa;
+        border: 1px solid #ebeef5;
+        color: #303133;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 6px 5px;
+        text-align: center;
+        white-space: nowrap;
+    }
+    .statistics-sub-table td {
+        border: 1px solid #ebeef5;
+        padding: 7px 5px;
+        background: #fff;
+        font-size: 12px;
+        text-align: center;
+        white-space: nowrap;
+    }
+    .statistics-sub-table thead th:first-child {
+        color: #4b5563;
+        font-size: 11px;
+        font-weight: 700;
+    }
+    .statistics-sub-table thead tr:first-child th:nth-child(2),
+    .statistics-sub-table thead tr:first-child th:nth-child(3),
+    .statistics-sub-table thead tr:first-child th:nth-child(4),
+    .statistics-sub-table thead tr:first-child th:nth-child(8),
+    .statistics-sub-table thead tr:first-child th:nth-child(9),
+    .statistics-sub-table thead tr:first-child th:nth-child(10),
+    .statistics-sub-table thead tr:first-child th:nth-child(14),
+    .statistics-sub-table thead tr:first-child th:nth-child(15),
+    .statistics-sub-table thead tr:first-child th:nth-child(16),
+    .statistics-sub-table tbody td:nth-child(2),
+    .statistics-sub-table tbody td:nth-child(3),
+    .statistics-sub-table tbody td:nth-child(4),
+    .statistics-sub-table tbody td:nth-child(8),
+    .statistics-sub-table tbody td:nth-child(9),
+    .statistics-sub-table tbody td:nth-child(10),
+    .statistics-sub-table tbody td:nth-child(14),
+    .statistics-sub-table tbody td:nth-child(15),
+    .statistics-sub-table tbody td:nth-child(16) {
+        background: #fcfdff;
+    }
+    .statistics-sub-table thead tr:first-child th:nth-child(5),
+    .statistics-sub-table thead tr:first-child th:nth-child(6),
+    .statistics-sub-table thead tr:first-child th:nth-child(7),
+    .statistics-sub-table thead tr:first-child th:nth-child(11),
+    .statistics-sub-table thead tr:first-child th:nth-child(12),
+    .statistics-sub-table thead tr:first-child th:nth-child(13) {
+        background: #f7fbff;
+    }
+    .statistics-sub-table thead tr:first-child th:nth-child(2),
+    .statistics-sub-table thead tr:first-child th:nth-child(5),
+    .statistics-sub-table thead tr:first-child th:nth-child(8),
+    .statistics-sub-table thead tr:first-child th:nth-child(11),
+    .statistics-sub-table thead tr:first-child th:nth-child(14),
+    .statistics-sub-table tbody td:nth-child(2),
+    .statistics-sub-table tbody td:nth-child(5),
+    .statistics-sub-table tbody td:nth-child(8),
+    .statistics-sub-table tbody td:nth-child(11),
+    .statistics-sub-table tbody td:nth-child(14) {
+        box-shadow: inset 8px 0 0 rgba(64, 158, 255, 0.035);
+    }
+    .statistics-sub-table thead tr:first-child th:nth-child(2),
+    .statistics-sub-table thead tr:first-child th:nth-child(5),
+    .statistics-sub-table thead tr:first-child th:nth-child(8),
+    .statistics-sub-table thead tr:first-child th:nth-child(11),
+    .statistics-sub-table thead tr:first-child th:nth-child(14) {
+        color: #245c9a;
+        font-size: 12px;
+        font-weight: 800;
+        background: #eef6ff;
+    }
+    .statistics-sub-table thead tr:first-child th:nth-child(3),
+    .statistics-sub-table thead tr:first-child th:nth-child(4),
+    .statistics-sub-table thead tr:first-child th:nth-child(6),
+    .statistics-sub-table thead tr:first-child th:nth-child(7),
+    .statistics-sub-table thead tr:first-child th:nth-child(9),
+    .statistics-sub-table thead tr:first-child th:nth-child(10),
+    .statistics-sub-table thead tr:first-child th:nth-child(12),
+    .statistics-sub-table thead tr:first-child th:nth-child(13),
+    .statistics-sub-table thead tr:first-child th:nth-child(15),
+    .statistics-sub-table thead tr:first-child th:nth-child(16) {
+        color: #4b5563;
+        font-size: 11px;
+        font-weight: 650;
+    }
+    .statistics-sub-table .statistics-sub-op {
+        width: 5%;
+        background: #f5f7fa;
+    }
+    .statistics-sub-table tbody .statistics-sub-op {
+        background: #fff;
+    }
+    .statistics-diff-pos { color: #67c23a; font-weight: 700; }
+    .statistics-diff-neg { color: #f56c6c; font-weight: 700; }
+    .statistics-empty {
+        padding: 44px 16px;
+        text-align: center;
+        color: #94a3b8;
+        font-size: 14px;
+        font-weight: 600;
+    }
+    .statistics-detail-btn {
+        border: 1px solid #dbe3ef;
+        background: #fff;
+        color: #409eff;
+        border-radius: 6px;
+        padding: 5px 10px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 700;
+    }
+    .statistics-detail-btn:hover {
+        border-color: #409eff;
+        background: #ecf5ff;
+    }
+    .statistics-product-modal-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 520;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(15, 23, 42, 0.42);
+        padding: 24px;
+    }
+    .statistics-product-modal-backdrop.open { display: flex; }
+    .statistics-product-modal {
+        width: min(1120px, 96vw);
+        max-height: min(760px, 90vh);
+        display: flex;
+        flex-direction: column;
+        background: #fff;
+        border-radius: 10px;
+        box-shadow: 0 24px 70px rgba(15, 23, 42, 0.22);
+        overflow: hidden;
+    }
+    .statistics-product-modal-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 18px 22px;
+        border-bottom: 1px solid #eef2f7;
+        background: #fff;
+    }
+    .statistics-product-modal-title {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 850;
+        color: #1f2937;
+    }
+    .statistics-product-modal-subtitle {
+        margin-top: 6px;
+        color: #64748b;
+        font-size: 12px;
+        font-weight: 700;
+    }
+    .statistics-product-modal-close {
+        border: 0;
+        background: #f1f5f9;
+        color: #475569;
+        width: 34px;
+        height: 34px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 20px;
+        line-height: 1;
+    }
+    .statistics-product-modal-body {
+        padding: 18px 22px 22px;
+        overflow: auto;
+        background: #fafbfc;
+    }
+    .statistics-product-table {
+        width: 100%;
+        min-width: 880px;
+        border-collapse: collapse;
+        background: #fff;
+        border: 1px solid #e8eef6;
+        border-radius: 8px;
+        overflow: hidden;
+        font-size: 13px;
+    }
+    .statistics-product-table th,
+    .statistics-product-table td {
+        border-bottom: 1px solid #edf2f7;
+        padding: 10px 12px;
+        text-align: center;
+        vertical-align: middle;
+    }
+    .statistics-product-table th {
+        background: #f5f7fa;
+        color: #334155;
+        font-size: 12px;
+        font-weight: 800;
+        white-space: nowrap;
+    }
+    .statistics-product-table td {
+        color: #303133;
+    }
+    .statistics-product-name {
+        text-align: left !important;
+        line-height: 1.45;
+        font-weight: 700;
+        color: #1f2937;
+        white-space: normal;
+    }
+    .statistics-product-img {
+        width: 58px;
+        height: 58px;
+        object-fit: cover;
+        border-radius: 6px;
+        border: 1px solid #e5e7eb;
+        background: #f8fafc;
+    }
+    .statistics-product-empty {
+        padding: 52px 16px;
+        text-align: center;
+        color: #94a3b8;
+        font-size: 14px;
+        font-weight: 700;
+        background: #fff;
+        border: 1px dashed #dbe3ef;
+        border-radius: 8px;
+    }
+    .statistics-pagination {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        padding-top: 12px;
+        color: #606266;
+        font-size: 13px;
+        flex-wrap: wrap;
+        flex-shrink: 0;
+    }
+    .statistics-pagination-main,
+    .statistics-pagination-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+    .statistics-page-btn {
+        min-width: 34px;
+        height: 34px;
+        border: 1px solid #dbe3ef;
+        background: #fff;
+        color: #303133;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 700;
+    }
+    .statistics-page-btn:hover:not(:disabled),
+    .statistics-page-btn.is-active {
+        border-color: #409eff;
+        color: #409eff;
+        background: #ecf5ff;
+    }
+    .statistics-page-btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+    }
+    .workbench-modal-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 500;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(15, 23, 42, 0.42);
+        padding: 20px;
+    }
+    .workbench-modal-backdrop.open { display: flex; }
+    .workbench-modal {
+        width: min(720px, 100%);
+        max-height: calc(100vh - 40px);
+        overflow-y: auto;
+        background: #fff;
+        border-radius: 8px;
+        box-shadow: 0 22px 60px rgba(15, 23, 42, 0.22);
+        padding: 24px;
+    }
+    .workbench-modal-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 18px;
+    }
+    .workbench-modal-title {
+        margin: 0;
+        font-size: 22px;
+        font-weight: 800;
+        color: #1f2937;
+    }
+    .workbench-modal-close {
+        border: 0;
+        background: #f1f5f9;
+        color: #475569;
+        width: 34px;
+        height: 34px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 20px;
+        line-height: 1;
+    }
+    .workbench-mode-toggle {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-bottom: 18px;
+    }
+    .workbench-mode-btn {
+        border: 1px solid #dbe3ef;
+        background: #fff;
+        border-radius: 8px;
+        padding: 12px;
+        text-align: left;
+        cursor: pointer;
+        color: #334155;
+        font-weight: 800;
+    }
+    .workbench-mode-btn span {
+        display: block;
+        margin-top: 4px;
+        font-size: 12px;
+        color: #64748b;
+        font-weight: 600;
+    }
+    .workbench-mode-btn.active {
+        border-color: #6366f1;
+        background: #eef2ff;
+        color: #4f46e5;
+    }
+    .workbench-form-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+    }
+    .workbench-form-group { margin-bottom: 14px; }
+    .workbench-form-group.full { grid-column: 1 / -1; }
+    .workbench-form-label {
+        display: block;
+        margin-bottom: 7px;
+        font-size: 12px;
+        color: #475569;
+        font-weight: 800;
+    }
+    .workbench-form-control {
+        width: 100%;
+        border: 1px solid #dbe3ef;
+        background: #fff;
+        border-radius: 6px;
+        padding: 10px 11px;
+        font-size: 13px;
+        color: #1f2937;
+    }
+    .workbench-ai-toggle {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        background: #fff8e1;
+        border: 1px solid #ffe082;
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 14px;
+        color: #92400e;
+        font-size: 13px;
+        font-weight: 700;
+    }
+    .workbench-actions {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+        margin-top: 18px;
+    }
+    .workbench-category-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+        color: #64748b;
+        font-size: 12px;
+        font-weight: 700;
+        flex-wrap: wrap;
+    }
+    .workbench-category-list {
+        max-height: 170px;
+        overflow-y: auto;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 10px;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: 8px;
+        background: #f8fafc;
+    }
+    .workbench-category-item {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        color: #334155;
+        font-size: 12px;
+        font-weight: 700;
+        min-width: 0;
+    }
+    .workbench-category-item span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .workbench-submit,
+    .workbench-secondary {
+        border-radius: 6px;
+        padding: 11px 16px;
+        font-size: 14px;
+        font-weight: 800;
+        cursor: pointer;
+    }
+    .workbench-submit {
+        border: 0;
+        background: #4f46e5;
+        color: #fff;
+    }
+    .workbench-submit:disabled { opacity: 0.55; cursor: not-allowed; }
+    .workbench-secondary {
+        border: 1px solid #dbe3ef;
+        background: #fff;
+        color: #475569;
+    }
+    .workbench-progress {
+        display: none;
+        margin-top: 18px;
+        border-top: 1px solid #eef2f7;
+        padding-top: 16px;
+    }
+    .workbench-progress.open { display: block; }
+    .workbench-progress-bar {
+        height: 8px;
+        border-radius: 999px;
+        background: #e2e8f0;
+        overflow: hidden;
+        margin-bottom: 10px;
+    }
+    .workbench-progress-fill {
+        width: 0;
+        height: 100%;
+        background: #6366f1;
+        transition: width 0.25s ease;
+    }
+    .workbench-step-list {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 7px;
+        color: #475569;
+        font-size: 13px;
+    }
+    .workbench-step-list li {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        background: #f8fafc;
+        border-radius: 6px;
+        padding: 8px 10px;
+    }
+    .workbench-message {
+        margin-top: 10px;
+        font-size: 13px;
+        color: #64748b;
+        font-weight: 700;
+    }
+    .workbench-message.error { color: #dc2626; }
+    @media (max-width: 720px) {
+        .statistics-panel { padding: 16px; }
+        .statistics-head {
+            align-items: flex-start;
+            flex-direction: column;
+            margin: -16px -16px 16px;
+            padding: 12px 20px;
+        }
+        .statistics-actions { justify-content: flex-start; }
+        .statistics-summary-cards { width: 100%; }
+        .statistics-summary-card { flex: 1 1 140px; }
+        .statistics-table-wrap { padding: 12px; }
+        .workbench-form-grid,
+        .workbench-mode-toggle { grid-template-columns: 1fr; }
+    }
+</style>
+
+<div class="statistics-panel">
+    <div class="statistics-head">
+        <div class="statistics-title-link" onclick="location.href='/'">
+            <h2 class="statistics-title">数据分析</h2>
+            <div class="header-slogan statistics-project-slogan" style="text-transform: none;">洞察竞对态势 • 驱动价格决策 <span style="margin-left: 15px; color: var(--text-muted); font-weight: 400; text-transform: none;">(当前项目: <span style="color: var(--primary-color); font-weight: 700;">{{ active_project }}</span>)</span></div>
+        </div>
+        <div class="statistics-actions">
+            <button class="statistics-refresh statistics-primary" id="statistics-enter-workbench" type="button" onclick="openWorkbenchAnalyzeModal()">进入工作台</button>
+            <button class="statistics-refresh" id="statistics-reanalyze" type="button" onclick="openReanalyzeModal()" disabled>重新分析</button>
+            <button class="statistics-refresh" type="button" onclick="exportStatistics()">导出</button>
+            <button class="statistics-refresh" type="button" onclick="loadStatistics()">刷新</button>
+        </div>
+    </div>
+
+    <div class="statistics-toolbar">
+        <div class="statistics-filter-stack">
+            <input class="statistics-search" id="statistics-search" type="search" placeholder="搜索三级分类" oninput="filterStatistics()">
+            <div class="statistics-tabs" id="statistics-tabs"></div>
+        </div>
+        <div class="statistics-summary-cards">
+            <div class="statistics-summary-card">
+                <div class="statistics-summary-label">总销售量</div>
+                <div class="statistics-summary-value" id="statistics-total-sales">0</div>
+            </div>
+            <div class="statistics-summary-card">
+                <div class="statistics-summary-label">总销售额</div>
+                <div class="statistics-summary-value" id="statistics-total-amount">0</div>
+            </div>
+            <div class="statistics-summary-card">
+                <div class="statistics-summary-label">总动销效率</div>
+                <div class="statistics-summary-value" id="statistics-total-active-rate">0%</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="statistics-table-wrap">
+        <table class="statistics-table">
+            <thead>
+                <tr>
+                    <th rowspan="2" style="width: 10%;">三级分类</th>
+                    <th colspan="3" class="statistics-sort-head" data-sort-key="sales" onclick="setStatisticsSort('sales')">销售量（单）</th>
+                    <th colspan="3" class="statistics-sort-head" data-sort-key="sales_amount" onclick="setStatisticsSort('sales_amount')">销售额（元）</th>
+                    <th colspan="3" class="statistics-sort-head" data-sort-key="spu" onclick="setStatisticsSort('spu')">SPU数量</th>
+                    <th colspan="3" class="statistics-sort-head" data-sort-key="active_rate" onclick="setStatisticsSort('active_rate')">动销效率 (%)</th>
+                    <th colspan="3" class="statistics-sort-head" data-sort-key="category_contribution" onclick="setStatisticsSort('category_contribution')">类目贡献</th>
+                    <th rowspan="2" style="width: 5%;">操作</th>
+                </tr>
+                <tr>
+                    <th class="statistics-subject-head">主店</th><th>商圈均值</th><th>均值差</th>
+                    <th class="statistics-subject-head">主店</th><th>商圈均值</th><th>均值差</th>
+                    <th class="statistics-subject-head">主店</th><th>商圈均值</th><th>均值差</th>
+                    <th class="statistics-subject-head">主店</th><th>商圈均值</th><th>均值差</th>
+                    <th class="statistics-contribution-subject-head">主店贡献</th><th>平均贡献</th><th>均值差</th>
+                </tr>
+            </thead>
+            <tbody id="statistics-body">
+                <tr><td colspan="17" class="statistics-empty">正在加载数据分析...</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="statistics-pagination" id="statistics-pagination"></div>
 </div>
+
+<div class="statistics-product-modal-backdrop" id="statistics-product-modal">
+    <div class="statistics-product-modal">
+        <div class="statistics-product-modal-head">
+            <div>
+                <h3 class="statistics-product-modal-title" id="statistics-product-modal-title">商品详情</h3>
+                <div class="statistics-product-modal-subtitle" id="statistics-product-modal-subtitle">销量 ≥ 1 的商品明细</div>
+            </div>
+            <button class="statistics-product-modal-close" type="button" onclick="closeStatisticsProductModal()">×</button>
+        </div>
+        <div class="statistics-product-modal-body" id="statistics-product-modal-body">
+            <div class="statistics-product-empty">正在加载商品数据...</div>
+        </div>
+    </div>
+</div>
+
+<div class="workbench-modal-backdrop" id="workbench-modal">
+    <div class="workbench-modal">
+        <div class="workbench-modal-head">
+            <div>
+                <h3 class="workbench-modal-title">进入工作台</h3>
+                <p class="statistics-subtitle">基于当前项目源文件生成原工作台关联数据</p>
+            </div>
+            <button class="workbench-modal-close" type="button" onclick="closeWorkbenchAnalyzeModal()">×</button>
+        </div>
+
+        <div class="workbench-mode-toggle">
+            <button class="workbench-mode-btn active" id="workbench-mode-auto" type="button" onclick="setWorkbenchMode('auto')">
+                AI 分析
+                <span>填写 Key、选择规则模板，后台生成关联数据</span>
+            </button>
+            <button class="workbench-mode-btn" id="workbench-mode-manual" type="button" onclick="setWorkbenchMode('manual')">
+                跳过分析
+                <span>上传已有关联结果文件，直接导入工作台</span>
+            </button>
+        </div>
+
+        <form id="workbench-analyze-form">
+            <input type="hidden" name="mode" id="workbench-mode-input" value="auto">
+            <input type="hidden" name="match_config_json" id="workbench-match-config-json" value="">
+            <input type="hidden" name="selected_categories" id="workbench-selected-categories" value="">
+
+            <div class="workbench-form-group full" id="workbench-category-scope">
+                <label class="workbench-form-label">三级类目范围</label>
+                <div class="workbench-category-actions">
+                    <button class="workbench-secondary" type="button" onclick="setWorkbenchCategoryChecks(true)">全选</button>
+                    <button class="workbench-secondary" type="button" onclick="setWorkbenchCategoryChecks(false)">清空</button>
+                    <span id="workbench-category-summary"></span>
+                </div>
+                <div class="workbench-category-list" id="workbench-category-list"></div>
+            </div>
+
+            <div id="workbench-auto-fields">
+                <label class="workbench-ai-toggle">
+                    <input type="checkbox" name="use_ai" id="workbench-use-ai" onchange="toggleWorkbenchAiFields()">
+                    <span>AI 智能属性提取<br><small>利用 AI 补齐缺失的品牌、规格等核心属性</small></span>
+                </label>
+
+                <div class="workbench-form-grid">
+                    <div class="workbench-form-group">
+                        <label class="workbench-form-label">类目规则模板</label>
+                        <select name="rule_template_id" id="workbench-rule-template" class="workbench-form-control">
+                            <option value="">加载中...</option>
+                        </select>
+                    </div>
+                    <div class="workbench-form-group" id="workbench-ai-model-group" style="display:none;">
+                        <label class="workbench-form-label">Gemini 模型名称</label>
+                        <select name="ai_model_name" class="workbench-form-control">
+                            <option value="" selected>(留空)</option>
+                            <option value="models/gemini-3.1-flash-lite-preview">models/gemini-3.1-flash-lite-preview</option>
+                            <option value="gemini-3.1-flash-lite-preview">gemini-3.1-flash-lite-preview</option>
+                            <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
+                        </select>
+                    </div>
+                    <div class="workbench-form-group full" id="workbench-api-key-group" style="display:none;">
+                        <label class="workbench-form-label">Gemini API Key</label>
+                        <input type="password" name="api_key" id="workbench-api-key" class="workbench-form-control" placeholder="可填多个 Key，用逗号 / 分号 / 空格分隔">
+                    </div>
+                    <div class="workbench-form-group" id="workbench-kimi-key-group" style="display:none;">
+                        <label class="workbench-form-label">Kimi 兜底 API Key（可选）</label>
+                        <input type="password" name="kimi_api_key" class="workbench-form-control" placeholder="sk-...">
+                    </div>
+                    <div class="workbench-form-group" id="workbench-kimi-model-group" style="display:none;">
+                        <label class="workbench-form-label">Kimi 模型（可选）</label>
+                        <select name="kimi_model_name" class="workbench-form-control">
+                            <option value="" selected>(留空)</option>
+                            <option value="kimi-k2.5">kimi-k2.5</option>
+                            <option value="kimi-k2-turbo-preview">kimi-k2-turbo-preview</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div id="workbench-manual-fields" style="display:none;">
+                <div class="workbench-form-group">
+                    <label class="workbench-form-label">关联结果文件</label>
+                    <input type="file" name="result_file" id="workbench-result-file" class="workbench-form-control" accept=".xlsx,.xls">
+                </div>
+            </div>
+
+            <div class="workbench-actions">
+                <button class="workbench-secondary" type="button" onclick="closeWorkbenchAnalyzeModal()">取消</button>
+                <button class="workbench-submit" id="workbench-submit" type="submit">开始分析</button>
+            </div>
+        </form>
+
+        <div class="workbench-progress" id="workbench-progress">
+            <div class="workbench-progress-bar"><div class="workbench-progress-fill" id="workbench-progress-fill"></div></div>
+            <div class="workbench-message" id="workbench-progress-summary">等待中...</div>
+            <ul class="workbench-step-list" id="workbench-step-list"></ul>
+        </div>
+        <div class="workbench-message" id="workbench-message"></div>
+    </div>
+</div>
+
+<script>
+    let statisticsAllItems = [];
+    let statisticsFilteredItems = [];
+    let statisticsMeta = { main_store: "主店", stores: [] };
+    let statisticsTabs = [];
+    let statisticsActiveTabId = "main";
+    let statisticsPage = 1;
+    let statisticsPageSize = 20;
+    let statisticsSort = { key: "", order: "desc" };
+    let workbenchProjectId = null;
+    let workbenchProgressTimer = null;
+    let workbenchAnalyzeScope = "partial";
+
+    function syncWorkbenchButton(config) {
+        const btn = document.getElementById("statistics-enter-workbench");
+        const ready = !!config?.has_links;
+        const canReanalyze = ready && getActiveStatisticsTab().source_type === "main";
+        if (btn) {
+            btn.disabled = false;
+            btn.title = ready ? "进入商品明细工作台" : "当前项目还没有关联数据，点击后可先全量分析";
+        }
+        const reanalyzeBtn = document.getElementById("statistics-reanalyze");
+        if (reanalyzeBtn) {
+            reanalyzeBtn.disabled = !canReanalyze;
+            reanalyzeBtn.title = canReanalyze
+                ? "重新分析关联数据"
+                : getActiveStatisticsTab().source_type === "main"
+                    ? "当前项目还没有关联数据"
+                    : "竞店独有类目不支持重新分析";
+        }
+    }
+
+    function getActiveStatisticsTab() {
+        return statisticsTabs.find((tab) => tab.id === statisticsActiveTabId) || statisticsTabs[0] || { id: "main", source_type: "main", source_name: "主店", items: [], totals: {} };
+    }
+
+    function renderStatisticsTabs() {
+        const root = document.getElementById("statistics-tabs");
+        if (!root) return;
+        root.innerHTML = statisticsTabs.map((tab) => `
+            <button class="statistics-tab ${tab.id === statisticsActiveTabId ? "active" : ""}" type="button" onclick="switchStatisticsTab('${statisticsEscapeHtml(tab.id)}')">
+                ${statisticsEscapeHtml(tab.label || tab.source_name || "数据")}
+            </button>
+        `).join("");
+    }
+
+    function switchStatisticsTab(tabId) {
+        statisticsActiveTabId = tabId;
+        const activeTab = getActiveStatisticsTab();
+        statisticsAllItems = (activeTab.items || []).slice();
+        const totals = activeTab.totals || {};
+        document.getElementById("statistics-total-sales").textContent = statisticsNumber(totals.sales || 0);
+        document.getElementById("statistics-total-amount").textContent = statisticsMoney(totals.sales_amount || 0);
+        document.getElementById("statistics-total-active-rate").textContent = statisticsPct(totals.active_rate || 0);
+        renderStatisticsTabs();
+        syncStatisticsSubjectHeaders();
+        statisticsPage = 1;
+        filterStatistics();
+        syncWorkbenchButton(window.__workbenchConfig);
+    }
+
+    function syncStatisticsSubjectHeaders() {
+        const tab = getActiveStatisticsTab();
+        const name = tab.source_type === "main" ? "主店" : (tab.source_name || "竞店");
+        document.querySelectorAll(".statistics-subject-head").forEach((el) => {
+            el.textContent = name;
+        });
+        document.querySelectorAll(".statistics-contribution-subject-head").forEach((el) => {
+            el.textContent = `${name}贡献`;
+        });
+    }
+
+    function statisticsNumber(value, digits = 2) {
+        const n = Number(value || 0);
+        return String(Math.round(n));
+    }
+
+    function statisticsMoney(value) {
+        return Math.round(Number(value || 0)).toLocaleString('zh-CN');
+    }
+
+    function statisticsPct(value) {
+        return `${statisticsNumber(value)}%`;
+    }
+
+    function statisticsDiffClass(value) {
+        const n = Number(value || 0);
+        if (n > 0) return "statistics-diff-pos";
+        if (n < 0) return "statistics-diff-neg";
+        return "";
+    }
+
+    function statisticsCell(value, type = "number", diff = false) {
+        let text = type === "money" ? statisticsMoney(value) : type === "pct" ? statisticsPct(value) : statisticsNumber(value);
+        if (diff && Number(value || 0) > 0) text = `+${text}`;
+        const cls = diff ? statisticsDiffClass(value) : "";
+        return `<td class="${cls}">${text}</td>`;
+    }
+
+    function statisticsEscapeHtml(value) {
+        return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
+            "&": "&amp;",
+            "<": "&lt;",
+            ">": "&gt;",
+            '"': "&quot;",
+            "'": "&#39;"
+        }[ch]));
+    }
+
+    function toggleStatisticsRow(row) {
+        row.classList.toggle("expanded");
+        const next = row.nextElementSibling;
+        if (next && next.classList.contains("statistics-expand-row")) {
+            next.style.display = next.style.display === "table-row" ? "none" : "table-row";
+        }
+    }
+
+    function closeStatisticsProductModal() {
+        document.getElementById("statistics-product-modal").classList.remove("open");
+    }
+
+    function renderStatisticsProductRows(items) {
+        if (!items.length) {
+            return '<div class="statistics-product-empty">该三级类目下暂无销量 ≥ 1 的商品</div>';
+        }
+        const rows = items.map((item) => {
+            const img = statisticsEscapeHtml(item.image || "");
+            const imgCell = img
+                ? `<img class="statistics-product-img" src="${img}" alt="" loading="lazy" onerror="this.style.display='none'">`
+                : "-";
+            return `
+                <tr>
+                    <td>${imgCell}</td>
+                    <td class="statistics-product-name">${statisticsEscapeHtml(item.name || "-")}</td>
+                    <td>${statisticsEscapeHtml(item.spec || "-")}</td>
+                    <td>${statisticsEscapeHtml(item.activity_price || "-")}</td>
+                    <td>${statisticsEscapeHtml(item.original_price || "-")}</td>
+                    <td>${statisticsEscapeHtml(item.sales || "0")}</td>
+                </tr>
+            `;
+        }).join("");
+        return `
+            <table class="statistics-product-table">
+                <thead>
+                    <tr>
+                        <th style="width: 86px;">图片</th>
+                        <th>商品名称</th>
+                        <th style="width: 160px;">规格</th>
+                        <th style="width: 110px;">活动价</th>
+                        <th style="width: 110px;">原价</th>
+                        <th style="width: 90px;">销售</th>
+                    </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+        `;
+    }
+
+    async function openStatisticsProductModal(category) {
+        const tab = getActiveStatisticsTab();
+        const modal = document.getElementById("statistics-product-modal");
+        const title = document.getElementById("statistics-product-modal-title");
+        const subtitle = document.getElementById("statistics-product-modal-subtitle");
+        const body = document.getElementById("statistics-product-modal-body");
+        title.textContent = `${category} · 商品详情`;
+        subtitle.textContent = `${tab.source_name || tab.label || "当前店铺"} · 销量 ≥ 1 的商品明细`;
+        body.innerHTML = '<div class="statistics-product-empty">正在加载商品数据...</div>';
+        modal.classList.add("open");
+
+        try {
+            const params = new URLSearchParams({
+                category,
+                source_type: tab.source_type || "main",
+                store_id: tab.source_store_id || "",
+            });
+            const resp = await fetch(`/api/statistics/products?${params.toString()}`);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+            body.innerHTML = renderStatisticsProductRows(data.items || []);
+        } catch (err) {
+            body.innerHTML = `<div class="statistics-product-empty">商品详情加载失败：${statisticsEscapeHtml(err.message || "未知错误")}</div>`;
+        }
+    }
+
+    function openProductWorkbench() {
+        if (typeof showPanel === "function") {
+            showPanel("projects");
+        }
+    }
+
+    function setWorkbenchMessage(text, isError = false) {
+        const el = document.getElementById("workbench-message");
+        if (!el) return;
+        el.textContent = text || "";
+        el.classList.toggle("error", !!isError);
+    }
+
+    function setWorkbenchMode(mode) {
+        const isManual = mode === "manual";
+        document.getElementById("workbench-mode-input").value = isManual ? "manual" : "auto";
+        document.getElementById("workbench-mode-auto").classList.toggle("active", !isManual);
+        document.getElementById("workbench-mode-manual").classList.toggle("active", isManual);
+        document.getElementById("workbench-auto-fields").style.display = isManual ? "none" : "";
+        document.getElementById("workbench-manual-fields").style.display = isManual ? "" : "none";
+        document.getElementById("workbench-result-file").required = isManual;
+        document.getElementById("workbench-submit").textContent = isManual ? "导入关联文件" : "开始分析";
+        setWorkbenchMessage("");
+    }
+
+    function toggleWorkbenchAiFields() {
+        const useAi = document.getElementById("workbench-use-ai").checked;
+        document.getElementById("workbench-api-key-group").style.display = useAi ? "" : "none";
+        document.getElementById("workbench-ai-model-group").style.display = useAi ? "" : "none";
+        document.getElementById("workbench-kimi-key-group").style.display = useAi ? "" : "none";
+        document.getElementById("workbench-kimi-model-group").style.display = useAi ? "" : "none";
+        document.getElementById("workbench-api-key").required = useAi;
+    }
+
+    function buildWorkbenchMatchConfigJson() {
+        return JSON.stringify({ category_level: 1 });
+    }
+
+    async function loadWorkbenchRuleTemplates() {
+        const sel = document.getElementById("workbench-rule-template");
+        if (!sel) return;
+        try {
+            const resp = await fetch("/api/rule-templates");
+            const data = await resp.json();
+            const items = data.items || [];
+            sel.innerHTML = "";
+            if (!items.length) {
+                sel.innerHTML = '<option value="">(无规则模板)</option>';
+                return;
+            }
+            items.forEach((item) => {
+                const opt = document.createElement("option");
+                opt.value = item.id;
+                opt.textContent = item.name || `#${item.id}`;
+                sel.appendChild(opt);
+            });
+        } catch (err) {
+            sel.innerHTML = '<option value="">加载失败</option>';
+        }
+    }
+
+    async function getWorkbenchConfig(force = false) {
+        if (!force && workbenchProjectId && window.__workbenchConfig) return window.__workbenchConfig;
+        const resp = await fetch("/api/config");
+        if (!resp.ok) throw new Error("无法读取当前项目");
+        const config = await resp.json();
+            workbenchProjectId = config.project_id;
+            if (!workbenchProjectId) throw new Error("当前项目不存在");
+            window.__workbenchConfig = config;
+            syncWorkbenchButton(config);
+            return config;
+    }
+
+    async function ensureWorkbenchProjectId() {
+        const config = await getWorkbenchConfig();
+        return workbenchProjectId;
+    }
+
+    async function openWorkbenchAnalyzeModal() {
+        try {
+            const config = await getWorkbenchConfig(true);
+            if (!config.has_links) {
+                await openReanalyzeModal({ scope: "full", title: "进入工作台" });
+                return;
+            }
+            storeSources = [];
+            currentPage = 1;
+            await loadData(true);
+            if (typeof showPanel === "function") showPanel("projects");
+            return;
+        } catch (err) {
+            setWorkbenchMessage(err.message || "无法读取当前项目", true);
+        }
+    }
+
+    function renderWorkbenchCategoryChoices() {
+        const list = document.getElementById("workbench-category-list");
+        if (!list) return;
+        const mainTab = statisticsTabs.find((tab) => tab.source_type === "main") || { items: statisticsAllItems };
+        const categories = (mainTab.items || []).map((item) => item.category).filter(Boolean);
+        if (!categories.length) {
+            list.innerHTML = '<div class="workbench-message">暂无三级类目</div>';
+            updateWorkbenchCategorySummary();
+            return;
+        }
+        list.innerHTML = categories.map((cat) => `
+            <label class="workbench-category-item">
+                <input type="checkbox" class="workbench-category-check" value="${statisticsEscapeHtml(cat)}" checked onchange="updateWorkbenchCategorySummary()">
+                <span>${statisticsEscapeHtml(cat)}</span>
+            </label>
+        `).join("");
+        updateWorkbenchCategorySummary();
+    }
+
+    function setWorkbenchCategoryChecks(checked) {
+        document.querySelectorAll(".workbench-category-check").forEach((el) => {
+            el.checked = checked;
+        });
+        updateWorkbenchCategorySummary();
+    }
+
+    function getSelectedWorkbenchCategories() {
+        return Array.from(document.querySelectorAll(".workbench-category-check:checked")).map((el) => el.value);
+    }
+
+    function updateWorkbenchCategorySummary() {
+        const total = document.querySelectorAll(".workbench-category-check").length;
+        const selected = getSelectedWorkbenchCategories().length;
+        const summary = document.getElementById("workbench-category-summary");
+        if (summary) summary.textContent = total ? `已选 ${selected}/${total} 个三级类目` : "暂无可选三级类目";
+    }
+
+    function resetWorkbenchAnalyzeForm() {
+        const form = document.getElementById("workbench-analyze-form");
+        if (form) form.reset();
+        document.getElementById("workbench-mode-input").value = "auto";
+        document.getElementById("workbench-match-config-json").value = "";
+        document.getElementById("workbench-selected-categories").value = "";
+        document.getElementById("workbench-progress").classList.remove("open");
+        document.getElementById("workbench-progress-fill").style.width = "0%";
+        document.getElementById("workbench-progress-summary").textContent = "等待中...";
+        document.getElementById("workbench-step-list").innerHTML = "";
+        const submit = document.getElementById("workbench-submit");
+        if (submit) submit.disabled = false;
+        setWorkbenchMode("auto");
+        toggleWorkbenchAiFields();
+        setWorkbenchMessage("");
+    }
+
+    async function openReanalyzeModal(options = {}) {
+        workbenchAnalyzeScope = options.scope === "full" ? "full" : "partial";
+        const modal = document.getElementById("workbench-modal");
+        const title = document.querySelector(".workbench-modal-title");
+        if (title) title.textContent = options.title || (workbenchAnalyzeScope === "full" ? "进入工作台" : "重新分析");
+        modal.classList.add("open");
+        resetWorkbenchAnalyzeForm();
+        if (!statisticsAllItems.length) {
+            await loadStatistics();
+        }
+        renderWorkbenchCategoryChoices();
+        const scope = document.getElementById("workbench-category-scope");
+        if (scope) scope.style.display = workbenchAnalyzeScope === "full" ? "none" : "";
+        if (workbenchAnalyzeScope === "full") {
+            setWorkbenchCategoryChecks(true);
+            document.getElementById("workbench-selected-categories").value = "";
+        }
+        try {
+            await ensureWorkbenchProjectId();
+            await loadWorkbenchRuleTemplates();
+        } catch (err) {
+            setWorkbenchMessage(err.message || "初始化失败", true);
+        }
+    }
+
+    function closeWorkbenchAnalyzeModal() {
+        document.getElementById("workbench-modal").classList.remove("open");
+        if (workbenchProgressTimer) {
+            clearInterval(workbenchProgressTimer);
+            workbenchProgressTimer = null;
+        }
+    }
+
+    function renderWorkbenchProgress(data) {
+        const progress = document.getElementById("workbench-progress");
+        const fill = document.getElementById("workbench-progress-fill");
+        const summary = document.getElementById("workbench-progress-summary");
+        const list = document.getElementById("workbench-step-list");
+        progress.classList.add("open");
+        fill.style.width = `${data.pct || 0}%`;
+        summary.textContent = `分析进度 ${data.done_count || 0}/${data.total_steps || 0} (${data.pct || 0}%)`;
+        list.innerHTML = (data.steps || []).map((step) => {
+            const state = step.status === "done" ? "完成" : step.status === "running" ? "进行中" : "等待";
+            return `<li><span>${step.label || "-"}</span><strong>${state}${step.detail ? " · " + step.detail : ""}</strong></li>`;
+        }).join("");
+    }
+
+    async function finishWorkbenchAnalyze() {
+        if (workbenchProgressTimer) {
+            clearInterval(workbenchProgressTimer);
+            workbenchProgressTimer = null;
+        }
+        setWorkbenchMessage("分析完成，正在进入工作台...");
+        storeSources = [];
+        currentPage = 1;
+        window.__workbenchConfig = null;
+        await getWorkbenchConfig(true).catch(() => {});
+        await loadStatistics().catch(() => {});
+        await loadData(true);
+        if (typeof showPanel === "function") showPanel("projects");
+        closeWorkbenchAnalyzeModal();
+        resetWorkbenchAnalyzeForm();
+    }
+
+    async function pollWorkbenchProgress(pid) {
+        try {
+            const resp = await fetch(`/api/projects/${pid}/progress`);
+            const data = await resp.json();
+            if (data.available) {
+                renderWorkbenchProgress(data);
+                return;
+            }
+            const projectsResp = await fetch("/api/projects");
+            const projects = await projectsResp.json();
+            const project = projects.find((item) => item.id === pid);
+            const status = project?.status || "ready";
+            if (status === "ready") {
+                await finishWorkbenchAnalyze();
+            } else if (status === "failed") {
+                if (workbenchProgressTimer) clearInterval(workbenchProgressTimer);
+                workbenchProgressTimer = null;
+                setWorkbenchMessage("分析失败，请检查文件或参数后重试", true);
+                document.getElementById("workbench-submit").disabled = false;
+            }
+        } catch (err) {
+            setWorkbenchMessage(err.message || "进度读取失败", true);
+        }
+    }
+
+    function paginateStatistics(items) {
+        const total = items.length;
+        const pages = Math.max(1, Math.ceil(total / statisticsPageSize));
+        statisticsPage = Math.min(Math.max(1, statisticsPage), pages);
+        const start = (statisticsPage - 1) * statisticsPageSize;
+        return { total, pages, items: items.slice(start, start + statisticsPageSize) };
+    }
+
+    function renderStatisticsPagination(total, pages) {
+        const root = document.getElementById("statistics-pagination");
+        if (!root) return;
+        if (total === 0) {
+            root.innerHTML = "";
+            return;
+        }
+        const pageButtons = [];
+        const start = Math.max(1, statisticsPage - 2);
+        const end = Math.min(pages, statisticsPage + 2);
+        for (let p = start; p <= end; p++) {
+            pageButtons.push(`<button class="statistics-page-btn ${p === statisticsPage ? "is-active" : ""}" type="button" onclick="goStatisticsPage(${p})">${p}</button>`);
+        }
+        root.innerHTML = `
+            <div class="statistics-pagination-main">
+                <span>共 ${total} 个三级分类 · 第 ${statisticsPage}/${pages} 页</span>
+                <button class="statistics-page-btn" type="button" onclick="goStatisticsPage(${statisticsPage - 1})" ${statisticsPage <= 1 ? "disabled" : ""}>‹</button>
+                ${pageButtons.join("")}
+                <button class="statistics-page-btn" type="button" onclick="goStatisticsPage(${statisticsPage + 1})" ${statisticsPage >= pages ? "disabled" : ""}>›</button>
+                <select class="statistics-page-size" id="statistics-page-size" onchange="changeStatisticsPageSize()">
+                    <option value="10" ${statisticsPageSize === 10 ? "selected" : ""}>每页 10 条</option>
+                    <option value="20" ${statisticsPageSize === 20 ? "selected" : ""}>每页 20 条</option>
+                    <option value="50" ${statisticsPageSize === 50 ? "selected" : ""}>每页 50 条</option>
+                    <option value="100" ${statisticsPageSize === 100 ? "selected" : ""}>每页 100 条</option>
+                </select>
+            </div>
+        `;
+        syncWorkbenchButton(window.__workbenchConfig);
+    }
+
+    function applyStatisticsSort(items) {
+        if (!statisticsSort.key) return items;
+        const key = statisticsSort.key;
+        const dir = statisticsSort.order === "asc" ? 1 : -1;
+        return items.slice().sort((a, b) => {
+            const av = Number(a?.summary?.[key]?.avg_diff || 0);
+            const bv = Number(b?.summary?.[key]?.avg_diff || 0);
+            if (av === bv) return String(a.category || "").localeCompare(String(b.category || ""), "zh-CN");
+            return (av - bv) * dir;
+        });
+    }
+
+    function syncStatisticsSortHeaders() {
+        document.querySelectorAll(".statistics-sort-head").forEach((el) => {
+            const active = el.dataset.sortKey === statisticsSort.key;
+            el.classList.toggle("is-active", active);
+            el.classList.toggle("asc", active && statisticsSort.order === "asc");
+            el.classList.toggle("desc", active && statisticsSort.order === "desc");
+        });
+    }
+
+    function setStatisticsSort(key) {
+        if (statisticsSort.key === key) {
+            statisticsSort.order = statisticsSort.order === "desc" ? "asc" : "desc";
+        } else {
+            statisticsSort = { key, order: "desc" };
+        }
+        statisticsPage = 1;
+        renderStatisticsTable();
+    }
+
+    function goStatisticsPage(page) {
+        statisticsPage = page;
+        renderStatisticsTable();
+    }
+
+    function changeStatisticsPageSize() {
+        const sel = document.getElementById("statistics-page-size");
+        statisticsPageSize = Number(sel?.value || 20);
+        statisticsPage = 1;
+        renderStatisticsTable();
+    }
+
+    function filterStatistics() {
+        const q = (document.getElementById("statistics-search")?.value || "").trim().toLowerCase();
+        const tabItems = getActiveStatisticsTab().items || [];
+        statisticsFilteredItems = q
+            ? tabItems.filter((item) => String(item.category || "").toLowerCase().includes(q))
+            : tabItems.slice();
+        statisticsPage = 1;
+        renderStatisticsTable();
+    }
+
+    function renderStatistics(data) {
+        statisticsMeta = data || { main_store: "主店", stores: [] };
+        statisticsTabs = (data.tabs && data.tabs.length ? data.tabs : [{
+            id: "main",
+            label: data.main_store || "主店",
+            source_type: "main",
+            source_store_id: "",
+            source_name: data.main_store || "主店",
+            items: data.items || [],
+            totals: data.main_totals || {},
+        }]).slice();
+        if (!statisticsTabs.some((tab) => tab.id === statisticsActiveTabId)) {
+            statisticsActiveTabId = statisticsTabs[0]?.id || "main";
+        }
+        const activeTab = getActiveStatisticsTab();
+        statisticsAllItems = (activeTab.items || []).slice();
+        statisticsFilteredItems = statisticsAllItems.slice();
+        const totals = activeTab.totals || data.main_totals || {};
+        document.getElementById("statistics-total-sales").textContent = statisticsNumber(totals.sales || 0);
+        document.getElementById("statistics-total-amount").textContent = statisticsMoney(totals.sales_amount || 0);
+        document.getElementById("statistics-total-active-rate").textContent = statisticsPct(totals.active_rate || 0);
+        renderStatisticsTabs();
+        syncStatisticsSubjectHeaders();
+        syncWorkbenchButton(window.__workbenchConfig);
+        statisticsPage = 1;
+        renderStatisticsTable();
+    }
+
+    function renderStatisticsTable() {
+        const body = document.getElementById("statistics-body");
+        const activeTab = getActiveStatisticsTab();
+        const isMainTab = activeTab.source_type === "main";
+        const sortedItems = applyStatisticsSort(statisticsFilteredItems);
+        const pageData = paginateStatistics(sortedItems);
+        const items = pageData.items;
+        syncStatisticsSortHeaders();
+        renderStatisticsPagination(pageData.total, pageData.pages);
+        if (!statisticsAllItems.length) {
+            body.innerHTML = '<tr><td colspan="17" class="statistics-empty">当前项目暂无可统计的三级分类数据</td></tr>';
+            return;
+        }
+        if (!items.length) {
+            body.innerHTML = '<tr><td colspan="17" class="statistics-empty">没有匹配的三级分类</td></tr>';
+            return;
+        }
+
+        body.innerHTML = items.map((item, idx) => {
+            const s = item.summary || {};
+            const competitors = isMainTab ? (item.competitors || []) : [];
+            const detailMetricOrder = [
+                ["sales", "number"],
+                ["sales_amount", "money"],
+                ["spu", "number"],
+                ["active_rate", "pct"],
+                ["category_contribution", "pct"],
+            ];
+            const detailRows = competitors.length ? competitors.map((c) => {
+                const m = c.metrics || {};
+                const mainDiff = c.main_diff || c.diff || {};
+                const marketDiff = c.market_diff || {};
+                const metricCells = detailMetricOrder.map(([key, type]) => `
+                    ${statisticsCell(m[key], type)}
+                    ${statisticsCell(mainDiff[key], type, true)}
+                    ${statisticsCell(marketDiff[key], type, true)}
+                `).join("");
+                return `
+                    <tr>
+                        <td class="text-center">${c.store_name || "-"}</td>
+                        ${metricCells}
+                        <td class="statistics-sub-op"></td>
+                    </tr>
+                `;
+            }).join("") : '<tr><td colspan="17" class="text-center">暂无竞店数据</td></tr>';
+            const safeCategory = statisticsEscapeHtml(item.category || "-");
+            const categoryCell = isMainTab
+                ? `<td class="statistics-category" title="点击展开 ${safeCategory}" onclick="toggleStatisticsRow(this.closest('tr'))">${safeCategory}</td>`
+                : `<td class="statistics-category statistics-category-static">${safeCategory}</td>`;
+            const actionCell = `<td class="text-center"><button class="statistics-detail-btn" type="button" data-category="${safeCategory}" onclick="openStatisticsProductModal(this.dataset.category)">详情</button></td>`;
+            const expandRow = isMainTab ? `
+                <tr class="statistics-expand-row" data-statistics-row="${idx}">
+                    <td colspan="17">
+                        <div class="statistics-expand-content">
+                            <table class="statistics-sub-table">
+                                <thead>
+                                    <tr>
+                                        <th class="text-center" style="width: 10%;">竞店明细</th>
+                                        <th>单量</th><th>主店差值</th><th>商圈差值</th>
+                                        <th>销售额</th><th>主店差值</th><th>商圈差值</th>
+                                        <th>SPU数量</th><th>主店差值</th><th>商圈差值</th>
+                                        <th>动销率</th><th>主店差值</th><th>商圈差值</th>
+                                        <th>类目贡献</th><th>主店差值</th><th>商圈差值</th>
+                                        <th class="statistics-sub-op"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>${detailRows}</tbody>
+                            </table>
+                        </div>
+                    </td>
+                </tr>
+            ` : "";
+            return `
+                <tr class="statistics-main-row">
+                    ${categoryCell}
+                    ${statisticsCell(s.sales?.main)}
+                    ${statisticsCell(s.sales?.industry_avg, "number", true)}
+                    ${statisticsCell(s.sales?.avg_diff, "number", true)}
+                    ${statisticsCell(s.sales_amount?.main, "money")}
+                    ${statisticsCell(s.sales_amount?.industry_avg, "money", true)}
+                    ${statisticsCell(s.sales_amount?.avg_diff, "money", true)}
+                    ${statisticsCell(s.spu?.main)}
+                    ${statisticsCell(s.spu?.industry_avg, "number", true)}
+                    ${statisticsCell(s.spu?.avg_diff, "number", true)}
+                    ${statisticsCell(s.active_rate?.main, "pct")}
+                    ${statisticsCell(s.active_rate?.industry_avg, "pct", true)}
+                    ${statisticsCell(s.active_rate?.avg_diff, "pct", true)}
+                    ${statisticsCell(s.category_contribution?.main, "pct")}
+                    ${statisticsCell(s.category_contribution?.industry_avg, "pct", true)}
+                    ${statisticsCell(s.category_contribution?.avg_diff, "pct", true)}
+                    ${actionCell}
+                </tr>
+                ${expandRow}
+            `;
+        }).join("");
+    }
+
+    async function loadStatistics() {
+        const body = document.getElementById("statistics-body");
+        const pager = document.getElementById("statistics-pagination");
+        if (body) body.innerHTML = '<tr><td colspan="17" class="statistics-empty">正在加载数据分析...</td></tr>';
+        if (pager) pager.innerHTML = "";
+        try {
+            const resp = await fetch("/api/statistics");
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            renderStatistics(await resp.json());
+            getWorkbenchConfig(true).catch(() => syncWorkbenchButton({ has_links: false }));
+        } catch (err) {
+            if (body) body.innerHTML = `<tr><td colspan="17" class="statistics-empty">数据分析加载失败：${err.message}</td></tr>`;
+        }
+    }
+
+    function exportStatistics() {
+        window.location.href = "/api/statistics/export";
+    }
+
+    document.getElementById("workbench-analyze-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const submit = document.getElementById("workbench-submit");
+        submit.disabled = true;
+        setWorkbenchMessage("已提交，正在处理...");
+        document.getElementById("workbench-match-config-json").value = buildWorkbenchMatchConfigJson();
+
+        try {
+            const pid = await ensureWorkbenchProjectId();
+            if (workbenchAnalyzeScope === "full") {
+                document.getElementById("workbench-selected-categories").value = "";
+            } else {
+                const selectedCategories = getSelectedWorkbenchCategories();
+                if (!selectedCategories.length) {
+                    throw new Error("请至少选择一个三级类目");
+                }
+                document.getElementById("workbench-selected-categories").value = JSON.stringify(selectedCategories);
+            }
+            const formData = new FormData(event.target);
+            const mode = formData.get("mode") || "auto";
+            if (mode === "manual" && !document.getElementById("workbench-result-file").files.length) {
+                throw new Error("请上传关联结果文件");
+            }
+            if (mode === "auto" && document.getElementById("workbench-use-ai").checked && !document.getElementById("workbench-api-key").value.trim()) {
+                throw new Error("启用 AI 提取时请填写 Gemini API Key");
+            }
+            const resp = await fetch(`/api/projects/${pid}/analyze`, { method: "POST", body: formData });
+            const data = await resp.json();
+            if (!resp.ok || data.status !== "success") {
+                throw new Error(data.message || "提交失败");
+            }
+            if (data.ready) {
+                await finishWorkbenchAnalyze();
+            } else {
+                document.getElementById("workbench-progress").classList.add("open");
+                await pollWorkbenchProgress(pid);
+                workbenchProgressTimer = setInterval(() => pollWorkbenchProgress(pid), 2000);
+            }
+        } catch (err) {
+            setWorkbenchMessage(err.message || "提交失败", true);
+            submit.disabled = false;
+        }
+    });
+
+    window.addEventListener("DOMContentLoaded", loadStatistics);
+</script>

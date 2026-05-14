@@ -33,71 +33,146 @@ class DataManagerImportMixin:
                 finally:
                     conn.close()
 
-        self.load_data()
+        if self.active_project_id and (target_file or source_files):
+            self.import_project_sources(self.active_project_id)
+        else:
+            self.load_data()
 
     def load_data(self):
-        if not self.active_project_id: return
-        needs_import = True
-        current_mtime = str(os.path.getmtime(self.output_file)) if os.path.exists(self.output_file) else "0"
-        current_hash = self._file_sha256(self.output_file) if os.path.exists(self.output_file) else "0"
-        
-        # Project-specific metadata keys
-        file_key = f"proj_{self.active_project_id}_file"
-        mtime_key = f"proj_{self.active_project_id}_mtime"
-        hash_key = f"proj_{self.active_project_id}_hash"
-        
-        with self._db_lock:
-            with self._get_conn() as conn:
-                try:
-                    cur = conn.cursor()
-                    cur.execute("SELECT value FROM meta_info WHERE key=?", (file_key,))
-                    res_file = cur.fetchone()
-                    cur.execute("SELECT value FROM meta_info WHERE key=?", (mtime_key,))
-                    res_mtime = cur.fetchone()
-                    cur.execute("SELECT value FROM meta_info WHERE key=?", (hash_key,))
-                    res_hash = cur.fetchone()
-                    cur.execute("SELECT value FROM meta_info WHERE key='mapping_version'")
-                    res_ver = cur.fetchone()
-                    
-                    # Check if products actually exist for this project
-                    cur.execute("SELECT COUNT(*) FROM main_products WHERE project_id=?", (self.active_project_id,))
-                    count_main = cur.fetchone()[0]
-                    cur.execute("SELECT COUNT(*) FROM comp_products WHERE project_id=?", (self.active_project_id,))
-                    count_comp = cur.fetchone()[0]
-                    cur.execute("SELECT COUNT(*) FROM product_links WHERE project_id=?", (self.active_project_id,))
-                    count_links = cur.fetchone()[0]
-
-                    # If output file is missing but DB already has links, keep current DB state
-                    # instead of wiping links during re-import.
-                    if (not os.path.exists(self.output_file)) and count_main > 0 and count_comp > 0 and count_links > 0:
-                        needs_import = False
-                    
-                    if (
-                        res_file and res_file[0] == self.output_file and
-                        res_mtime and res_mtime[0] == current_mtime and
-                        res_hash and res_hash[0] == current_hash
-                    ):
-                        if res_ver and res_ver[0] == MAPPING_VERSION and (count_main > 0 or count_comp > 0):
-                            needs_import = False
-                except Exception as e:
-                    print(f"Meta check warn (project {self.active_project_id}): {e}")
-                
-        if needs_import:
-            # Update metadata
-            with self._db_lock:
-                with self._get_conn() as conn:
-                    with conn:
-                        conn.execute("INSERT OR REPLACE INTO meta_info (key, value) VALUES (?, ?)", (file_key, self.output_file))
-                        conn.execute("INSERT OR REPLACE INTO meta_info (key, value) VALUES (?, ?)", (mtime_key, current_mtime))
-                        conn.execute("INSERT OR REPLACE INTO meta_info (key, value) VALUES (?, ?)", (hash_key, current_hash))
-                        conn.execute("INSERT OR REPLACE INTO meta_info (key, value) VALUES ('mapping_version', ?)", (MAPPING_VERSION,))
-            
-            # Re-import from source files if they exist
-            if os.path.exists(self.target_file) or self.source_files:
-                print(f"Triggering Re-import for Project {self.active_project_id}...")
-                self._import_to_sqlite()
-        
+        if not self.active_project_id:
+            return
         self._reconstruct_from_sqlite()
+
+    def import_project_sources(self, project_id):
+        """Import only the uploaded main/competitor source files for a project."""
+        self.activate_project(project_id, skip_load=True)
+        self._import_to_sqlite(import_links=False)
+        self.grid_df = None
+        self.main_df = None
+        self.store_dfs = {}
+
+    def parse_links_from_output(self, project_id, output_file):
+        """Parse an analysis/output workbook into standard product_links rows."""
+        if not output_file or not os.path.exists(output_file):
+            return None
+        with self._db_lock:
+            conn = self._get_conn()
+            try:
+                rows = conn.execute(
+                    "SELECT id FROM project_files WHERE project_id = ? AND type = 'comp' ORDER BY id ASC",
+                    (project_id,),
+                ).fetchall()
+                store_count = len(rows)
+                if store_count == 0:
+                    store_rows = conn.execute(
+                        "SELECT DISTINCT store_id FROM comp_products WHERE project_id = ? ORDER BY CAST(store_id AS INTEGER)",
+                        (project_id,),
+                    ).fetchall()
+                    store_ids = [str(r[0]) for r in store_rows]
+                else:
+                    store_ids = [str(i) for i in range(store_count)]
+
+                comp_dfs = []
+                for sid in store_ids:
+                    cdf = pd.read_sql(
+                        "SELECT * FROM comp_products WHERE project_id = ? AND store_id = ?",
+                        conn, params=(project_id, sid)
+                    )
+                    comp_dfs.append(cdf)
+            finally:
+                conn.close()
+
+        print(f"Importing Links from Result: {output_file}")
+        res_data = utils.excel_to_list_dict(output_file)
+        res_df = pd.DataFrame(res_data)
+        if res_df.empty:
+            return None
+
+        prefix_to_store_map = self._detect_output_prefix_to_store_map(res_df, comp_dfs)
+        final_mappings = FIELD_MAPPINGS.copy()
+        for p in prefix_to_store_map.keys():
+            for k, v in FIELD_MAPPINGS.items():
+                final_mappings[p + k] = p + v
+        res_df = self._apply_mappings(res_df, final_mappings)
+
+        links = []
+        for idx, row in res_df.iterrows():
+            row_dict = row.to_dict()
+            main_sku = utils.get_sku_id(row_dict)
+            if not main_sku:
+                main_sku = f"auto_{idx}"
+
+            for p, sid in prefix_to_store_map.items():
+                comp_sku_col = f"{p}skuId"
+                if comp_sku_col not in res_df.columns:
+                    continue
+                comp_sku_val = row_dict.get(comp_sku_col)
+                comp_sku = ""
+                if comp_sku_val is not None:
+                    s_str = str(comp_sku_val).strip()
+                    comp_sku = s_str[:-2] if s_str.endswith(".0") else s_str
+                if comp_sku and comp_sku.lower() not in ["", "nan", "none", "nan.0"]:
+                    links.append({
+                        'project_id': project_id,
+                        'main_sku_id': str(main_sku),
+                        'store_id': sid,
+                        'comp_sku_id': str(comp_sku),
+                        'similarity': row_dict.get(f"{p}相似度", 1.0),
+                        'match_type': row_dict.get(f"{p}匹配", "未知"),
+                        'is_new_add': row_dict.get(f"{p}是否新增", "否")
+                    })
+        return pd.DataFrame(links) if links else None
+
+    def _prepare_links_from_output(self, output_file):
+        return self.parse_links_from_output(self.active_project_id, output_file)
+
+    def replace_project_links(self, project_id, links_df, categories=None):
+        """Replace product links for a project, optionally scoped to main-store categories."""
+        categories = [str(c).strip() for c in (categories or []) if str(c).strip()]
+        if links_df is not None and not links_df.empty:
+            links_df = links_df.copy()
+            links_df["project_id"] = project_id
+
+        with self._db_lock:
+            conn = self._get_conn()
+            try:
+                with conn:
+                    if categories:
+                        placeholders = ",".join(["?"] * len(categories))
+                        rows = conn.execute(
+                            f"""
+                            SELECT skuId FROM main_products
+                            WHERE project_id = ? AND 美团类目三级 IN ({placeholders})
+                            """,
+                            [project_id] + categories,
+                        ).fetchall()
+                        main_skus = [str(r[0]) for r in rows if r[0] is not None]
+                        if not main_skus:
+                            return
+                        sku_placeholders = ",".join(["?"] * len(main_skus))
+                        conn.execute(
+                            f"DELETE FROM product_links WHERE project_id = ? AND main_sku_id IN ({sku_placeholders})",
+                            [project_id] + main_skus,
+                        )
+                        if links_df is not None and not links_df.empty:
+                            scoped = links_df[links_df["main_sku_id"].astype(str).isin(main_skus)]
+                            if not scoped.empty:
+                                scoped.to_sql('product_links', conn, index=False, if_exists='append')
+                    else:
+                        conn.execute("DELETE FROM product_links WHERE project_id = ?", (project_id,))
+                        if links_df is not None and not links_df.empty:
+                            links_df.to_sql('product_links', conn, index=False, if_exists='append')
+            finally:
+                conn.close()
+
+        if self.active_project_id == project_id:
+            self._reconstruct_from_sqlite()
+
+    def import_project_links_from_output(self, output_file, categories=None):
+        """Replace product links from an output file, optionally limited to main-store category names."""
+        pid = self.active_project_id
+        links_df = self.parse_links_from_output(pid, output_file)
+        self.replace_project_links(pid, links_df, categories=categories)
 
     def _file_sha256(self, file_path, chunk_size=1024 * 1024):
         sha256 = hashlib.sha256()
@@ -216,13 +291,13 @@ class DataManagerImportMixin:
 
         return prefix_to_store_map
 
-    def _import_to_sqlite(self):
+    def _import_to_sqlite(self, import_links=False):
         """
         Transactional import: prepare all data in memory first, then write in a
         single atomic transaction. If any step fails, nothing is changed in DB.
         """
         pid = self.active_project_id
-        has_output_file = os.path.exists(self.output_file)
+        import_output_links = bool(import_links and os.path.exists(self.output_file))
 
         # ── Phase 1: Prepare main store data (memory only) ──
         main_df = None
@@ -270,47 +345,11 @@ class DataManagerImportMixin:
                 cdf = cdf.drop_duplicates(subset=['project_id', 'store_id', 'skuId'], keep='first')
                 comp_dfs.append(cdf)
 
-        # ── Phase 3: Prepare links (output 的 0* / 1* 列与竞店源文件下标一一对应，与 main_030822 中 prefix 一致) ──
+        # ── Phase 3: Prepare links only for legacy explicit imports. Normal
+        # analysis writes product_links via replace_project_links().
         links_df = None
-        if has_output_file:
-            print(f"Importing Links from Result: {self.output_file}")
-            res_data = utils.excel_to_list_dict(self.output_file)
-            res_df = pd.DataFrame(res_data)
-
-            prefix_to_store_map = self._detect_output_prefix_to_store_map(res_df, comp_dfs)
-
-            final_mappings = FIELD_MAPPINGS.copy()
-            for p in prefix_to_store_map.keys():
-                for k, v in FIELD_MAPPINGS.items():
-                    final_mappings[p+k] = p+v
-            res_df = self._apply_mappings(res_df, final_mappings)
-
-            links = []
-            for idx, row in res_df.iterrows():
-                row_dict = row.to_dict()
-                main_sku = utils.get_sku_id(row_dict)
-                if not main_sku: main_sku = f"auto_{idx}"
-
-                for p, sid in prefix_to_store_map.items():
-                    comp_sku_col = f"{p}skuId"
-                    if comp_sku_col in res_df.columns:
-                        comp_sku_val = row_dict.get(comp_sku_col)
-                        comp_sku = ""
-                        if comp_sku_val is not None:
-                            s_str = str(comp_sku_val).strip()
-                            comp_sku = s_str[:-2] if s_str.endswith(".0") else s_str
-                        if comp_sku and comp_sku.lower() not in ["", "nan", "none", "nan.0"]:
-                            links.append({
-                                'project_id': pid,
-                                'main_sku_id': str(main_sku),
-                                'store_id': sid,
-                                'comp_sku_id': str(comp_sku),
-                                'similarity': row_dict.get(f"{p}相似度", 1.0),
-                                'match_type': row_dict.get(f"{p}匹配", "未知"),
-                                'is_new_add': row_dict.get(f"{p}是否新增", "否")
-                            })
-            if links:
-                links_df = pd.DataFrame(links)
+        if import_output_links:
+            links_df = self.parse_links_from_output(pid, self.output_file)
 
         # ── Phase 4: Atomic DB write — single transaction ──
         with self._db_lock:
@@ -319,7 +358,7 @@ class DataManagerImportMixin:
                 with conn:
                     conn.execute("DELETE FROM main_products WHERE project_id = ?", (pid,))
                     conn.execute("DELETE FROM comp_products WHERE project_id = ?", (pid,))
-                    if has_output_file:
+                    if import_output_links:
                         conn.execute("DELETE FROM product_links WHERE project_id = ?", (pid,))
 
                     if main_df is not None:
@@ -330,11 +369,7 @@ class DataManagerImportMixin:
                     if links_df is not None and not links_df.empty:
                         links_df.to_sql('product_links', conn, index=False, if_exists='append')
 
-                    current_mtime = str(os.path.getmtime(self.output_file)) if has_output_file else "0"
-                    file_key = f"proj_{pid}_file"
-                    mtime_key = f"proj_{pid}_mtime"
-                    conn.execute("REPLACE INTO meta_info (key, value) VALUES (?, ?)", (file_key, self.output_file))
-                    conn.execute("REPLACE INTO meta_info (key, value) VALUES (?, ?)", (mtime_key, current_mtime))
+                    conn.execute("REPLACE INTO meta_info (key, value) VALUES ('mapping_version', ?)", (MAPPING_VERSION,))
                 print(f"Import complete for project {pid} (atomic transaction).")
             except Exception as e:
                 print(f"Import FAILED for project {pid}, transaction rolled back: {e}")

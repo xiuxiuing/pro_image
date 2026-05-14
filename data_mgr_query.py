@@ -4,6 +4,340 @@ import pandas as pd
 from data_mgr_query_unlinked import DataManagerUnlinkedQueryMixin
 
 class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
+    CATEGORY3_ALIASES = ("美团类目三级", "美团三级类目", "三级类目", "美团三级分类", "三级分类", "美团分类三级")
+
+    def _statistics_category_series(self, df):
+        if df is None or df.empty:
+            return pd.Series([], dtype=str)
+        for col in self.CATEGORY3_ALIASES:
+            if col in df.columns:
+                s = df[col].fillna("").astype(str).str.strip()
+                if (s[(s != "") & (s.str.lower() != "nan")]).any():
+                    return s
+        return pd.Series([""] * len(df), index=df.index, dtype=str)
+
+    def _statistics_number(self, value):
+        if value is None:
+            return 0.0
+        try:
+            if pd.isna(value):
+                return 0.0
+        except (TypeError, ValueError):
+            pass
+        s = str(value).strip().replace(",", "").replace("￥", "").replace("¥", "")
+        if s.endswith("%"):
+            s = s[:-1]
+        if s.lower() in ("", "nan", "none", "-"):
+            return 0.0
+        try:
+            return float(s)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _statistics_metric_pack(self, df):
+        if df is None or df.empty or "商品名称" not in df.columns:
+            return {"sales": 0.0, "sales_amount": 0.0, "spu": 0, "active_rate": 0.0}
+
+        work = df.copy()
+        work["__name"] = work["商品名称"].fillna("").astype(str).str.strip()
+        work = work[(work["__name"] != "") & (work["__name"].str.lower() != "nan")]
+        if work.empty:
+            return {"sales": 0.0, "sales_amount": 0.0, "spu": 0, "active_rate": 0.0}
+
+        work = work.drop_duplicates(subset=["__name"], keep="first")
+        sales = work["销售"].apply(self._statistics_number) if "销售" in work.columns else pd.Series([], dtype=float)
+        price = work["活动价"].apply(self._statistics_number) if "活动价" in work.columns else pd.Series([], dtype=float)
+        spu = int(len(work))
+        active = int((sales >= 1).sum()) if spu else 0
+        return {
+            "sales": float(sales.sum()) if not sales.empty else 0.0,
+            "sales_amount": float((sales * price).sum()) if not sales.empty else 0.0,
+            "spu": spu,
+            "active_rate": round((active / spu * 100), 2) if spu else 0.0,
+        }
+
+    def get_statistics_products(self, category, source_type="main", store_id=""):
+        category = str(category or "").strip()
+        source_type = str(source_type or "main").strip()
+        store_id = str(store_id or "").strip()
+        if not self.active_project_id or not category:
+            return {"items": [], "category": category, "source_type": source_type, "source_name": ""}
+
+        with self._db_lock:
+            conn = self._get_conn()
+            try:
+                if source_type == "competitor_unique":
+                    df = pd.read_sql(
+                        "SELECT * FROM comp_products WHERE project_id = ? AND store_id = ?",
+                        conn,
+                        params=(self.active_project_id, store_id),
+                    )
+                    source_name = self.store_names[int(store_id)] if store_id.isdigit() and int(store_id) < len(self.store_names) else "竞店"
+                else:
+                    df = pd.read_sql(
+                        "SELECT * FROM main_products WHERE project_id = ? ORDER BY _row_orig_idx ASC",
+                        conn,
+                        params=(self.active_project_id,),
+                    )
+                    source_name = self.main_store_name or "主店"
+            finally:
+                conn.close()
+
+        if df.empty:
+            return {"items": [], "category": category, "source_type": source_type, "source_name": source_name}
+
+        df["__cat3"] = self._statistics_category_series(df)
+        df["__sales_num"] = df["销售"].apply(self._statistics_number) if "销售" in df.columns else 0
+        df = df[(df["__cat3"] == category) & (df["__sales_num"] >= 1)].copy()
+        if df.empty:
+            return {"items": [], "category": category, "source_type": source_type, "source_name": source_name}
+
+        def val(row, col):
+            value = row.get(col, "")
+            try:
+                if pd.isna(value):
+                    return ""
+            except (TypeError, ValueError):
+                pass
+            return "" if value is None else str(value)
+
+        items = []
+        for _, row in df.iterrows():
+            items.append({
+                "image": val(row, "主图链接"),
+                "name": val(row, "商品名称"),
+                "spec": val(row, "规格名称"),
+                "activity_price": val(row, "活动价"),
+                "original_price": val(row, "原价"),
+                "sales": val(row, "销售"),
+            })
+
+        return {
+            "items": items,
+            "category": category,
+            "source_type": source_type,
+            "source_name": source_name,
+        }
+
+    def get_statistics(self):
+        if not self.active_project_id:
+            return {"items": [], "tabs": [], "stores": [], "main_store": ""}
+
+        with self._db_lock:
+            conn = self._get_conn()
+            try:
+                main_df = pd.read_sql(
+                    "SELECT * FROM main_products WHERE project_id = ? ORDER BY _row_orig_idx ASC",
+                    conn,
+                    params=(self.active_project_id,),
+                )
+                comp_df = pd.read_sql(
+                    "SELECT * FROM comp_products WHERE project_id = ?",
+                    conn,
+                    params=(self.active_project_id,),
+                )
+            finally:
+                conn.close()
+
+        if main_df.empty:
+            return {
+                "items": [],
+                "tabs": [],
+                "stores": [{"id": str(i), "name": n} for i, n in enumerate(self.store_names)],
+                "main_store": self.main_store_name or "主店",
+            }
+
+        main_df["__cat3"] = self._statistics_category_series(main_df)
+        main_df = main_df[(main_df["__cat3"] != "") & (main_df["__cat3"].str.lower() != "nan")]
+        if not comp_df.empty:
+            comp_df["__cat3"] = self._statistics_category_series(comp_df)
+            if "store_id" in comp_df.columns:
+                comp_df["store_id"] = comp_df["store_id"].astype(str)
+        else:
+            comp_df["__cat3"] = ""
+
+        store_count = 1 + len(self.store_names)
+        metric_keys = ["sales", "sales_amount", "spu", "active_rate"]
+        main_categories = list(dict.fromkeys(main_df["__cat3"].tolist()))
+        main_category_set = set(main_categories)
+
+        def empty_totals():
+            return {"sales": 0.0, "sales_amount": 0.0, "active_count": 0.0, "spu": 0.0}
+
+        def add_totals(totals, metrics):
+            totals["sales"] += metrics["sales"]
+            totals["sales_amount"] += metrics["sales_amount"]
+            totals["spu"] += metrics["spu"]
+            totals["active_count"] += round(metrics["active_rate"] * metrics["spu"] / 100) if metrics["spu"] else 0
+
+        def finish_totals(totals):
+            return {
+                "sales": round(totals["sales"], 2),
+                "sales_amount": round(totals["sales_amount"], 2),
+                "active_rate": round((totals["active_count"] / totals["spu"] * 100), 2) if totals["spu"] else 0.0,
+            }
+
+        def build_item(cat, subject_metrics, include_competitors=True):
+            actual_main_metrics = self._statistics_metric_pack(main_df[main_df["__cat3"] == cat])
+            comp_rows = []
+            comp_totals = {k: 0.0 for k in metric_keys}
+
+            for i, store_name in enumerate(self.store_names):
+                sid = str(i)
+                sdf = comp_df[(comp_df.get("store_id", "") == sid) & (comp_df["__cat3"] == cat)] if not comp_df.empty else comp_df
+                metrics = self._statistics_metric_pack(sdf)
+                for key in metric_keys:
+                    comp_totals[key] += metrics[key]
+                if include_competitors:
+                    comp_rows.append({
+                        "store_id": sid,
+                        "store_name": store_name,
+                        "metrics": metrics,
+                        "diff": {key: round(subject_metrics[key] - metrics[key], 2) for key in metric_keys},
+                        "main_diff": {key: round(subject_metrics[key] - metrics[key], 2) for key in metric_keys},
+                    })
+
+            summary = {}
+            for key in metric_keys:
+                industry_avg = (actual_main_metrics[key] + comp_totals[key]) / store_count if store_count else 0
+                avg_diff = subject_metrics[key] - industry_avg
+                summary[key] = {
+                    "main": round(subject_metrics[key], 2),
+                    "industry_avg": round(industry_avg, 2),
+                    "avg_diff": round(avg_diff, 2),
+                }
+            for comp in comp_rows:
+                metrics = comp.get("metrics") or {}
+                comp["market_diff"] = {
+                    key: round(metrics.get(key, 0) - summary[key]["industry_avg"], 2)
+                    for key in metric_keys
+                }
+
+            return {
+                "category": cat,
+                "summary": summary,
+                "competitors": comp_rows,
+            }
+
+        def add_contribution(items, subject_total_sales_amount=None, industry_total_sales_amount=None):
+            total_subject_sales_amount = subject_total_sales_amount
+            if total_subject_sales_amount is None:
+                total_subject_sales_amount = sum(
+                    (item.get("summary") or {}).get("sales_amount", {}).get("main", 0)
+                    for item in items
+                )
+            total_industry_sales_amount = industry_total_sales_amount
+            if total_industry_sales_amount is None:
+                total_industry_sales_amount = sum(
+                    (item.get("summary") or {}).get("sales_amount", {}).get("industry_avg", 0)
+                    for item in items
+                )
+
+            for item in items:
+                summary = item.get("summary") or {}
+                sales_amount = summary.get("sales_amount") or {}
+                category_sales_amount_total = sales_amount.get("main", 0) + sum(
+                    ((comp.get("metrics") or {}).get("sales_amount", 0))
+                    for comp in item.get("competitors", [])
+                )
+                subject_contribution = (
+                    sales_amount.get("main", 0) / total_subject_sales_amount * 100
+                    if total_subject_sales_amount else 0
+                )
+                average_contribution = (
+                    sales_amount.get("industry_avg", 0) / total_industry_sales_amount * 100
+                    if total_industry_sales_amount else 0
+                )
+                summary["category_contribution"] = {
+                    "main": round(subject_contribution, 2),
+                    "industry_avg": round(average_contribution, 2),
+                    "avg_diff": round(subject_contribution - average_contribution, 2),
+                }
+                for comp in item.get("competitors", []):
+                    metrics = comp.get("metrics") or {}
+                    comp_contribution = (
+                        metrics.get("sales_amount", 0) / category_sales_amount_total * 100
+                        if category_sales_amount_total else 0
+                    )
+                    metrics["category_contribution"] = round(comp_contribution, 2)
+                    comp.setdefault("main_diff", {})["category_contribution"] = round(subject_contribution - comp_contribution, 2)
+                    comp.setdefault("market_diff", {})["category_contribution"] = round(comp_contribution - average_contribution, 2)
+
+        def sum_subject_sales_for_store(store_id, categories):
+            total = 0.0
+            for cat in categories:
+                sdf = comp_df[(comp_df.get("store_id", "") == store_id) & (comp_df["__cat3"] == cat)] if not comp_df.empty else comp_df
+                total += self._statistics_metric_pack(sdf)["sales_amount"]
+            return total
+
+        def sum_industry_sales_for_categories(categories):
+            total = 0.0
+            for cat in categories:
+                main_metrics = self._statistics_metric_pack(main_df[main_df["__cat3"] == cat])
+                comp_total = 0.0
+                for i in range(len(self.store_names)):
+                    sid = str(i)
+                    sdf = comp_df[(comp_df.get("store_id", "") == sid) & (comp_df["__cat3"] == cat)] if not comp_df.empty else comp_df
+                    comp_total += self._statistics_metric_pack(sdf)["sales_amount"]
+                total += (main_metrics["sales_amount"] + comp_total) / store_count if store_count else 0.0
+            return total
+
+        main_items = []
+        main_totals = empty_totals()
+        for cat in main_categories:
+            main_metrics = self._statistics_metric_pack(main_df[main_df["__cat3"] == cat])
+            add_totals(main_totals, main_metrics)
+            main_items.append(build_item(cat, main_metrics, include_competitors=True))
+        add_contribution(main_items)
+
+        tabs = [{
+            "id": "main",
+            "label": self.main_store_name or "主店",
+            "source_type": "main",
+            "source_store_id": "",
+            "source_name": self.main_store_name or "主店",
+            "items": main_items,
+            "totals": finish_totals(main_totals),
+        }]
+
+        for i, store_name in enumerate(self.store_names):
+            sid = str(i)
+            if comp_df.empty:
+                store_categories = []
+            else:
+                sdf = comp_df[comp_df.get("store_id", "") == sid]
+                store_categories = list(dict.fromkeys(sdf["__cat3"].tolist()))
+            unique_categories = [cat for cat in store_categories if cat and cat not in main_category_set]
+            unique_items = []
+            unique_totals = empty_totals()
+            for cat in unique_categories:
+                subject_df = comp_df[(comp_df.get("store_id", "") == sid) & (comp_df["__cat3"] == cat)]
+                subject_metrics = self._statistics_metric_pack(subject_df)
+                add_totals(unique_totals, subject_metrics)
+                unique_items.append(build_item(cat, subject_metrics, include_competitors=False))
+            add_contribution(
+                unique_items,
+                subject_total_sales_amount=sum_subject_sales_for_store(sid, store_categories),
+                industry_total_sales_amount=sum_industry_sales_for_categories(store_categories),
+            )
+            tabs.append({
+                "id": f"comp-{sid}",
+                "label": f"{store_name}独有",
+                "source_type": "competitor_unique",
+                "source_store_id": sid,
+                "source_name": store_name,
+                "items": unique_items,
+                "totals": finish_totals(unique_totals),
+            })
+
+        return {
+            "items": main_items,
+            "tabs": tabs,
+            "main_totals": finish_totals(main_totals),
+            "stores": [{"id": str(i), "name": n} for i, n in enumerate(self.store_names)],
+            "main_store": self.main_store_name or "主店",
+        }
+
     def _reconstruct_from_sqlite(self):
         if not self.active_project_id: return
         with self._db_lock:

@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import zipfile
 import shutil
@@ -8,6 +9,43 @@ import utils
 from data_mgr_base import INTERNAL_EXPORT_KEYS
 
 class DataManagerExportMixin:
+    def _export_safe_filename(self, name, fallback):
+        text = str(name or fallback).strip() or fallback
+        text = re.sub(r'[\\/:*?"<>|\r\n]+', "_", text)
+        return text[:80] or fallback
+
+    def _export_main_operation_note(self, row, store_map):
+        notes = []
+        if str(row.get("是否淘汰", "")).strip() == "是" or str(row.get("淘汰标记", "")).strip() == "1":
+            notes.append("标记淘汰")
+        if str(row.get("is_handled", "")).strip() == "1":
+            notes.append("已处理")
+        follow_store = str(row.get("跟价店", "")).strip()
+        if follow_store:
+            notes.append(f"跟价店：{follow_store}")
+        if str(row.get("新售价", "")).strip() or str(row.get("新活动价", "")).strip():
+            notes.append("修改价格")
+        ref_name_store = str(row.get("ref_name_store", "")).strip()
+        if ref_name_store:
+            notes.append(f"名称参考：{store_map.get(ref_name_store, ref_name_store)}")
+        ref_image_store = str(row.get("ref_image_store", "")).strip()
+        if ref_image_store:
+            notes.append(f"图片参考：{store_map.get(ref_image_store, ref_image_store)}")
+        return "；".join(notes)
+
+    def _export_comp_operation_note(self, row):
+        notes = []
+        if str(row.get("关联主店skuId", "")).strip():
+            notes.append("已关联")
+        else:
+            notes.append("未关联")
+        match_type = str(row.get("关联方式", "")).strip()
+        if match_type:
+            notes.append(match_type)
+        if str(row.get("是否新增", "")).strip() == "是":
+            notes.append("标记新增")
+        return "；".join(notes)
+
     def save_to_excel(self):
         filename = f"对比分析全量成果_{time.strftime('%Y%m%d_%H%M%S')}.xlsx"
         dirs = self._get_project_dirs(self.active_project_id)
@@ -22,65 +60,85 @@ class DataManagerExportMixin:
     def save_separate_exports(self):
         temp_dir = tempfile.mkdtemp()
         try:
-            for col in ['新活动价', '新售价', '跟价店', '是否淘汰']:
-                if col not in self.grid_df.columns: self.grid_df[col] = ""
-            self._calculate_margins()
-            
-            for i, store_name in enumerate(self.store_names):
-                prefix = str(i)
-                new_col, summ_col = f"{prefix}是否新增", f"{store_name}新增"
-                self.grid_df[summ_col] = self.grid_df[new_col] if new_col in self.grid_df.columns else ""
-
-            # 1. Main store export
             store_id_to_name = {str(i): name for i, name in enumerate(self.store_names)}
-            main_cols = [c for c in self.grid_df.columns if (not c or not c[0].isdigit()) and c not in INTERNAL_EXPORT_KEYS]
-            main_export = self.grid_df[main_cols].copy()
-            ref_name_col = self.grid_df['ref_name_store'].fillna('') if 'ref_name_store' in self.grid_df.columns else pd.Series('', index=self.grid_df.index)
-            ref_image_col = self.grid_df['ref_image_store'].fillna('') if 'ref_image_store' in self.grid_df.columns else pd.Series('', index=self.grid_df.index)
+            op_time = time.strftime('%Y-%m-%d %H:%M:%S')
 
-            main_export['名称参考店铺'] = ref_name_col.map(lambda v: store_id_to_name.get(str(v), '') if v else '')
-            main_export['参考商品名称'] = [
-                self.grid_df.at[i, str(v) + '商品名称'] if v and (str(v) + '商品名称') in self.grid_df.columns else ''
-                for i, v in ref_name_col.items()
-            ]
-            main_export['图片参考店铺'] = ref_image_col.map(lambda v: store_id_to_name.get(str(v), '') if v else '')
-            main_export['参考图片链接'] = [
-                self.grid_df.at[i, str(v) + '主图链接'] if v and (str(v) + '主图链接') in self.grid_df.columns else ''
-                for i, v in ref_image_col.items()
-            ]
-            main_export.to_excel(os.path.join(temp_dir, f"主店_{self.main_store_name}.xlsx"), index=False)
-
-            # 2. Linked competitor store exports
-            for i, store_name in enumerate(self.store_names):
-                prefix = str(i)
-                comp_cols = [c for c in self.grid_df.columns if c.startswith(prefix)]
-                if not comp_cols: continue
-                comp_df = self.grid_df[comp_cols].copy()
-                if 'skuId' in self.grid_df.columns: comp_df.insert(0, "主店SKU", self.grid_df['skuId'])
-                comp_df.columns = [c if c == "主店SKU" else c[len(prefix):] for c in comp_df.columns]
-                comp_df.loc[:, ~comp_df.columns.duplicated()].to_excel(os.path.join(temp_dir, f"竞店_{store_name}.xlsx"), index=False)
-
-            # 3. Unlinked pool export
-            unlinked_data = []
             with self._db_lock, self._get_conn() as conn:
-                for i, store_name in list(enumerate(self.store_names)):
-                    prefix = str(i)
-                    query = """
-                        SELECT * FROM comp_products 
-                        WHERE project_id = ? AND store_id = ?
-                        AND skuId NOT IN (
-                            SELECT comp_sku_id FROM product_links 
-                            WHERE project_id = ? AND store_id = ?
-                        )
-                    """
-                    df = pd.read_sql(query, conn, params=(self.active_project_id, prefix, self.active_project_id, prefix))
-                    if not df.empty:
-                        df.insert(0, "竞品店铺", store_name)
-                        unlinked_data.append(df)
-            
-                if unlinked_data:
-                    pool_df = pd.concat(unlinked_data, ignore_index=True)
-                    pool_df.to_excel(os.path.join(temp_dir, "未关联商品池.xlsx"), index=False)
+                main_export = pd.read_sql(
+                    "SELECT * FROM main_products WHERE project_id = ?",
+                    conn,
+                    params=(self.active_project_id,),
+                )
+                if main_export.empty:
+                    main_export = pd.DataFrame()
+                else:
+                    for col in ["是否淘汰", "淘汰标记", "新售价", "新活动价", "跟价店", "is_handled", "ref_name_store", "ref_image_store"]:
+                        if col not in main_export.columns:
+                            main_export[col] = ""
+                    main_export["店铺"] = self.main_store_name or "主店"
+                    main_export["操作记录"] = main_export.apply(lambda r: self._export_main_operation_note(r, store_id_to_name), axis=1)
+                    main_export["导出时间"] = op_time
+                    drop_cols = [c for c in ["project_id", "_row_orig_idx"] if c in main_export.columns]
+                    if drop_cols:
+                        main_export.drop(columns=drop_cols, inplace=True)
+                    leading = [c for c in ["店铺", "skuId", "商品名称", "规格名称", "主图链接", "销售", "原价", "活动价", "采购价", "新售价", "新活动价", "跟价店", "是否淘汰", "is_handled", "操作记录", "导出时间"] if c in main_export.columns]
+                    main_export = main_export[leading + [c for c in main_export.columns if c not in leading]]
+                main_file = self._export_safe_filename(f"主店_{self.main_store_name}", "主店")
+                main_export.fillna("").to_excel(os.path.join(temp_dir, f"{main_file}.xlsx"), index=False)
+
+                for i, store_name in enumerate(self.store_names):
+                    store_id = str(i)
+                    comp_df = pd.read_sql(
+                        "SELECT * FROM comp_products WHERE project_id = ? AND store_id = ?",
+                        conn,
+                        params=(self.active_project_id, store_id),
+                    )
+                    links_df = pd.read_sql(
+                        """
+                        SELECT
+                            pl.main_sku_id AS 关联主店skuId,
+                            pl.comp_sku_id,
+                            pl.store_id,
+                            pl.similarity AS 匹配相似度,
+                            pl.match_type AS 关联方式,
+                            pl.is_new_add AS 链接是否新增,
+                            mp.`商品名称` AS 关联主店商品名称
+                        FROM product_links pl
+                        LEFT JOIN main_products mp
+                          ON mp.project_id = pl.project_id
+                         AND mp.skuId = pl.main_sku_id
+                        WHERE pl.project_id = ? AND pl.store_id = ?
+                        """,
+                        conn,
+                        params=(self.active_project_id, store_id),
+                    )
+                    if not links_df.empty:
+                        links_df = links_df.drop_duplicates(subset=["store_id", "comp_sku_id"], keep="first")
+                    if comp_df.empty:
+                        comp_df = pd.DataFrame(columns=["store_id", "skuId"])
+                    comp_export = comp_df.merge(
+                        links_df,
+                        left_on=["store_id", "skuId"],
+                        right_on=["store_id", "comp_sku_id"],
+                        how="left",
+                    )
+                    if "is_new_add" not in comp_export.columns:
+                        comp_export["is_new_add"] = ""
+                    comp_export["是否新增"] = comp_export["is_new_add"].where(
+                        comp_export["is_new_add"].fillna("").astype(str).str.strip() != "",
+                        comp_export.get("链接是否新增", ""),
+                    )
+                    comp_export["店铺"] = store_name
+                    comp_export["关联状态"] = comp_export["关联主店skuId"].fillna("").astype(str).str.strip().map(lambda v: "已关联" if v else "未关联")
+                    comp_export["操作记录"] = comp_export.apply(self._export_comp_operation_note, axis=1)
+                    comp_export["导出时间"] = op_time
+                    drop_cols = [c for c in ["project_id", "store_id", "comp_sku_id", "链接是否新增", "is_new_add"] if c in comp_export.columns]
+                    if drop_cols:
+                        comp_export.drop(columns=drop_cols, inplace=True)
+                    leading = [c for c in ["店铺", "关联状态", "关联主店skuId", "关联主店商品名称", "关联方式", "匹配相似度", "是否新增", "操作记录", "导出时间", "skuId", "商品名称", "规格名称", "主图链接", "销售", "原价", "活动价", "采购价"] if c in comp_export.columns]
+                    comp_export = comp_export[leading + [c for c in comp_export.columns if c not in leading]]
+                    comp_file = self._export_safe_filename(f"竞店_{store_name}", f"竞店_{store_id}")
+                    comp_export.fillna("").to_excel(os.path.join(temp_dir, f"{comp_file}.xlsx"), index=False)
             
             dirs = self._get_project_dirs(self.active_project_id)
             zip_path = os.path.join(dirs["outputs"], f"对比成果_{time.strftime('%Y%m%d_%H%M%S')}.zip")
