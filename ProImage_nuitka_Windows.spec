@@ -30,8 +30,8 @@ _datas = [
     (os.path.join(_src, 'data'), 'data'),
 ] + copy_metadata('regex') + copy_metadata('tqdm') + copy_metadata('transformers')
 
-if os.path.isdir(os.path.join(_root, 'models')):
-    _datas.append(('models', 'models'))
+if os.path.isdir(os.path.join(_src, 'models')):
+    _datas.append((os.path.join(_src, 'models'), 'models'))
 
 a = Analysis(
     _entry,

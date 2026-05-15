@@ -90,16 +90,24 @@ models_base = os.path.join(sys._MEIPASS, "models") if getattr(sys, 'frozen', Fal
 def load_model_from_path(name, fallback):
     """若本地 models_base 下存在 name 目录则用之，否则回退到 HuggingFace 标识 fallback。"""
     p = os.path.join(models_base, name)
-    return p if os.path.exists(p) else fallback
+    if os.path.exists(p):
+        return p
+    if getattr(sys, "frozen", False):
+        raise RuntimeError(
+            f"打包程序缺少本地模型：models/{name}。请先运行 download_models.py，"
+            "再通过 ops-tools 重新打包。"
+        )
+    return fallback
 
 # Load Models
 dinov2_p = load_model_from_path("dinov2-base", "facebook/dinov2-base")
-img_processor = AutoImageProcessor.from_pretrained(dinov2_p)
-img_model = AutoModel.from_pretrained(dinov2_p).to(device).eval()
+_local_only = bool(getattr(sys, "frozen", False))
+img_processor = AutoImageProcessor.from_pretrained(dinov2_p, local_files_only=_local_only)
+img_model = AutoModel.from_pretrained(dinov2_p, local_files_only=_local_only).to(device).eval()
 
 bge_p = load_model_from_path("bge-base-zh-v1.5", "BAAI/bge-base-zh-v1.5")
-text_tokenizer = AutoTokenizer.from_pretrained(bge_p)
-text_model = AutoModel.from_pretrained(bge_p).to(device).eval()
+text_tokenizer = AutoTokenizer.from_pretrained(bge_p, local_files_only=_local_only)
+text_model = AutoModel.from_pretrained(bge_p, local_files_only=_local_only).to(device).eval()
 
 # --- Field Getters ---
 def g(item, keys, default=""):

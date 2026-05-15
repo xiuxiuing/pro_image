@@ -9,7 +9,7 @@ import platform
 import datetime
 import glob
 from flask import Blueprint, request, jsonify
-from packaging_core import BUSINESS_SOURCE_FILES, CORE_NUITKA_MODULES, RESOURCE_DIRS
+from packaging_core import BUSINESS_SOURCE_FILES, CORE_NUITKA_MODULES, REQUIRED_MODEL_FILES, RESOURCE_DIRS
 
 # These will be initialized by app_ops.py or app.py
 ops_context = {}
@@ -33,6 +33,20 @@ def _compiled_module_glob(root, module, target):
         matches.extend(glob.glob(pat))
     return sorted(matches)
 
+def _missing_model_resources(root):
+    missing = []
+    models_root = os.path.join(root, "models")
+    for parts in REQUIRED_MODEL_FILES:
+        rel = os.path.join("models", *parts)
+        if not os.path.isfile(os.path.join(models_root, *parts)):
+            missing.append(rel)
+    return missing
+
+def _ensure_required_models(root):
+    missing = _missing_model_resources(root)
+    if missing:
+        raise RuntimeError("缺少本地模型资源：" + ", ".join(missing))
+
 def _prepare_nuitka_build_src(root, target):
     build_src = os.path.join(root, "_build_src")
     if os.path.isdir(build_src):
@@ -48,8 +62,8 @@ def _prepare_nuitka_build_src(root, target):
         if not os.path.isdir(src):
             raise RuntimeError(f"缺少资源目录：{name}")
         _copytree_fresh(src, os.path.join(build_src, name))
-    if os.path.isdir(os.path.join(root, "models")):
-        _copytree_fresh(os.path.join(root, "models"), os.path.join(build_src, "models"))
+    _ensure_required_models(root)
+    _copytree_fresh(os.path.join(root, "models"), os.path.join(build_src, "models"))
     modules_dir = os.path.join(root, "nuitka_modules")
     for mod in CORE_NUITKA_MODULES:
         matches = _compiled_module_glob(modules_dir, mod, target)
@@ -92,6 +106,7 @@ def _verify_nuitka_artifact(target, artifact):
         os.path.join("static"),
         os.path.join("data", "default_rule_templates", "production_rule_v1.json"),
     ]
+    required.extend(os.path.join("models", *parts) for parts in REQUIRED_MODEL_FILES)
     for rel in required:
         needle = rel.replace("\\", "/")
         if not any(p == needle or p.endswith("/" + needle) for p in artifact_paths):
@@ -183,6 +198,11 @@ def api_ops_package_build():
 
             ops_context["run_command"](task_id, 0, [sys.executable, "-m", "nuitka", "--version"], ops_context["resource_root"])
             ops_context["run_command"](task_id, 0, [sys.executable, "-m", "PyInstaller", "--version"], ops_context["resource_root"])
+            if _missing_model_resources(ops_context["resource_root"]):
+                ops_context["update_step"](task_id, 0, "running", "缺少本地模型，自动下载 models/")
+                ops_context["run_command"](task_id, 0, [sys.executable, "download_models.py"], ops_context["resource_root"])
+            _ensure_required_models(ops_context["resource_root"])
+            ops_context["update_step"](task_id, 0, "done", f"平台={system} Python={sys.version.split()[0]}")
 
             modules_dir = os.path.join(ops_context["resource_root"], "nuitka_modules")
             os.makedirs(modules_dir, exist_ok=True)

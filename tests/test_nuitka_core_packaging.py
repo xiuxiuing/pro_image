@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app_ops_extra import _compiled_module_glob
-from packaging_core import BUSINESS_SOURCE_FILES, CORE_NUITKA_MODULES, RESOURCE_DIRS
+from app_ops_extra import _compiled_module_glob, _missing_model_resources, _verify_nuitka_artifact
+from packaging_core import BUSINESS_SOURCE_FILES, CORE_NUITKA_MODULES, REQUIRED_MODEL_FILES, RESOURCE_DIRS
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,6 +24,7 @@ class NuitkaCorePackagingTests(unittest.TestCase):
             text = (ROOT / spec_name).read_text(encoding="utf-8")
             self.assertIn("from packaging_core import CORE_NUITKA_MODULES", text)
             self.assertIn("excludes=list(CORE_NUITKA_MODULES)", text)
+            self.assertIn("os.path.join(_src, 'models')", text)
             self.assertNotIn("'data_mgr'", text)
             self.assertNotIn("'app_ops'", text)
 
@@ -68,6 +69,40 @@ class NuitkaCorePackagingTests(unittest.TestCase):
                 [str(root / "main_030822.cpython-312-darwin.so")],
                 _compiled_module_glob(str(root), "main_030822", "macos"),
             )
+
+    def test_model_resource_requirements_are_checked(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            missing = _missing_model_resources(str(root))
+            self.assertIn("models/dinov2-base/preprocessor_config.json", missing)
+
+            for parts in REQUIRED_MODEL_FILES:
+                path = root / "models" / Path(*parts)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("{}", encoding="utf-8")
+
+            self.assertEqual([], _missing_model_resources(str(root)))
+
+    def test_artifact_verification_requires_model_files(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact = Path(tmpdir) / "ProImage_AI"
+            (artifact / "_internal" / "templates").mkdir(parents=True)
+            (artifact / "_internal" / "static").mkdir(parents=True)
+            rule = artifact / "_internal" / "data" / "default_rule_templates" / "production_rule_v1.json"
+            rule.parent.mkdir(parents=True)
+            rule.write_text("{}", encoding="utf-8")
+            for mod in CORE_NUITKA_MODULES:
+                (artifact / "_internal" / f"{mod}.cp312-win_amd64.pyd").write_text("")
+
+            with self.assertRaisesRegex(RuntimeError, "models"):
+                _verify_nuitka_artifact("windows", str(artifact))
+
+            for parts in REQUIRED_MODEL_FILES:
+                path = artifact / "_internal" / "models" / Path(*parts)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("{}", encoding="utf-8")
+
+            self.assertIn("验证通过", _verify_nuitka_artifact("windows", str(artifact)))
 
 
 if __name__ == "__main__":

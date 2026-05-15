@@ -35,6 +35,13 @@ BUSINESS_SOURCE_FILES = (
 
 RESOURCE_DIRS = ("templates", "static", "data")
 
+REQUIRED_MODEL_FILES = (
+    ("dinov2-base", "preprocessor_config.json"),
+    ("dinov2-base", "config.json"),
+    ("bge-base-zh-v1.5", "tokenizer_config.json"),
+    ("bge-base-zh-v1.5", "config.json"),
+)
+
 
 def core_source_files():
     return tuple(f"{name}.py" for name in CORE_NUITKA_MODULES)

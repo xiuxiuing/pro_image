@@ -78,6 +78,27 @@ python -m pip install -r requirements-build.txt
 python -m pip install nuitka ordered-set
 ```
 
+### 本地模型
+
+发行包必须包含本地模型目录，否则 Windows/macOS 离线启动或首次分析时会报 `Can't load image processor for 'facebook/dinov2-base'`。
+
+ops-tools 打包时会自动检查并在缺失时运行：
+
+```bash
+python download_models.py
+```
+
+最终项目根目录需要包含：
+
+```text
+models/dinov2-base/preprocessor_config.json
+models/dinov2-base/config.json
+models/bge-base-zh-v1.5/tokenizer_config.json
+models/bge-base-zh-v1.5/config.json
+```
+
+如果打包机无法访问 Hugging Face，需要先从可联网机器准备好完整 `models/` 目录再打包。
+
 ## 推荐方式：在 ops-tools 页面打包
 
 1. 启动开发版应用。
@@ -104,6 +125,7 @@ PyInstaller 打包
 - 9 个核心模块的 `.so` / `.pyd` 都在产物中。
 - 核心模块对应 `.py` 没有泄露到产物文件系统。
 - `templates/`、`static/`、`data/default_rule_templates/production_rule_v1.json` 存在。
+- `models/dinov2-base/` 和 `models/bge-base-zh-v1.5/` 的关键配置文件存在。
 
 验证通过后会生成 ZIP 下载链接。
 
@@ -214,6 +236,10 @@ nuitka_modules/*.build
 - 先确认 `_build_src/` 中业务壳 `.py`、资源目录和核心 `.so/.pyd` 都存在。
 - 在 `ProImage_nuitka_*.spec` 的 `hiddenimports` 中补缺失第三方模块。
 - 不要把 `data_mgr*`、`app_*` 加入 excludes；excludes 只应等于 `packaging_core.CORE_NUITKA_MODULES`。
+
+### Windows 打开时报 `facebook/dinov2-base`
+
+这是产物缺少本地 DINOv2/BGE 模型导致的。重新在 Windows 打包机上进入 ops-tools 打包；新流程会自动下载并验证 `models/`。如果下载失败，先手动运行 `python download_models.py`，确认 `models/dinov2-base/preprocessor_config.json` 存在后再打包。
 
 ### 产物过小
 
