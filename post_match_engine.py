@@ -30,6 +30,8 @@ import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from utils import clean_text_value
+
 # Excel / AI 列名
 COL_CAT1 = "美团类目一级"
 COL_ALIASES_CAT1 = ("美团一级类目", "一级类目", "美团类目1级", "美团1级类目")
@@ -91,6 +93,7 @@ def get_builtin_default_template() -> Dict[str, Any]:
 def _g(item: dict, keys: tuple) -> str:
     for k in keys:
         v = item.get(k)
+        v = clean_text_value(v)
         if v is not None and str(v).strip() != "" and str(v).lower() not in ("nan", "none"):
             return str(v).strip()
     return ""
@@ -111,7 +114,7 @@ def get_cat3(item: dict) -> str:
 def _norm_str(s: Any) -> str:
     if s is None:
         return ""
-    t = str(s).strip()
+    t = str(clean_text_value(s)).strip()
     if t.lower() in ("nan", "none", "null"):
         return ""
     return t

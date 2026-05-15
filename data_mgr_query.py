@@ -2,6 +2,7 @@ import json
 import re
 import pandas as pd
 from data_mgr_query_unlinked import DataManagerUnlinkedQueryMixin
+from utils import clean_text_value
 
 class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
     CATEGORY3_ALIASES = ("美团类目三级", "美团三级类目", "三级类目", "美团三级分类", "三级分类", "美团分类三级")
@@ -11,7 +12,7 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
             return pd.Series([], dtype=str)
         for col in self.CATEGORY3_ALIASES:
             if col in df.columns:
-                s = df[col].fillna("").astype(str).str.strip()
+                s = df[col].fillna("").map(clean_text_value).astype(str).str.strip()
                 if (s[(s != "") & (s.str.lower() != "nan")]).any():
                     return s
         return pd.Series([""] * len(df), index=df.index, dtype=str)

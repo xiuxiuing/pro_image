@@ -1,5 +1,39 @@
 from openpyxl import load_workbook
 from openpyxl import Workbook
+import re
+
+
+_INVISIBLE_TEXT_CHARS_RE = re.compile(r"[\u200b\u200c\u200d\ufeff]")
+_SPACE_TRANSLATION = str.maketrans({
+    "\u00a0": " ",
+    "\u1680": " ",
+    "\u180e": " ",
+    "\u2000": " ",
+    "\u2001": " ",
+    "\u2002": " ",
+    "\u2003": " ",
+    "\u2004": " ",
+    "\u2005": " ",
+    "\u2006": " ",
+    "\u2007": " ",
+    "\u2008": " ",
+    "\u2009": " ",
+    "\u200a": " ",
+    "\u202f": " ",
+    "\u205f": " ",
+    "\u3000": " ",
+})
+
+
+def clean_text_value(value):
+    """Normalize Excel text without changing meaningful inner spacing."""
+    if value is None:
+        return value
+    if not isinstance(value, str):
+        return value
+    text = value.translate(_SPACE_TRANSLATION)
+    text = _INVISIBLE_TEXT_CHARS_RE.sub("", text)
+    return text.strip()
 
 
 def optimize_numeric_value(val):
@@ -19,7 +53,7 @@ def optimize_numeric_value(val):
                 return int(val)
             else:
                 return round(val, 4)
-    return val
+    return clean_text_value(val)
 
 
 def excel_to_list_dict(file_path, sheet_name=None):
@@ -38,7 +72,7 @@ def excel_to_list_dict(file_path, sheet_name=None):
     rows = ws.iter_rows(values_only=True)
 
     # 第一行作为 key
-    headers = next(rows)
+    headers = [clean_text_value(h) for h in next(rows)]
     if not headers:
         return []
 
@@ -97,6 +131,7 @@ def get_sku_id(item):
             val = item[k]
             break
     
+    val = clean_text_value(val)
     if val is None or str(val).strip() == "":
         return ""
         

@@ -6,6 +6,7 @@
 """
 import os
 import sys
+import re
 
 # 必须在 import torch / numpy / faiss 之前（直接运行本文件时无 app.py 预设）
 if sys.platform == "darwin":
@@ -19,6 +20,7 @@ if sys.platform == "darwin":
         os.environ.setdefault(_k, _v)
 
 import utils
+from utils import clean_text_value
 import post_match_engine
 import time as _time_mod
 import requests
@@ -113,7 +115,7 @@ text_model = AutoModel.from_pretrained(bge_p, local_files_only=_local_only).to(d
 def g(item, keys, default=""):
     """从行字典 item 中按 keys 顺序取第一个非空字段，均空则返回 default。"""
     for k in keys:
-        v = item.get(k)
+        v = clean_text_value(item.get(k))
         if v is not None and str(v).strip() != "": return v
     return default
 
@@ -180,7 +182,7 @@ def _pick_category(item, level: int):
 def _norm_val(v):
     if v is None:
         return ""
-    s = str(v).strip()
+    s = str(clean_text_value(v)).strip()
     if s.lower() in ("nan", "none", "null"):
         return ""
     return s
@@ -239,18 +241,35 @@ def _has_comp_match_for_source(row_dict, pfx: str) -> bool:
     return bool(s) and s not in ("none", "nan", "-", "null")
 
 # --- Image Utilities ---
+def split_image_urls(raw):
+    """Split a cell that may contain multiple image URLs; keep order and drop blanks."""
+    if raw is None:
+        return []
+    return [p.strip() for p in re.split(r"[；，,;]+", str(raw)) if p and p.strip()]
+
 def download_img(url, sku_id, folder):
-    """按 url 下载主图到 folder/{sku_id}.webp，已存在则跳过；失败静默忽略。"""
+    """按 url 下载主图到 folder/{sku_id}.webp；多 URL 时逐个尝试，成功一张即停止。"""
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, f"{sku_id}.webp")
     if os.path.exists(path): return
-    try:
-        r = requests.get(url, timeout=20); r.raise_for_status()
-        with open(path, "wb") as f: f.write(r.content)
-    except: pass
+    for u in split_image_urls(url):
+        tmp_path = f"{path}.tmp"
+        try:
+            r = requests.get(u, timeout=20); r.raise_for_status()
+            with open(tmp_path, "wb") as f: f.write(r.content)
+            with Image.open(tmp_path) as img:
+                img.verify()
+            os.replace(tmp_path, path)
+            return
+        except:
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except OSError:
+                pass
 
 def download_imgs(data, folder="img", workers=None, progress_cb=None):
-    """并发下载 data 中每行的「图片」URL 到 folder，文件名为 skuId.webp。"""
+    """并发下载 data 中每行的「图片」URL 到 folder，文件名为 skuId.webp。多 URL 取首个有效图。"""
     if workers is None:
         workers = 8 if sys.platform == "darwin" else 30
     with ThreadPoolExecutor(max_workers=workers) as ex:

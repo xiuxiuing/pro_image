@@ -5,6 +5,7 @@ import traceback
 import shutil
 import json
 from flask import Blueprint, request, jsonify
+import utils
 
 projects_bp = Blueprint('data_projects', __name__)
 _active_analysis_pids = set()
@@ -128,7 +129,7 @@ def analyze_project(pid):
         selected_categories = json.loads(raw_selected_categories) if raw_selected_categories else []
     except json.JSONDecodeError:
         selected_categories = []
-    selected_categories = [str(c).strip() for c in selected_categories if str(c).strip()]
+    selected_categories = [str(utils.clean_text_value(c)).strip() for c in selected_categories if utils.clean_text_value(c)]
     raw_rt = (request.form.get("rule_template_id") or "").strip()
     try:
         rule_template_id = int(raw_rt) if raw_rt else None
@@ -152,12 +153,12 @@ def analyze_project(pid):
             )
             rows = conn.execute(
                 """
-                SELECT DISTINCT 美团类目三级 FROM main_products
-                WHERE project_id = ? AND 美团类目三级 IS NOT NULL AND 美团类目三级 != ''
+                SELECT DISTINCT trim(COALESCE(美团类目三级, '')) FROM main_products
+                WHERE project_id = ? AND trim(COALESCE(美团类目三级, '')) != ''
                 """,
                 (pid,),
             ).fetchall()
-            all_categories = [str(r[0]).strip() for r in rows if str(r[0]).strip()]
+            all_categories = [str(utils.clean_text_value(r[0])).strip() for r in rows if utils.clean_text_value(r[0])]
 
     selected_set = set(selected_categories)
     all_set = set(all_categories)
@@ -231,7 +232,7 @@ def analyze_project(pid):
             if "美团类目三级" not in df.columns:
                 df = df.iloc[0:0].copy()
             else:
-                cat = df["美团类目三级"].fillna("").astype(str).str.strip()
+                cat = df["美团类目三级"].fillna("").map(utils.clean_text_value).astype(str).str.strip()
                 df = df[cat.isin(selected)].copy()
             out = os.path.join(cache_dir, name)
             df.to_excel(out, index=False)

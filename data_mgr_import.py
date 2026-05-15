@@ -2,9 +2,18 @@ import os
 import hashlib
 import pandas as pd
 import utils
+from utils import clean_text_value
 from data_mgr_base import MAPPING_VERSION, FIELD_MAPPINGS, CORE_MAIN_COLUMNS, CORE_COMP_COLUMNS
 
 class DataManagerImportMixin:
+    def _normalize_dataframe_text(self, df):
+        """Clean common Excel text artifacts before storing or parsing keys."""
+        if df is None or df.empty:
+            return df
+        for col in df.columns:
+            df[col] = df[col].map(clean_text_value)
+        return df
+
     def update_config(self, target_file=None, source_files=None, output_file=None):
         if target_file:
             self.target_file = os.path.abspath(target_file)
@@ -87,6 +96,7 @@ class DataManagerImportMixin:
         res_df = pd.DataFrame(res_data)
         if res_df.empty:
             return None
+        res_df = self._normalize_dataframe_text(res_df)
 
         prefix_to_store_map = self._detect_output_prefix_to_store_map(res_df, comp_dfs)
         final_mappings = FIELD_MAPPINGS.copy()
@@ -128,7 +138,15 @@ class DataManagerImportMixin:
 
     def replace_project_links(self, project_id, links_df, categories=None):
         """Replace product links for a project, optionally scoped to main-store categories."""
-        categories = [str(c).strip() for c in (categories or []) if str(c).strip()]
+        cleaned_categories = []
+        for c in categories or []:
+            c = clean_text_value(c)
+            if c is None:
+                continue
+            c = str(c).strip()
+            if c:
+                cleaned_categories.append(c)
+        categories = cleaned_categories
         if links_df is not None and not links_df.empty:
             links_df = links_df.copy()
             links_df["project_id"] = project_id
@@ -142,7 +160,7 @@ class DataManagerImportMixin:
                         rows = conn.execute(
                             f"""
                             SELECT skuId FROM main_products
-                            WHERE project_id = ? AND 美团类目三级 IN ({placeholders})
+                            WHERE project_id = ? AND trim(COALESCE(美团类目三级, '')) IN ({placeholders})
                             """,
                             [project_id] + categories,
                         ).fetchall()
@@ -206,7 +224,7 @@ class DataManagerImportMixin:
                 return ""
         except (TypeError, ValueError):
             pass
-        s = str(value).strip()
+        s = str(clean_text_value(value)).strip()
         if s.endswith(".0"):
             s = s[:-2]
         if s.lower() in ["", "nan", "none", "nan.0"]:
@@ -306,6 +324,7 @@ class DataManagerImportMixin:
             main_data = utils.excel_to_list_dict(self.target_file)
             main_df = pd.DataFrame(main_data)
             main_df = self._apply_mappings(main_df, FIELD_MAPPINGS)
+            main_df = self._normalize_dataframe_text(main_df)
 
             sku_ids = []
             for idx, row in main_df.iterrows():
@@ -329,6 +348,7 @@ class DataManagerImportMixin:
                 comp_data = utils.excel_to_list_dict(path)
                 cdf = pd.DataFrame(comp_data)
                 cdf = self._apply_mappings(cdf, FIELD_MAPPINGS)
+                cdf = self._normalize_dataframe_text(cdf)
                 cdf['store_id'] = str(i)
                 cdf['project_id'] = pid
 
