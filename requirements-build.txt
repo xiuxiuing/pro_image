@@ -1,2 +1,4 @@
-# 仅用于在 Windows 上打包 .exe（与 requirements.txt 分开，避免生产环境误装）
+# 仅用于本机/打包机生成发行包（与 requirements.txt 分开，避免生产环境误装）
 pyinstaller>=6.0
+nuitka>=2.0
+ordered-set

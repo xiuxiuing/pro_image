@@ -5,6 +5,7 @@ import threading
 import sqlite3
 import time
 import json
+import sys
 import utils
 
 # --- Constants ---
@@ -39,6 +40,7 @@ CORE_COMP_COLUMNS = [
 ]
 
 MAPPING_VERSION = "3.3"  # 3.3: 兼容更多三级类目字段别名
+PRODUCTION_RULE_TEMPLATE_NAME = "生产规则V1"
 
 _SAFE_COL_RE = re.compile(r'^[\w\u4e00-\u9fff]+$')
 
@@ -130,6 +132,63 @@ class DataManagerBase:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=30000")
         return conn
+
+    def _builtin_rule_template_path(self):
+        rel = os.path.join("data", "default_rule_templates", "production_rule_v1.json")
+        candidates = [
+            os.path.join(getattr(sys, "_MEIPASS", ""), rel),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), rel),
+            os.path.join(os.getcwd(), rel),
+        ]
+        return next((p for p in candidates if p and os.path.isfile(p)), None)
+
+    def _load_builtin_rule_template(self):
+        path = self._builtin_rule_template_path()
+        if not path:
+            return None
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            import post_match_engine as _pme
+            return {
+                "name": (raw.get("name") or PRODUCTION_RULE_TEMPLATE_NAME).strip(),
+                "description": raw.get("description") or "",
+                "config_json": json.dumps(
+                    _pme.normalize_template(raw.get("config") or {}),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
+            }
+        except Exception as exc:
+            print(f"Builtin rule template load failed: {exc}")
+            return None
+
+    def _default_rule_template_id(self, conn):
+        row = conn.execute(
+            "SELECT id FROM rule_templates WHERE name = ? ORDER BY id LIMIT 1",
+            (PRODUCTION_RULE_TEMPLATE_NAME,),
+        ).fetchone()
+        if row:
+            return int(row[0])
+        row = conn.execute("SELECT id FROM rule_templates ORDER BY id LIMIT 1").fetchone()
+        return int(row[0]) if row else None
+
+    def _ensure_builtin_rule_templates(self, conn):
+        row = conn.execute(
+            "SELECT id FROM rule_templates WHERE name = ? ORDER BY id LIMIT 1",
+            (PRODUCTION_RULE_TEMPLATE_NAME,),
+        ).fetchone()
+        if row:
+            return
+        item = self._load_builtin_rule_template()
+        if not item:
+            return
+        now = time.strftime("%Y-%m-%d %H:%M:%S")
+        conn.execute(
+            "INSERT INTO rule_templates (name, description, config_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+            (item["name"], item["description"], item["config_json"], now, now),
+        )
+        print(f"Created builtin rule template: {item['name']}")
 
     def _init_db(self):
         with self._db_lock:
@@ -226,6 +285,7 @@ class DataManagerBase:
                             ("空白规则模板", "按三级类目创建规则组；未覆盖到的类目不做后验过滤", _cfg, _now, _now),
                         )
                         print("Created default rule_templates row.")
+                    self._ensure_builtin_rule_templates(conn)
 
                     # Performance indexes for unlinked-pool / grid queries
                     conn.execute("CREATE INDEX IF NOT EXISTS idx_product_links_lookup ON product_links(project_id, store_id, comp_sku_id)")

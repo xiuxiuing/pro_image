@@ -37,7 +37,7 @@ a = Analysis(
     binaries=[],
     datas=_datas,
     hiddenimports=[
-        'flask', 'pandas', 'numpy', 'torch', 'torchvision', 'torchaudio',
+        'flask', 'pandas', 'numpy', 'torch', 'torchvision',
         'openpyxl', 'PIL', 'PIL.Image', 'faiss',
         'transformers', 'google.genai', 'openai', 'pydantic', 'cryptography',
         'data_mgr', 'data_mgr_base', 'data_mgr_import', 'data_mgr_query', 'data_mgr_query_unlinked',
@@ -53,7 +53,7 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        'matplotlib', 'notebook', 'scipy.io.wavfile', 'tkinter',
+        'matplotlib', 'notebook', 'scipy.io.wavfile', 'tkinter', 'torchaudio',
         'PIL.ImageQt', 'PIL.ImageTk', 'IPython', 'jupyter_client',
         'torch.utils.tensorboard',
     ],

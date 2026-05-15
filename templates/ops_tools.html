@@ -382,7 +382,7 @@
 
         <section>
             <h2>程序打包</h2>
-            <p class="hint">按 packaging_guide_zh.md 的 PyArmor 旧方案执行：优先混淆 15 个业务文件，再复用 PyInstaller spec 打包；如果混淆失败，会自动清理并改用源码模式继续打包。</p>
+            <p class="hint">按 packaging_nuitka.md 的核心保护方案执行：Nuitka 编译核心算法模块，PyInstaller 收集业务壳与第三方依赖，完成后自动做结构验证。</p>
             <form id="package-form">
                 <div class="field">
                     <label>打包目标</label>
@@ -390,7 +390,7 @@
                         <option value="macos">macOS .app</option>
                         <option value="windows">Windows 程序包</option>
                     </select>
-                    <div class="inline-note">流程：PyArmor gen -O dist/obfuscated；失败则跳过混淆 → ProImage_macOS.spec / ProImage_Windows.spec → ZIP。</div>
+                    <div class="inline-note">流程：检查环境 → Nuitka 编译核心 → 准备 _build_src → ProImage_nuitka_*.spec → 验证产物 → ZIP。</div>
                 </div>
                 <div class="actions">
                     <button class="primary" type="submit" id="package-submit">开始打包</button>

@@ -23,11 +23,18 @@ _tmp*
 build/
 dist/
 models/
+_build_src/
+nuitka_modules/*.build/
+nuitka_modules/*.pyi
+nuitka_modules/*.pyd
 
 # Runtime & secrets
 venv/
 license.dat
 uploads/
+img/
+query_img/
+outputs/
 node_modules/
 .env
 *.bak

@@ -302,8 +302,7 @@ class DataManagerOpsMixin:
                     analysis_started = time.strftime('%Y-%m-%d %H:%M:%S') if status == 'analyzing' else None
                     rtid = rule_template_id
                     if rtid is None:
-                        r0 = conn.execute("SELECT id FROM rule_templates ORDER BY id LIMIT 1").fetchone()
-                        rtid = r0[0] if r0 else None
+                        rtid = self._default_rule_template_id(conn)
                     cur = conn.execute(
                         "INSERT INTO projects (name, status, analysis_started_at, match_config, rule_template_id) VALUES (?, ?, ?, ?, ?)",
                         (name, status, analysis_started, match_config_json or "", rtid),

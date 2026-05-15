@@ -1,454 +1,224 @@
-# Nuitka 混合打包操作手册
+# Nuitka 核心混合打包操作手册
 
 > **内部文档**：本文仅用于开发与打包流程说明，不随产物分发给终端用户。
 
 ## 方案概述
 
-采用 **Nuitka 编译 + PyInstaller 打包** 的混合方案：
+正式打包路线采用 **Nuitka 编译核心模块 + PyInstaller 收集业务壳与依赖**：
 
-1. **Nuitka `--module`**：将 14 个一方业务模块编译为原生二进制（`.so` / `.pyd`），无法反编译
-2. **PyInstaller**：负责收集第三方依赖、Python 运行时，生成 `.app` / `.exe`
+1. **Nuitka `--module`**：只把核心算法、规则、AI 提取和授权模块编译为原生 `.so` / `.pyd`。
+2. **PyInstaller**：继续负责收集 Flask、torch、transformers、faiss、scipy、openai 等重依赖，生成 `.app` / `.exe`。
+3. **ops-tools 页面**：程序打包按钮已直接接入本方案，并在压缩前自动做结构验证。
 
-> **为什么不用纯 Nuitka standalone？**
-> Nuitka 4.x 的 `--nofollow-import-to` + `--include-package` 组合存在兼容性问题，第三方包无法正确打入 standalone 产物。混合方案经过实测验证，产物 635MB，依赖完整，启动正常。
+以前尝试过纯 Nuitka standalone，但第三方依赖收集不稳定，容易出现产物过小、运行时缺包的问题。本方案保留 PyInstaller 处理依赖，Nuitka 只负责保护真正核心代码。
 
-| 层级 | 文件 | 处理方式 | 保护级别 |
-|------|------|---------|---------|
-| 业务层 | `data_mgr.py` `data_mgr_base.py` `data_mgr_import.py` `data_mgr_query.py` `data_mgr_ops.py` `data_mgr_export.py` `data_mgr_rule_templates.py` `license_utils.py` `main_030822.py` `extract_info_ai2.py` `product_text_extract.py` `post_match_engine.py` `utils.py` `merge_sku_data.py` | Nuitka 编译为原生 `.so` / `.pyd` | **极高（无法反编译）** |
-| 入口文件 | `app.py` | PyInstaller 打包为 `.pyc` 字节码 | 中（可反编译，仅含路由定义） |
-| 第三方库 | torch, pandas, flask, cryptography 等 | PyInstaller 原样打包 | 无需保护（开源库） |
-| 资源文件 | `templates/`, `static/`, `data/` | 原样复制 | 不涉及 |
+## 保护边界
 
-### 不打包的内容
+### 编译保护的核心模块
 
-以下文件/目录**不会**也**不应该**出现在产物中：
+核心清单在 `packaging_core.py` 中维护，当前为：
 
-| 文件/目录 | 说明 | 为什么不影响运行 |
-|-----------|------|----------------|
-| `vendor/keygen_tool.py` | 密钥生成工具 | 开发者专用，用户不需要 |
-| `vendor/private_key.pem` | RSA 私钥 | **绝对禁止分发** |
-| `vendor/public_key.pem` | RSA 公钥 | 已硬编码在 `license_utils.py` 中 |
-| `pro_image.db` | 业务数据库（~80MB） | 运行时 `_init_db()` 自动创建 |
-| `license.dat` | 用户授权文件 | 用户收到后放在 `.app` 同级目录 |
-| `img/` | 商品图片缓存（50000+ 文件） | 分析时自动下载到 `ProImage_data/` |
-| `query_img/` | 查询图片缓存 | 同上 |
-| `uploads/` | 用户上传的项目文件 | 运行时自动创建目录 |
-| `tools/` | 打包辅助脚本 | 仅打包前使用 |
-| `dist/` / `build/` | 历史打包产物 | 与运行无关 |
-| `*.spec` / `*.md` / `*.txt` | 配置和文档 | 与运行无关 |
-| `download_models.py` | 模型下载脚本 | transformers 库自动下载和缓存 |
+```text
+main_030822
+post_match_engine
+product_text_extract
+extract_info_ai2
+extract_info_rules
+extract_info_schema
+license_utils
+utils
+merge_sku_data
+```
 
----
+这些模块会编译为 `.so` / `.pyd`，打包产物中不应出现对应 `.py` 源码。
+
+### 普通业务壳源码
+
+以下模块保留为普通源码/字节码交给 PyInstaller 打包：
+
+```text
+app.py
+app_ops*.py
+app_data*.py
+data_mgr*.py
+packaging_core.py
+templates/
+static/
+data/
+```
+
+这些代码主要是页面路由、项目管理、数据库 CRUD、前端资源和默认数据，允许作为业务壳存在。这样可以避开 PyArmor 大小限制，也降低 Nuitka 编译边界和依赖问题。
 
 ## 前置准备
 
-### 1. 环境要求
-
-| 条件 | macOS | Windows |
-|------|-------|---------|
-| Python | 3.12 | 3.12 |
-| C 编译器 | Xcode Command Line Tools | MSVC (Visual Studio Build Tools) |
-| 安装命令 | `xcode-select --install` | 安装 [VS Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)，勾选"C++ 桌面开发" |
-
-### 2. 安装工具
+### macOS
 
 ```bash
-pip3 install nuitka ordered-set pyinstaller
+xcode-select --install
+python3 -m pip install -r requirements.txt
+python3 -m pip install -r requirements-build.txt
+python3 -m pip install nuitka ordered-set
 ```
 
-验证安装：
+建议打包前修补 PyInstaller 冻结环境下的 torch/scipy 已知问题：
 
 ```bash
-python3 -m nuitka --version
-python3 -m PyInstaller --version
+python3 tools/patch_pyinstaller_site_packages.py
 ```
 
-### 3. 确保在项目根目录
+### Windows
 
-```bash
-cd /path/to/pro_image   # 包含 app.py 的目录
-```
-
----
-
-## macOS 构建（生成 .app）
-
-整个流程分 4 步，预计 3-5 分钟。
-
-### 第 1 步：关闭正在运行的项目
-
-```bash
-lsof -ti :5001 | xargs kill -9 2>/dev/null
-sleep 1
-lsof -i :5001 && echo "端口仍被占用" || echo "端口已释放"
-```
-
-### 第 2 步：Nuitka 编译业务模块
-
-将 14 个业务 `.py` 编译为原生 `.so`（约 30 秒）：
-
-```bash
-mkdir -p nuitka_modules
-
-for mod in data_mgr data_mgr_base data_mgr_import data_mgr_query data_mgr_ops data_mgr_export data_mgr_rule_templates license_utils main_030822 extract_info_ai2 product_text_extract post_match_engine utils merge_sku_data; do
-  echo "=== 编译 $mod ==="
-  python3 -m nuitka --module --output-dir=nuitka_modules "$mod.py"
-  echo ""
-done
-```
-
-验证编译结果（应有 14 个 `.so` 文件）：
-
-```bash
-ls nuitka_modules/*.cpython-312-darwin.so | wc -l
-```
-
-### 第 3 步：准备打包目录并执行 PyInstaller
-
-```bash
-# 3a. 创建 _build_src 目录
-rm -rf _build_src
-mkdir -p _build_src/templates _build_src/static _build_src/data
-
-# 3b. 复制入口文件和资源
-cp app.py _build_src/
-cp -r templates/* _build_src/templates/
-cp -r static/* _build_src/static/
-cp -r data/* _build_src/data/
-
-# 3c. 复制 Nuitka 编译的 .so 模块
-for mod in data_mgr data_mgr_base data_mgr_import data_mgr_query data_mgr_ops data_mgr_export data_mgr_rule_templates license_utils main_030822 extract_info_ai2 product_text_extract post_match_engine utils merge_sku_data; do
-  cp "nuitka_modules/${mod}.cpython-312-darwin.so" "_build_src/"
-done
-
-# 3d. PyInstaller 打包
-python3 -m PyInstaller -y ProImage_nuitka_macOS.spec
-```
-
-### 第 4 步：验证打包结果
-
-```bash
-# 4a. 检查产物大小（应 > 500MB）
-du -sh dist/ProImage_AI.app
-
-# 4b. 确认 .so 文件在位、无 .py 源码泄露
-ls dist/ProImage_AI.app/Contents/Frameworks/ | grep -E "^(data_mgr|license_utils|main_030822|extract_info_ai2|product_text_extract|post_match_engine|utils|merge_sku_data)\."
-```
-
-预期输出（只有 `.so`，无 `.py`）：
-
-```
-data_mgr.cpython-312-darwin.so
-data_mgr_base.cpython-312-darwin.so
-data_mgr_export.cpython-312-darwin.so
-data_mgr_import.cpython-312-darwin.so
-data_mgr_ops.cpython-312-darwin.so
-data_mgr_query.cpython-312-darwin.so
-data_mgr_rule_templates.cpython-312-darwin.so
-extract_info_ai2.cpython-312-darwin.so
-license_utils.cpython-312-darwin.so
-main_030822.cpython-312-darwin.so
-merge_sku_data.cpython-312-darwin.so
-post_match_engine.cpython-312-darwin.so
-product_text_extract.cpython-312-darwin.so
-utils.cpython-312-darwin.so
-```
-
-```bash
-# 4c. 移除 macOS 隔离属性
-xattr -cr dist/ProImage_AI.app
-
-# 4d. 终端启动测试
-./dist/ProImage_AI.app/Contents/MacOS/ProImage_AI
-```
-
-预期：
-
-- 终端输出 `* Running on http://127.0.0.1:5001`
-- 浏览器**自动打开** `http://127.0.0.1:5001`
-- 确认无 `ModuleNotFoundError` 后按 `Ctrl+C` 停止
-
-### 清理临时文件（可选）
-
-打包完成后可清理中间产物，`nuitka_modules/*.so` 建议保留以便下次复用：
-
-```bash
-rm -rf _build_src
-rm -rf nuitka_modules/*.build nuitka_modules/*.pyi
-rm -rf build/ProImage_nuitka_macOS
-```
-
----
-
-## Windows 构建（生成 .exe）
-
-### 第 1 步：Nuitka 编译业务模块
+1. 安装 Python 3.12 64 位。
+2. 安装 Visual Studio Build Tools，勾选 **C++ 桌面开发**。
+3. 安装依赖：
 
 ```powershell
+python -m pip install -r requirements.txt
+python -m pip install -r requirements-build.txt
+python -m pip install nuitka ordered-set
+```
+
+## 推荐方式：在 ops-tools 页面打包
+
+1. 启动开发版应用。
+2. 打开 `/ops-tools`。
+3. 在“程序打包”中选择目标：
+   - `macOS .app`：必须在 macOS 打包机上执行。
+   - `Windows 程序包`：必须在 Windows 打包机上执行。
+4. 点击“开始打包”。
+
+页面会按以下步骤执行：
+
+```text
+检查环境
+Nuitka 编译核心
+准备打包目录
+PyInstaller 打包
+验证产物
+压缩产物
+```
+
+结构验证会检查：
+
+- 产物目录存在。
+- 9 个核心模块的 `.so` / `.pyd` 都在产物中。
+- 核心模块对应 `.py` 没有泄露到产物文件系统。
+- `templates/`、`static/`、`data/default_rule_templates/production_rule_v1.json` 存在。
+
+验证通过后会生成 ZIP 下载链接。
+
+## 手动打包流程
+
+### macOS
+
+```bash
+rm -rf _build_src
+mkdir -p nuitka_modules
+
+for mod in main_030822 post_match_engine product_text_extract extract_info_ai2 extract_info_rules extract_info_schema license_utils utils merge_sku_data; do
+  echo "=== 编译 $mod ==="
+  python3 -m nuitka --module --output-dir=nuitka_modules "$mod.py"
+done
+
+mkdir -p _build_src
+cp app.py app_ops.py app_ops_extra.py app_ops_tasks.py _build_src/
+cp app_data.py app_data_projects.py app_data_rules.py app_data_grid.py _build_src/
+cp data_mgr.py data_mgr_base.py data_mgr_import.py data_mgr_query.py data_mgr_query_unlinked.py _build_src/
+cp data_mgr_ops.py data_mgr_export.py data_mgr_rule_templates.py _build_src/
+cp packaging_core.py _build_src/
+cp -r templates static data _build_src/
+cp nuitka_modules/*.so _build_src/
+
+python3 -m PyInstaller -y ProImage_nuitka_macOS.spec
+xattr -cr dist/ProImage_AI.app
+codesign --force --deep --sign - dist/ProImage_AI.app
+```
+
+### Windows
+
+```powershell
+Remove-Item -Recurse -Force _build_src -ErrorAction SilentlyContinue
 mkdir nuitka_modules -ErrorAction SilentlyContinue
 
 $mods = @(
-  "data_mgr", "data_mgr_base", "data_mgr_import", "data_mgr_query",
-  "data_mgr_ops", "data_mgr_export", "data_mgr_rule_templates",
-  "license_utils", "main_030822", "extract_info_ai2",
-  "product_text_extract", "post_match_engine", "utils", "merge_sku_data"
+  "main_030822", "post_match_engine", "product_text_extract",
+  "extract_info_ai2", "extract_info_rules", "extract_info_schema",
+  "license_utils", "utils", "merge_sku_data"
 )
 
 foreach ($mod in $mods) {
   Write-Host "=== 编译 $mod ==="
   python -m nuitka --module --output-dir=nuitka_modules "$mod.py"
 }
-```
 
-验证编译结果（应有 14 个 `.pyd` 文件）：
+mkdir _build_src
+Copy-Item app.py,app_ops.py,app_ops_extra.py,app_ops_tasks.py _build_src\
+Copy-Item app_data.py,app_data_projects.py,app_data_rules.py,app_data_grid.py _build_src\
+Copy-Item data_mgr.py,data_mgr_base.py,data_mgr_import.py,data_mgr_query.py,data_mgr_query_unlinked.py _build_src\
+Copy-Item data_mgr_ops.py,data_mgr_export.py,data_mgr_rule_templates.py _build_src\
+Copy-Item packaging_core.py _build_src\
+Copy-Item templates,static,data _build_src\ -Recurse
+Copy-Item nuitka_modules\*.pyd _build_src\
 
-```powershell
-dir nuitka_modules\*.pyd
-```
-
-### 第 2 步：准备打包目录并执行 PyInstaller
-
-```powershell
-# 创建 _build_src
-Remove-Item -Recurse -Force _build_src -ErrorAction SilentlyContinue
-mkdir _build_src\templates, _build_src\static, _build_src\data
-
-# 复制入口和资源
-Copy-Item app.py _build_src\
-Copy-Item templates\* _build_src\templates\ -Recurse
-Copy-Item static\* _build_src\static\ -Recurse
-Copy-Item data\* _build_src\data\ -Recurse
-
-# 复制 .pyd 模块
-foreach ($mod in $mods) {
-  Copy-Item "nuitka_modules\$mod.cp312-win_amd64.pyd" _build_src\
-}
-
-# PyInstaller 打包
 python -m PyInstaller -y ProImage_nuitka_Windows.spec
 ```
 
-### 第 3 步：验证
+Windows 复制 `.pyd` 必须使用通配符，不要写死 `cp312-win_amd64`，避免 Python patch 版本或架构标记变化导致复制失败。
 
-```powershell
-.\dist\ProImage_AI\ProImage_AI.exe
+## 产物位置
+
+macOS：
+
+```text
+dist/ProImage_AI.app
 ```
 
-预期浏览器自动打开 `http://127.0.0.1:5001`。
+Windows：
 
----
-
-## 文件说明
-
-### Spec 文件
-
-| 文件 | 用途 |
-|------|------|
-| `ProImage_nuitka_macOS.spec` | 混合方案 macOS 打包配置 |
-| `ProImage_nuitka_Windows.spec` | 混合方案 Windows 打包配置 |
-| `ProImage_macOS.spec` | 旧方案（PyArmor + PyInstaller），备用 |
-| `ProImage_Windows.spec` | 旧方案（PyArmor + PyInstaller），备用 |
-
-### Spec 核心逻辑
-
-```python
-# _build_src/ 中只有 app.py、资源目录和 .so/.pyd 文件，没有业务 .py 源码
-_entry = ['_build_src/app.py']
-
-# .so 文件作为 binaries 打入
-binaries = [('_build_src/data_mgr.cpython-312-darwin.so', '.'), ...]
-
-# 业务模块名加入 excludes，防止 PyInstaller 把 .py 源码也打进去
-excludes = ['data_mgr', 'license_utils', 'main_030822', ...]
+```text
+dist/ProImage_AI/ProImage_AI.exe
 ```
 
-### 产物结构
+将对应 `.app` 或整个 `ProImage_AI/` 文件夹压缩后分发。
 
-**macOS**：
+## 不要打进发行包
 
-```
+以下内容仅供开发或用户本地运行时生成，不应随发行包分发：
+
+```text
+vendor/private_key.pem
+vendor/keygen_tool.py
+license.dat
+pro_image.db
+uploads/
+img/
+outputs/
+build/
 dist/
-└── ProImage_AI.app/              ← 分发给用户
-    └── Contents/
-        ├── MacOS/
-        │   └── ProImage_AI       ← PyInstaller 引导程序
-        └── Frameworks/
-            ├── data_mgr.cpython-312-darwin.so    ← 原生编译（无法反编译）
-            ├── license_utils.cpython-312-darwin.so
-            ├── main_030822.cpython-312-darwin.so
-            ├── extract_info_ai2.cpython-312-darwin.so
-            ├── utils.cpython-312-darwin.so
-            ├── merge_sku_data.cpython-312-darwin.so
-            ├── templates/        ← 前端模板
-            ├── static/           ← 静态资源
-            ├── data/             ← 默认类目/规则辅助数据
-            ├── torch/            ← 第三方库
-            ├── numpy/
-            └── ...
+_build_src/
+nuitka_modules/*.build
 ```
 
-**Windows**：
+程序首次运行会在产物同级目录创建 `ProImage_data/`，用户数据库、上传文件、图片缓存和授权文件都在这里维护。
 
-```
-dist/
-└── ProImage_AI/                  ← 分发给用户（整个文件夹）
-    ├── ProImage_AI.exe           ← PyInstaller 引导程序
-    ├── data_mgr.cpython-312-win_amd64.pyd  ← 原生编译
-    ├── license_utils.cpython-312-win_amd64.pyd
-    ├── ...
-    ├── templates/
-    ├── static/
-    ├── data/
-    └── torch/
-```
+## 常见问题
 
-### 运行时数据
+### Nuitka 编译失败
 
-应用启动后自动在产物**同级目录**创建 `ProImage_data/`：
+- macOS 确认已安装 Xcode Command Line Tools。
+- Windows 确认已安装 Visual Studio Build Tools 的 C++ 桌面开发组件。
+- 查看 `nuitka_modules/<module>.build/` 下的详细日志。
 
-```
-ProImage_AI.app 或 ProImage_AI/ 所在目录/
-├── ProImage_AI.app (或 ProImage_AI/)
-├── ProImage_data/           ← 自动创建
-│   ├── pro_image.db         ← 数据库（自动创建）
-│   ├── uploads/             ← 用户上传文件
-│   └── img/                 ← 图片缓存
-└── license.dat              ← 用户手动放置
-```
+### PyInstaller 后启动缺模块
 
----
+- 先确认 `_build_src/` 中业务壳 `.py`、资源目录和核心 `.so/.pyd` 都存在。
+- 在 `ProImage_nuitka_*.spec` 的 `hiddenimports` 中补缺失第三方模块。
+- 不要把 `data_mgr*`、`app_*` 加入 excludes；excludes 只应等于 `packaging_core.CORE_NUITKA_MODULES`。
 
-## 常见问题排查
+### 产物过小
 
-### 1. Nuitka 编译报错
+正常产物会包含 torch、transformers、faiss 等依赖，体积通常数百 MB。若产物明显过小，大概率是 `_build_src/` 准备不完整或 PyInstaller 未收集到重依赖。
 
-**现象**：`python3 -m nuitka --module data_mgr.py` 失败
+### PyArmor 是否还需要
 
-**排查**：
-- 确认 C 编译器已安装：macOS 执行 `xcode-select --install`，Windows 安装 MSVC
-- 确认 Nuitka 版本：`python3 -m nuitka --version`
-- 查看详细错误日志：`nuitka_modules/<module>.build/` 目录
-
-### 2. PyInstaller 打包后启动报 `ModuleNotFoundError`
-
-**排查步骤**：
-1. 确认 `_build_src/` 中有对应的 `.so` / `.pyd` 文件
-2. 确认 spec 文件中 `binaries` 列表正确加载了 `.so` 文件
-3. 在终端运行 `.app` 查看完整报错
-
-**常见缺失模块及解决**：
-
-```python
-# 在 spec 文件的 hiddenimports 中添加缺失模块
-hiddenimports=[
-    ...,
-    'missing_module_name',
-]
-```
-
-### 3. 打包产物过小（< 100MB）
-
-**原因**：`_build_src/` 未正确准备，或 PyInstaller 未收集到第三方依赖
-
-**解决**：
-1. 确认 `_build_src/` 中有 `app.py` + 14 个 `.so` / `.pyd` 文件 + `templates/` + `static/` + `data/`
-2. 重新执行 `python3 -m PyInstaller -y ProImage_nuitka_macOS.spec`
-3. 正常产物应 > 500MB
-
-### 4. 启动后浏览器未自动打开
-
-打包模式下程序会在启动 1.5 秒后自动打开浏览器。如果未打开，手动访问：
-
-```
-http://127.0.0.1:5001
-```
-
-### 5. macOS 提示"无法验证开发者"
-
-```bash
-xattr -cr dist/ProImage_AI.app
-```
-
-### 6. 重新构建前需要清理吗？
-
-PyInstaller 的 `-y` 参数会自动覆盖旧产物。`nuitka_modules/` 有增量缓存，一般不需清理。
-
-如需完全重建：
-
-```bash
-# macOS
-rm -rf dist/ build/ _build_src/ nuitka_modules/
-
-# Windows
-rmdir /s /q dist build _build_src nuitka_modules
-```
-
-### 7. Windows 构建报"找不到编译器"
-
-确保安装了 Visual Studio Build Tools 并勾选了 **"C++ 桌面开发"** 工作负载。安装后重启终端再执行。
-
-### 8. `.so` 文件中的源码文件名引用
-
-运行时 warning 中可能出现类似 `data_mgr.py:500` 的引用。这不是 `.py` 源码泄露，而是 `.so` 内部保留的原始文件名（用于错误定位），不影响安全性。
-
----
-
-## 与其他方案对比
-
-| 维度 | PyArmor + PyInstaller | 纯 Nuitka standalone | **Nuitka 混合（本方案）** |
-|------|----------------------|---------------------|-------------------------|
-| 代码保护 | .pyc 混淆（可破解） | 原生二进制 | **原生二进制（14 模块）** |
-| 额外许可证 | PyArmor 需付费 | 无 | **无** |
-| 构建时间 | ~90 秒 | 兼容性问题，无法完成 | **~3 分钟** |
-| 产物大小 | ~635MB | 66MB（缺依赖） | **~635MB** |
-| 依赖完整性 | 完整 | ❌ 第三方包缺失 | **✅ 完整** |
-| 启动验证 | ✅ 正常 | ❌ 崩溃 | **✅ 正常** |
-| 代码改动 | 无 | 无 | **无** |
-
----
-
-## 分发流程
-
-### 1. 打包产物
-
-- **macOS**：将 `dist/ProImage_AI.app` 压缩为 ZIP 分发
-- **Windows**：将 `dist/ProImage_AI/` 整个文件夹压缩为 ZIP 分发
-
-### 2. 安全警告
-
-- **绝对不要**分发 `vendor/private_key.pem` 或 `vendor/keygen_tool.py`
-- **绝对不要**分发 `pro_image.db`（含业务数据）
-
-### 3. 签发 License
-
-在开发者电脑上执行：
-
-**首次：生成密钥（只需一次）**
-
-```bash
-cd vendor
-python3 keygen_tool.py init
-```
-
-会生成 `vendor/private_key.pem` 和 `vendor/public_key.pem`。
-
-**签发 license.dat**
-
-```bash
-python3 keygen_tool.py sign <用户HWID>
-```
-
-指定天数（默认 30 天）：
-
-```bash
-python3 keygen_tool.py sign <用户HWID> 90
-```
-
-### 4. 用户激活
-
-1. 用户双击运行程序，浏览器自动打开
-2. 首次启动提示输入授权，页面显示**机器指纹 (HWID)**
-3. 用户将 HWID 发送给开发者
-4. 开发者签发 `license.dat` 发送给用户
-5. 用户将 `license.dat` 放在 `.app` 同级目录（macOS）或 `ProImage_AI/` 同级目录（Windows）
-6. 重启程序即可激活
+不需要作为正式路线。PyArmor 旧方案可以作为备用，但不推荐继续全量混淆，因为 trial/许可证和单文件大小限制会反复卡住。

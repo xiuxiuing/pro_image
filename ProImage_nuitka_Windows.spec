@@ -1,12 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
-# 混合方案：Nuitka 编译业务模块 (.pyd) + PyInstaller 打包
+# 混合方案：Nuitka 编译核心模块 (.pyd) + PyInstaller 打包业务壳和依赖
 # 步骤：
-#   1. 先用 Nuitka --module 编译业务模块到 nuitka_modules/
-#   2. 准备 _build_src/ 目录（复制 app.py + .pyd + templates + static + data）
+#   1. 先用 Nuitka --module 编译核心模块到 nuitka_modules/
+#   2. 准备 _build_src/ 目录（复制业务壳 .py + .pyd + templates + static + data）
 #   3. python -m PyInstaller -y ProImage_nuitka_Windows.spec
 
 import os, glob
 from PyInstaller.utils.hooks import copy_metadata
+from packaging_core import CORE_NUITKA_MODULES
 
 try:
     _root = os.path.abspath(os.path.dirname(__file__))
@@ -38,7 +39,7 @@ a = Analysis(
     binaries=_binaries,
     datas=_datas,
     hiddenimports=[
-        'flask', 'pandas', 'numpy', 'torch', 'torchvision', 'torchaudio',
+        'flask', 'pandas', 'numpy', 'torch', 'torchvision',
         'openpyxl', 'PIL', 'PIL.Image', 'faiss',
         'transformers', 'google.genai', 'openai', 'pydantic', 'cryptography',
         'werkzeug', 'jinja2', 'markupsafe', 'itsdangerous',
@@ -48,13 +49,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[
-        'data_mgr', 'data_mgr_base', 'data_mgr_import', 'data_mgr_query',
-        'data_mgr_ops', 'data_mgr_export', 'data_mgr_rule_templates',
-        'license_utils', 'main_030822',
-        'extract_info_ai2', 'product_text_extract', 'post_match_engine',
-        'utils', 'merge_sku_data',
-    ],
+    excludes=list(CORE_NUITKA_MODULES) + ['torchaudio'],
     noarchive=False,
     optimize=0,
 )

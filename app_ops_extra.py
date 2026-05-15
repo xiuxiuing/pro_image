@@ -7,7 +7,9 @@ import traceback
 import json
 import platform
 import datetime
+import glob
 from flask import Blueprint, request, jsonify
+from packaging_core import BUSINESS_SOURCE_FILES, CORE_NUITKA_MODULES, RESOURCE_DIRS
 
 # These will be initialized by app_ops.py or app.py
 ops_context = {}
@@ -17,6 +19,84 @@ extra_bp = Blueprint('ops_extra', __name__)
 def init_ops_extra(context):
     global ops_context
     ops_context = context
+
+def _copytree_fresh(src, dst):
+    if os.path.exists(dst):
+        shutil.rmtree(dst)
+    shutil.copytree(src, dst)
+
+def _compiled_module_glob(root, module, target):
+    suffixes = (".pyd",) if target == "windows" else (".so",)
+    patterns = [os.path.join(root, f"{module}*{suffix}") for suffix in suffixes]
+    matches = []
+    for pat in patterns:
+        matches.extend(glob.glob(pat))
+    return sorted(matches)
+
+def _prepare_nuitka_build_src(root, target):
+    build_src = os.path.join(root, "_build_src")
+    if os.path.isdir(build_src):
+        shutil.rmtree(build_src)
+    os.makedirs(build_src, exist_ok=True)
+    for rel in BUSINESS_SOURCE_FILES:
+        src = os.path.join(root, rel)
+        if not os.path.isfile(src):
+            raise RuntimeError(f"缺少业务壳源码：{rel}")
+        shutil.copy2(src, os.path.join(build_src, rel))
+    for name in RESOURCE_DIRS:
+        src = os.path.join(root, name)
+        if not os.path.isdir(src):
+            raise RuntimeError(f"缺少资源目录：{name}")
+        _copytree_fresh(src, os.path.join(build_src, name))
+    if os.path.isdir(os.path.join(root, "models")):
+        _copytree_fresh(os.path.join(root, "models"), os.path.join(build_src, "models"))
+    modules_dir = os.path.join(root, "nuitka_modules")
+    for mod in CORE_NUITKA_MODULES:
+        matches = _compiled_module_glob(modules_dir, mod, target)
+        if not matches:
+            raise RuntimeError(f"缺少核心编译产物：{mod}")
+        shutil.copy2(matches[-1], build_src)
+    return build_src
+
+def _verify_nuitka_artifact(target, artifact):
+    if not os.path.exists(artifact):
+        raise RuntimeError(f"打包产物不存在：{artifact}")
+    found = {}
+    leaked = []
+    own_core_py = {
+        f"{m}.py" for m in CORE_NUITKA_MODULES
+    } | {
+        f"Contents/Resources/{m}.py" for m in CORE_NUITKA_MODULES
+    } | {
+        f"Contents/Frameworks/{m}.py" for m in CORE_NUITKA_MODULES
+    }
+    artifact_paths = set()
+    for dirpath, _, filenames in os.walk(artifact):
+        artifact_paths.add(os.path.relpath(dirpath, artifact).replace("\\", "/"))
+        for fn in filenames:
+            stem = fn.split(".")[0]
+            full = os.path.join(dirpath, fn)
+            artifact_paths.add(os.path.relpath(full, artifact).replace("\\", "/"))
+            if stem in CORE_NUITKA_MODULES and fn.endswith((".pyd", ".so")):
+                found[stem] = full
+            rel = os.path.relpath(full, artifact).replace("\\", "/")
+            if rel in own_core_py:
+                leaked.append(full)
+    missing = [m for m in CORE_NUITKA_MODULES if m not in found]
+    if missing:
+        raise RuntimeError("核心编译模块未进入产物：" + ", ".join(missing))
+    if leaked:
+        raise RuntimeError("核心源码泄露到产物：" + ", ".join(leaked[:5]))
+    required = [
+        os.path.join("templates"),
+        os.path.join("static"),
+        os.path.join("data", "default_rule_templates", "production_rule_v1.json"),
+    ]
+    for rel in required:
+        needle = rel.replace("\\", "/")
+        if not any(p == needle or p.endswith("/" + needle) for p in artifact_paths):
+            raise RuntimeError(f"产物缺少资源：{rel}")
+    return f"验证通过：{len(found)} 个核心模块已编译进入 {target} 产物"
 
 @extra_bp.route('/api/ops/license-key-status')
 def api_ops_license_key_status():
@@ -73,7 +153,8 @@ def api_ops_package_build():
     if target not in ("macos", "windows"):
         return jsonify({"status": "error", "message": "请选择 macOS 或 Windows"}), 400
 
-    task = ops_context["create_task"]("package", ["检查环境", "PyArmor 混淆", "PyInstaller 打包", "压缩产物"], f"{target} 打包排队中")
+    steps = ["检查环境", "Nuitka 编译核心", "准备打包目录", "PyInstaller 打包", "验证产物", "压缩产物"]
+    task = ops_context["create_task"]("package", steps, f"{target} 打包排队中")
     task_id = task["task_id"]
 
     def _run_package_bg():
@@ -89,44 +170,52 @@ def api_ops_package_build():
                     ops_context["run_command"](task_id, 0, [sys.executable, patch_script], ops_context["resource_root"])
                 else:
                     ops_context["update_step"](task_id, 0, "done", "未找到 patch 脚本，跳过")
-                spec = "ProImage_macOS.spec"
+                spec = "ProImage_nuitka_macOS.spec"
                 artifact = os.path.join(ops_context["resource_root"], "dist", "ProImage_AI.app")
                 zip_name = f"ProImage_AI_macOS_{time.strftime('%Y%m%d_%H%M%S')}.zip"
             else:
                 if system != "Windows":
                     raise RuntimeError("Windows 程序需要在 Windows 打包机上执行")
                 ops_context["update_step"](task_id, 0, "done", "Windows 环境")
-                spec = "ProImage_Windows.spec"
-                artifact = os.path.join(ops_context["resource_root"], "dist", "ProImage")
+                spec = "ProImage_nuitka_Windows.spec"
+                artifact = os.path.join(ops_context["resource_root"], "dist", "ProImage_AI")
                 zip_name = f"ProImage_Windows_{time.strftime('%Y%m%d_%H%M%S')}.zip"
 
-            obf_dir = os.path.join(ops_context["resource_root"], "dist", "obfuscated")
-            if os.path.isdir(obf_dir):
-                shutil.rmtree(obf_dir)
-            
-            pyarmor_cmd = ops_context["pyarmor_command"]() + ["gen", "-O", os.path.join("dist", "obfuscated")] + ops_context["pyarmor_files"]
-            try:
-                ops_context["run_command"](task_id, 1, pyarmor_cmd, ops_context["resource_root"])
-                ops_context["verify_pyarmor_output"](obf_dir)
-                ops_context["update_step"](task_id, 1, "done", f"完成，已生成 {len(ops_context['pyarmor_files'])} 个混淆文件")
-            except BaseException as e:
-                if os.path.isdir(obf_dir):
-                    shutil.rmtree(obf_dir)
-                detail = str(e).splitlines()[-1] if str(e).splitlines() else str(e)
-                ops_context["update_step"](task_id, 1, "done", f"混淆失败，已清理并改用源码模式：{detail[:180]}")
+            ops_context["run_command"](task_id, 0, [sys.executable, "-m", "nuitka", "--version"], ops_context["resource_root"])
+            ops_context["run_command"](task_id, 0, [sys.executable, "-m", "PyInstaller", "--version"], ops_context["resource_root"])
 
-            ops_context["run_command"](task_id, 2, [sys.executable, "-m", "PyInstaller", "-y", spec], ops_context["resource_root"])
-            if not os.path.exists(artifact):
-                raise RuntimeError(f"打包产物不存在：{artifact}")
+            modules_dir = os.path.join(ops_context["resource_root"], "nuitka_modules")
+            os.makedirs(modules_dir, exist_ok=True)
+            for mod in CORE_NUITKA_MODULES:
+                src = f"{mod}.py"
+                if not os.path.isfile(os.path.join(ops_context["resource_root"], src)):
+                    raise RuntimeError(f"缺少核心源码：{src}")
+                ops_context["run_command"](
+                    task_id,
+                    1,
+                    [sys.executable, "-m", "nuitka", "--module", "--output-dir=nuitka_modules", src],
+                    ops_context["resource_root"],
+                )
+            ops_context["update_step"](task_id, 1, "done", f"完成，已编译 {len(CORE_NUITKA_MODULES)} 个核心模块")
+
+            ops_context["update_step"](task_id, 2, "running", "复制业务壳、资源和核心编译产物")
+            build_src = _prepare_nuitka_build_src(ops_context["resource_root"], target)
+            ops_context["update_step"](task_id, 2, "done", build_src)
+
+            ops_context["run_command"](task_id, 3, [sys.executable, "-m", "PyInstaller", "-y", spec], ops_context["resource_root"])
             if target == "macos":
-                ops_context["run_command"](task_id, 2, ["xattr", "-cr", artifact], ops_context["resource_root"])
-                ops_context["run_command"](task_id, 2, ["codesign", "--force", "--deep", "--sign", "-", artifact], ops_context["resource_root"])
+                ops_context["run_command"](task_id, 3, ["xattr", "-cr", artifact], ops_context["resource_root"])
+                ops_context["run_command"](task_id, 3, ["codesign", "--force", "--deep", "--sign", "-", artifact], ops_context["resource_root"])
+
+            ops_context["update_step"](task_id, 4, "running", "检查核心模块和资源")
+            verify_msg = _verify_nuitka_artifact(target, artifact)
+            ops_context["update_step"](task_id, 4, "done", verify_msg)
             
             task_dir = ops_context["task_dir"](task_id)
             zip_path = os.path.join(task_dir, zip_name)
-            ops_context["update_step"](task_id, 3, "running", "压缩产物")
+            ops_context["update_step"](task_id, 5, "running", "压缩产物")
             ops_context["zip_path"](artifact, zip_path)
-            ops_context["update_step"](task_id, 3, "done", "完成")
+            ops_context["update_step"](task_id, 5, "done", "完成")
             ops_context["set_task"](
                 task_id,
                 status="done",

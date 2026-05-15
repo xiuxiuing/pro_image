@@ -73,9 +73,7 @@ class DataManagerRuleTemplateMixin:
             conn = self._get_conn()
             try:
                 if not tid:
-                    r0 = conn.execute("SELECT id FROM rule_templates ORDER BY id LIMIT 1").fetchone()
-                    if r0:
-                        tid = int(r0[0])
+                    tid = self._default_rule_template_id(conn)
             finally:
                 conn.close()
         if not tid:
