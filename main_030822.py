@@ -249,12 +249,18 @@ def download_img(url, sku_id, folder):
         with open(path, "wb") as f: f.write(r.content)
     except: pass
 
-def download_imgs(data, folder="img", workers=None):
+def download_imgs(data, folder="img", workers=None, progress_cb=None):
     """并发下载 data 中每行的「图片」URL 到 folder，文件名为 skuId.webp。"""
     if workers is None:
         workers = 8 if sys.platform == "darwin" else 30
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        [ex.submit(download_img, (item.get("图片") or "").strip(), get_sku_id(item), folder) for item in data]
+        futures = [ex.submit(download_img, (item.get("图片") or "").strip(), get_sku_id(item), folder) for item in data]
+        total = len(futures)
+        if total == 0 and progress_cb:
+            progress_cb(0, 0)
+        for done, _future in enumerate(as_completed(futures), 1):
+            if progress_cb:
+                progress_cb(done, total)
 
 # --- Embedding & Index ---
 def images_to_embeddings(paths, batch_size=32, on_batch_progress=None):
@@ -329,7 +335,7 @@ def text_to_embedding(text):
     res = texts_to_embeddings([text])
     return res[0]
 
-def build_index(data, mode="img", folder="img", path="index", batch_size=32):
+def build_index(data, mode="img", folder="img", path="index", batch_size=32, progress_cb=None):
     """
     将竞店 Excel 行列表转为 FAISS 索引并写入 path。
     mode 为 img：读 folder/{skuId}.webp；为 text：用 get_text 拼串。
@@ -340,6 +346,9 @@ def build_index(data, mode="img", folder="img", path="index", batch_size=32):
     for item in data:
         sid = get_sku_id(item)
         if sid: valid_items.append((sid, item))
+    total = len(valid_items)
+    if total == 0 and progress_cb:
+        progress_cb(0, 0)
         
     for i in range(0, len(valid_items), batch_size):
         batch = valid_items[i:i + batch_size]
@@ -359,6 +368,8 @@ def build_index(data, mode="img", folder="img", path="index", batch_size=32):
                     vecs.append(v)
                     ids.append(numeric_id)
                 except: continue
+        if progress_cb:
+            progress_cb(min(i + len(batch), total), total)
     if not vecs:
         # 本趟未写出索引时删旧文件，避免下一行 read_index 读到过期/损坏的 v2
         if path and os.path.isfile(path):
@@ -432,33 +443,48 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
         proj_dir = os.path.join(os.getcwd(), f"__analysis_{output_name}")
     os.makedirs(proj_dir, exist_ok=True)
 
+    def _emit_progress(event, idx, detail):
+        if progress_cb:
+            progress_cb(event, idx, detail)
+
     sources = []
     for idx, xlsx in enumerate(source_xlsxs):
         fname = os.path.basename(xlsx)
         print(f"Loading source: {xlsx}")
-        if progress_cb:
-            progress_cb("source_start", idx, f"加载 {fname}")
+        _emit_progress("source_start", idx, f"加载 {fname}")
         data = utils.excel_to_list_dict(xlsx, "Sheet1")
-        if progress_cb:
-            progress_cb("source_start", idx, f"下载图片 ({len(data)} 件)")
+        _emit_progress("source_start", idx, f"下载图片 0/{len(data)}")
         # 各竞店独立目录。旧逻辑全部写入 img/，后处理的店会覆盖先下载的同 sku 文件。
         comp_img_dir = os.path.join(proj_dir, f"comp_img_{idx}")
         os.makedirs(comp_img_dir, exist_ok=True)
-        download_imgs(data, comp_img_dir)
+        download_imgs(
+            data,
+            comp_img_dir,
+            progress_cb=lambda done, total, _idx=idx: _emit_progress("source_start", _idx, f"下载图片 {done}/{total}"),
+        )
 
         # 图索引用独立 comp_img；每次分析都重算图索引，避免只改表、不删 v2 时仍用旧图向量
         i_path = os.path.join(cache_dir, f"img_{output_name}{idx}.v2.index")
         t_path = os.path.join(cache_dir, f"txt_{output_name}{idx}.index")
 
-        if progress_cb:
-            progress_cb("source_start", idx, f"图片向量 ({len(data)} 件)")
-        build_index(data, "img", comp_img_dir, i_path)
+        _emit_progress("source_start", idx, f"图片向量 0/{len(data)}")
+        build_index(
+            data,
+            "img",
+            comp_img_dir,
+            i_path,
+            progress_cb=lambda done, total, _idx=idx: _emit_progress("source_start", _idx, f"图片向量 {done}/{total}"),
+        )
         if not os.path.exists(t_path):
-            if progress_cb:
-                progress_cb("source_start", idx, f"文本向量 ({len(data)} 件)")
-            build_index(data, "text", "", t_path)
-        if progress_cb:
-            progress_cb("source_done", idx)
+            _emit_progress("source_start", idx, f"文本向量 0/{len(data)}")
+            build_index(
+                data,
+                "text",
+                "",
+                t_path,
+                progress_cb=lambda done, total, _idx=idx: _emit_progress("source_start", _idx, f"文本向量 {done}/{total}"),
+            )
+        _emit_progress("source_done", idx, "完成")
         sources.append({
             "sku_dict": {get_sku_id(i): i for i in data}, "tiaoma_dict": {get_条码(i): i for i in data if get_条码(i)},
             "i_idx": _safe_faiss_read_index(i_path),
@@ -467,11 +493,14 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
 
     print(f"Loading query: {target_xlsx}")
     query_data = utils.excel_to_list_dict(target_xlsx, "Sheet1")
-    if progress_cb:
-        progress_cb("query_start", 0, f"下载查询图片 ({len(query_data)} 件)")
+    _emit_progress("query_start", 0, f"下载查询图片 0/{len(query_data)}")
     query_img_dir = os.path.join(proj_dir, "query_img")
     os.makedirs(query_img_dir, exist_ok=True)
-    download_imgs(query_data, query_img_dir)
+    download_imgs(
+        query_data,
+        query_img_dir,
+        progress_cb=lambda done, total: _emit_progress("query_progress", 0, f"下载查询图片 {done}/{total}"),
+    )
     
     total_q = len(query_data)
     if progress_cb:
@@ -505,8 +534,7 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
     
     for idx, src in enumerate(sources):
         print(f"Analyzing source {idx}...")
-        if progress_cb:
-            progress_cb("query_progress", 0, f"分析来源 {idx+1}/{len(sources)}")
+        _emit_progress("query_progress", 0, f"分析来源 {idx+1}/{len(sources)}")
             
         # 1. Barcode match (fast)
         for qi, item in enumerate(query_data):
@@ -554,7 +582,8 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
                     txt_hits[ui] = list(zip(ids[i].tolist(), scores[i].tolist()))
                 
         # Merge topK image/text candidates, then let category rules pick the best acceptable hit.
-        for ui in unmatched_indices:
+        total_unmatched = len(unmatched_indices)
+        for pos, ui in enumerate(unmatched_indices, 1):
             item = query_data[ui]
             candidates = {}
             for s_id, score in img_hits.get(ui, []):
@@ -574,6 +603,8 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
                     continue
                 append_match_result(res_data[ui], hit, score, match, str(idx))
                 break
+            if progress_cb and (pos == total_unmatched or pos % 200 == 0):
+                _emit_progress("query_progress", 0, f"筛选候选 {idx+1}/{len(sources)} · {pos}/{total_unmatched}")
 
     out_path = os.path.join(output_dir, f"output_{output_name}.xlsx")
     utils.write_dict_list_to_excel(res_data, out_path)
