@@ -158,8 +158,14 @@ class DataManagerExportMixin:
         # 1. Fetch ALL products marked as "New" from comp_products (includes linked + unlinked)
         all_new_data = []
         with self._db_lock, self._get_conn() as conn:
-            query = "SELECT * FROM comp_products WHERE project_id = ? AND is_new_add = '是'"
-            all_comp_new_df = pd.read_sql(query, conn, params=(self.active_project_id,))
+            comp_cols = {
+                row[1] for row in conn.execute("PRAGMA table_info(comp_products)").fetchall()
+            }
+            if "is_new_add" in comp_cols:
+                query = "SELECT * FROM comp_products WHERE project_id = ? AND is_new_add = '是'"
+                all_comp_new_df = pd.read_sql(query, conn, params=(self.active_project_id,))
+            else:
+                all_comp_new_df = pd.DataFrame()
             if not all_comp_new_df.empty:
                 # Add store name and main store link info if available
                 all_comp_new_df['竞品店铺'] = all_comp_new_df['store_id'].map(store_map)

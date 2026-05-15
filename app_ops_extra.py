@@ -47,6 +47,14 @@ def _ensure_required_models(root):
     if missing:
         raise RuntimeError("缺少本地模型资源：" + ", ".join(missing))
 
+def _remove_tree_if_exists(path, label):
+    if not os.path.exists(path):
+        return
+    try:
+        shutil.rmtree(path)
+    except PermissionError as exc:
+        raise RuntimeError(f"{label} 正被其他程序占用，请关闭已运行的打包程序或资源管理器预览后重试：{path}") from exc
+
 def _prepare_nuitka_build_src(root, target):
     build_src = os.path.join(root, "_build_src")
     if os.path.isdir(build_src):
@@ -222,6 +230,8 @@ def api_ops_package_build():
             build_src = _prepare_nuitka_build_src(ops_context["resource_root"], target)
             ops_context["update_step"](task_id, 2, "done", build_src)
 
+            _remove_tree_if_exists(artifact, "旧打包产物")
+            _remove_tree_if_exists(os.path.join(ops_context["resource_root"], "build", os.path.splitext(spec)[0]), "旧构建缓存")
             ops_context["run_command"](task_id, 3, [sys.executable, "-m", "PyInstaller", "-y", spec], ops_context["resource_root"])
             if target == "macos":
                 ops_context["run_command"](task_id, 3, ["xattr", "-cr", artifact], ops_context["resource_root"])
