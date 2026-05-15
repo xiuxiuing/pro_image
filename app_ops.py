@@ -23,14 +23,17 @@ check_license = None
 CURRENT_HWID = None
 extract_info_ai2 = None
 main_030822 = None
+_validate_upload = None
+_safe_upload_filename = None
 
 ops_bp = Blueprint('ops', __name__)
 
 _ops_tasks = {}
 _ops_lock = threading.Lock()
 
-def init_ops(app_obj, dm_obj, res_root, dat_root, license_fn, hwid, ai_mod, main_mod):
+def init_ops(app_obj, dm_obj, res_root, dat_root, license_fn, hwid, ai_mod, main_mod, validate_fn, safe_name_fn):
     global dm, resource_root, data_root, check_license, CURRENT_HWID, extract_info_ai2, main_030822
+    global _validate_upload, _safe_upload_filename
     dm = dm_obj
     resource_root = res_root
     data_root = dat_root
@@ -38,6 +41,8 @@ def init_ops(app_obj, dm_obj, res_root, dat_root, license_fn, hwid, ai_mod, main
     CURRENT_HWID = hwid
     extract_info_ai2 = ai_mod
     main_030822 = main_mod
+    _validate_upload = validate_fn
+    _safe_upload_filename = safe_name_fn
     
     import app_ops_extra
     ctx = {
@@ -59,6 +64,7 @@ def init_ops(app_obj, dm_obj, res_root, dat_root, license_fn, hwid, ai_mod, main
         "zip_files": _ops_zip_files, "rule_template_from_request": _ops_rule_template_from_request,
         "public_astar_file_choices": _ops_public_astar_file_choices,
         "get_astar_choice": _ops_get_astar_choice, "validate_excel_uploads": _ops_validate_excel_uploads,
+        "validate_upload": _validate_upload,
     }
     app_ops_extra.init_ops_extra(ctx)
     app_obj.register_blueprint(app_ops_extra.extra_bp)
@@ -149,7 +155,6 @@ def _ops_file_label(file_storage, fallback):
     return name or fallback
 
 def _ops_safe_filename(filename, fallback):
-    from app import _safe_upload_filename
     ext = os.path.splitext(filename or "")[1].lower() or ".xlsx"
     safe = _safe_upload_filename(filename, fallback)
     if not os.path.splitext(safe)[1]:
@@ -172,7 +177,6 @@ def _ops_save_file(file_storage, dest_dir, prefix, idx=0):
     return {"path": path, "original_name": original, "safe_name": filename}
 
 def _ops_validate_excel_uploads(main_file, comp_files):
-    from app import _validate_upload
     if not main_file or not main_file.filename:
         return "请上传主店文件"
     err = _validate_upload(main_file, "主店文件")
@@ -188,7 +192,6 @@ def _ops_validate_excel_uploads(main_file, comp_files):
     return None
 
 def _ops_validate_source_uploads(source_files):
-    from app import _validate_upload
     files = [f for f in source_files if f and f.filename]
     if not files:
         return "请至少上传一个原始文件"

@@ -13,6 +13,7 @@ _update_step = None
 _schedule_clear_progress = None
 _validate_upload = None
 _safe_upload_filename = None
+_get_analysis_progress_data = None
 _template = None
 _static = None
 data_root = None
@@ -21,12 +22,13 @@ CATEGORY_L1_BUCKET_TAGS_JSON = None
 
 data_bp = Blueprint('data', __name__)
 
-def init_data(dm_obj, init_prog_fn, update_step_fn, clear_prog_fn, validate_fn, safe_name_fn, template_path, static_path, dat_root, default_xlsx, bucket_json):
-    global dm, _init_progress, _update_step, _schedule_clear_progress, _validate_upload, _safe_upload_filename, _template, _static, data_root, DEFAULT_RULE_CATEGORIES_XLSX, CATEGORY_L1_BUCKET_TAGS_JSON
+def init_data(dm_obj, init_prog_fn, update_step_fn, clear_prog_fn, progress_data_fn, validate_fn, safe_name_fn, template_path, static_path, dat_root, default_xlsx, bucket_json):
+    global dm, _init_progress, _update_step, _schedule_clear_progress, _get_analysis_progress_data, _validate_upload, _safe_upload_filename, _template, _static, data_root, DEFAULT_RULE_CATEGORIES_XLSX, CATEGORY_L1_BUCKET_TAGS_JSON
     dm = dm_obj
     _init_progress = init_prog_fn
     _update_step = update_step_fn
     _schedule_clear_progress = clear_prog_fn
+    _get_analysis_progress_data = progress_data_fn
     _validate_upload = validate_fn
     _safe_upload_filename = safe_name_fn
     _template = template_path
@@ -48,6 +50,7 @@ def _register_split_blueprints():
         "init_progress": _init_progress,
         "update_step": _update_step,
         "schedule_clear_progress": _schedule_clear_progress,
+        "get_analysis_progress_data": _get_analysis_progress_data,
         "validate_upload": _validate_upload,
         "safe_upload_filename": _safe_upload_filename,
         "data_root": data_root,

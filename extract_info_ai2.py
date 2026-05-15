@@ -4,8 +4,8 @@ import os
 import re
 import time
 import json
-import shutil
 import threading
+import uuid
 from typing import Optional
 
 from extract_info_schema import (
@@ -244,10 +244,10 @@ def extract_batch_ai(
 
 
 def safe_save(df, file_path):
-    temp_path = file_path + ".resuming.xlsx"
+    temp_path = f"{file_path}.{os.getpid()}.{threading.get_ident()}.{uuid.uuid4().hex}.tmp.xlsx"
     try:
         df.to_excel(temp_path, index=False, engine='openpyxl')
-        shutil.move(temp_path, file_path)
+        os.replace(temp_path, file_path)
         return True
     except Exception as e:
         print(f"Failed to safe save: {e}")

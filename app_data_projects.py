@@ -7,15 +7,18 @@ import json
 from flask import Blueprint, request, jsonify
 
 projects_bp = Blueprint('data_projects', __name__)
+_active_analysis_pids = set()
+_active_analysis_lock = threading.Lock()
 
 
 def init_projects(context):
     global dm, _init_progress, _update_step, _schedule_clear_progress
-    global _validate_upload, _safe_upload_filename, data_root
+    global _get_analysis_progress_data, _validate_upload, _safe_upload_filename, data_root
     dm = context["dm"]
     _init_progress = context["init_progress"]
     _update_step = context["update_step"]
     _schedule_clear_progress = context["schedule_clear_progress"]
+    _get_analysis_progress_data = context["get_analysis_progress_data"]
     _validate_upload = context["validate_upload"]
     _safe_upload_filename = context["safe_upload_filename"]
     data_root = context["data_root"]
@@ -189,12 +192,22 @@ def analyze_project(pid):
     main_name = os.path.basename(main_path).replace('.xlsx','').replace('.xls','')
     comp_names = [os.path.basename(p).replace('.xlsx','').replace('.xls','') for p in comp_paths]
 
-    with dm._db_lock:
-        with dm._get_conn() as conn:
-            conn.execute(
-                "UPDATE projects SET status = 'analyzing', analysis_started_at = ? WHERE id = ?",
-                (time.strftime('%Y-%m-%d %H:%M:%S'), pid),
-            )
+    with _active_analysis_lock:
+        if pid in _active_analysis_pids:
+            return jsonify({"status": "error", "message": "该项目正在分析中，请等待完成"}), 400
+        _active_analysis_pids.add(pid)
+
+    try:
+        with dm._db_lock:
+            with dm._get_conn() as conn:
+                conn.execute(
+                    "UPDATE projects SET status = 'analyzing', analysis_started_at = ? WHERE id = ?",
+                    (time.strftime('%Y-%m-%d %H:%M:%S'), pid),
+                )
+    except Exception:
+        with _active_analysis_lock:
+            _active_analysis_pids.discard(pid)
+        raise
 
     def _filtered_source_files():
         if not partial_categories:
@@ -230,11 +243,11 @@ def analyze_project(pid):
 
     def _run_analysis_bg():
         import extract_info_ai2, main_030822
-        analysis_main_path, analysis_comp_paths = _filtered_source_files()
         has_ai = bool(use_ai and api_key)
         prog = _init_progress(pid, has_ai, main_name, comp_names)
         ai_file_count = (1 + len(comp_names)) if has_ai else 0
         try:
+            analysis_main_path, analysis_comp_paths = _filtered_source_files()
             if has_ai:
                 all_ai_paths = [analysis_main_path] + analysis_comp_paths
                 _ai_gap = int(os.environ.get("PROIMAGE_AI_INTER_FILE_SLEEP_SEC", "8") or "8")
@@ -289,6 +302,8 @@ def analyze_project(pid):
             except Exception:
                 pass
         finally:
+            with _active_analysis_lock:
+                _active_analysis_pids.discard(pid)
             _schedule_clear_progress(pid)
 
     threading.Thread(target=_run_analysis_bg, daemon=True).start()
@@ -296,6 +311,4 @@ def analyze_project(pid):
 
 @projects_bp.route('/api/projects/<int:pid>/progress')
 def get_analysis_progress_route(pid):
-    # This calls back to the progress management in app.py or wherever it's passed from
-    from app import get_analysis_progress_data
-    return jsonify(get_analysis_progress_data(pid))
+    return jsonify(_get_analysis_progress_data(pid))

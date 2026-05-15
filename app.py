@@ -196,9 +196,9 @@ def get_license_details():
 
 # --- Blueprints ---
 import app_ops, app_data
-app_ops.init_ops(app, dm, resource_root, data_root, check_license, CURRENT_HWID, extract_info_ai2, main_030822)
+app_ops.init_ops(app, dm, resource_root, data_root, check_license, CURRENT_HWID, extract_info_ai2, main_030822, _validate_upload, _safe_upload_filename)
 app.register_blueprint(app_ops.ops_bp)
-app_data.init_data(dm, _init_progress, _update_step, _schedule_clear_progress, _validate_upload, _safe_upload_filename, _template, _static, data_root, DEFAULT_RULE_CATEGORIES_XLSX, CATEGORY_L1_BUCKET_TAGS_JSON)
+app_data.init_data(dm, _init_progress, _update_step, _schedule_clear_progress, get_analysis_progress_data, _validate_upload, _safe_upload_filename, _template, _static, data_root, DEFAULT_RULE_CATEGORIES_XLSX, CATEGORY_L1_BUCKET_TAGS_JSON)
 app.register_blueprint(app_data.data_bp)
 
 @app.errorhandler(413)

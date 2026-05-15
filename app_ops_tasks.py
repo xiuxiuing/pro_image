@@ -19,7 +19,7 @@ def init_ops_tasks(context):
     global _ops_validate_astar_input_columns, _ops_update_step, _ops_set_task, _ops_zip_files
     global _ops_get_task, _ops_fail_task, _ops_rule_template_from_request
     global _ops_public_astar_file_choices, _ops_get_astar_choice, _ops_validate_excel_uploads
-    global _ops_now
+    global _ops_now, _ops_validate_upload
     extract_info_ai2 = context["extract_info_ai2"]
     main_030822 = context["main_030822"]
     _ops_license_error_response = context["license_error_response"]
@@ -41,6 +41,7 @@ def init_ops_tasks(context):
     _ops_get_astar_choice = context["get_astar_choice"]
     _ops_validate_excel_uploads = context["validate_excel_uploads"]
     _ops_now = context["now"]
+    _ops_validate_upload = context["validate_upload"]
 
 
 @tasks_bp.route('/api/ops/astar-extract', methods=['POST'])
@@ -161,10 +162,9 @@ def api_ops_output_generate():
             except ValueError as e:
                 return jsonify({"status": "error", "message": str(e)}), 400
         else:
-            from app import _validate_upload
             if not main_file or not main_file.filename:
                 return jsonify({"status": "error", "message": "请上传主店 A* 文件"}), 400
-            err = _validate_upload(main_file, "主店 A* 文件")
+            err = _ops_validate_upload(main_file, "主店 A* 文件")
             if err:
                 return jsonify({"status": "error", "message": err}), 400
             main_input = {"source": "upload", "file": main_file}
@@ -192,9 +192,8 @@ def api_ops_output_generate():
             valid_comp_files = [f for f in comp_files if f and f.filename]
             if not valid_comp_files:
                 return jsonify({"status": "error", "message": "请至少上传一个竞店 A* 文件"}), 400
-            from app import _validate_upload
             for f in valid_comp_files:
-                err = _validate_upload(f, f"竞店 A* 文件 ({f.filename})")
+                err = _ops_validate_upload(f, f"竞店 A* 文件 ({f.filename})")
                 if err:
                     return jsonify({"status": "error", "message": err}), 400
             comp_inputs = [{"source": "upload", "file": f} for f in valid_comp_files]
