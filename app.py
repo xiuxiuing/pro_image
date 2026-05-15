@@ -103,8 +103,26 @@ else:
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB
 dm = DataManager(data_root)
 
-import extract_info_ai2
-import main_030822
+class _LazyModule:
+    def __init__(self, module_name):
+        self._module_name = module_name
+        self._module = None
+        self._lock = threading.Lock()
+
+    def _load(self):
+        if self._module is None:
+            with self._lock:
+                if self._module is None:
+                    import importlib
+                    self._module = importlib.import_module(self._module_name)
+        return self._module
+
+    def __getattr__(self, name):
+        return getattr(self._load(), name)
+
+
+extract_info_ai2 = _LazyModule("extract_info_ai2")
+main_030822 = _LazyModule("main_030822")
 
 _analysis_progress = {}
 _progress_lock = threading.Lock()
