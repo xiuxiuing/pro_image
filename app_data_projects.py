@@ -6,6 +6,7 @@ import shutil
 import json
 from flask import Blueprint, request, jsonify
 import utils
+import quality_preflight
 
 projects_bp = Blueprint('data_projects', __name__)
 _active_analysis_pids = set()
@@ -113,6 +114,39 @@ def activate_project(pid):
     dm.activate_project(pid)
     return jsonify({"status": "success"})
 
+@projects_bp.route('/api/projects/<int:pid>/preflight', methods=['POST'])
+def preflight_project(pid):
+    projects = dm.list_projects()
+    proj = next((p for p in projects if p['id'] == pid), None)
+    if not proj:
+        return jsonify({"status": "error", "message": "项目不存在"}), 404
+    try:
+        column_mappings = json.loads(request.form.get("column_mappings_json") or "{}")
+    except json.JSONDecodeError:
+        column_mappings = {}
+    raw_rt = (request.form.get("rule_template_id") or "").strip()
+    try:
+        rule_template_id = int(raw_rt) if raw_rt else None
+    except ValueError:
+        rule_template_id = None
+    selected_rule_template = dm.get_rule_template(rule_template_id) if rule_template_id else None
+    dm.activate_project(pid, skip_load=True)
+    main_path = dm.target_file
+    comp_paths = list(dm.source_files or [])
+    if not main_path or not os.path.exists(main_path):
+        return jsonify({"status": "error", "message": "主店源文件不存在，请重新创建项目"}), 400
+    if not comp_paths:
+        return jsonify({"status": "error", "message": "竞店源文件不存在，请重新创建项目"}), 400
+    files = [{"key": "main", "label": "主店文件", "path": main_path}] + [
+        {"key": f"comp_{i}", "label": f"竞店{i+1}", "path": p}
+        for i, p in enumerate(comp_paths)
+    ]
+    return jsonify(quality_preflight.inspect_files(
+        files,
+        user_mappings=column_mappings,
+        rule_template=(selected_rule_template or {}).get("config"),
+    ))
+
 @projects_bp.route('/api/projects/<int:pid>/analyze', methods=['POST'])
 def analyze_project(pid):
     projects = dm.list_projects()
@@ -131,10 +165,16 @@ def analyze_project(pid):
         selected_categories = []
     selected_categories = [str(utils.clean_text_value(c)).strip() for c in selected_categories if utils.clean_text_value(c)]
     raw_rt = (request.form.get("rule_template_id") or "").strip()
+    preflight_confirmed = (request.form.get("preflight_confirmed") or "").strip() == "1"
+    try:
+        column_mappings = json.loads(request.form.get("column_mappings_json") or "{}")
+    except json.JSONDecodeError:
+        column_mappings = {}
     try:
         rule_template_id = int(raw_rt) if raw_rt else None
     except ValueError:
         rule_template_id = None
+    selected_rule_template = dm.get_rule_template(rule_template_id) if rule_template_id else None
 
     dm.activate_project(pid, skip_load=True)
     dirs = dm._ensure_project_dirs(pid)
@@ -144,6 +184,20 @@ def analyze_project(pid):
         return jsonify({"status": "error", "message": "主店源文件不存在，请重新创建项目"}), 400
     if not comp_paths:
         return jsonify({"status": "error", "message": "竞店源文件不存在，请重新创建项目"}), 400
+
+    preflight_files = [{"key": "main", "label": "主店文件", "path": main_path}] + [
+        {"key": f"comp_{i}", "label": f"竞店{i+1}", "path": p}
+        for i, p in enumerate(comp_paths)
+    ]
+    preflight = quality_preflight.inspect_files(
+        preflight_files,
+        user_mappings=column_mappings,
+        rule_template=(selected_rule_template or {}).get("config"),
+    )
+    if preflight["level"] == "block":
+        return jsonify({"status": "error", "message": "预检未通过，请修正字段后再分析", "preflight": preflight}), 400
+    if preflight.get("requires_confirmation") and not preflight_confirmed:
+        return jsonify({"status": "needs_confirmation", "message": "预检发现字段风险，请确认后继续", "preflight": preflight}), 409
 
     with dm._db_lock:
         with dm._get_conn() as conn:
@@ -211,14 +265,29 @@ def analyze_project(pid):
         raise
 
     def _filtered_source_files():
-        if not partial_categories:
-            return main_path, comp_paths
         import pandas as pd
         import utils
         from data_mgr_base import FIELD_MAPPINGS
 
-        cache_dir = os.path.join(dirs["cache"], f"partial_analysis_{int(time.time())}")
+        cache_dir = os.path.join(dirs["cache"], f"analysis_input_{int(time.time())}")
         os.makedirs(cache_dir, exist_ok=True)
+
+        norm_main = quality_preflight.normalize_file_for_analysis(
+            main_path,
+            os.path.join(cache_dir, "main_normalized.xlsx"),
+            (column_mappings or {}).get("main") or {},
+        )
+        norm_comps = [
+            quality_preflight.normalize_file_for_analysis(
+                p,
+                os.path.join(cache_dir, f"comp_{idx}_normalized.xlsx"),
+                (column_mappings or {}).get(f"comp_{idx}") or {},
+            )
+            for idx, p in enumerate(comp_paths)
+        ]
+        if not partial_categories:
+            return norm_main, norm_comps
+
         selected = set(partial_categories)
 
         def _filter_file(path, name):
@@ -238,8 +307,8 @@ def analyze_project(pid):
             df.to_excel(out, index=False)
             return out
 
-        filtered_main = _filter_file(main_path, "main_partial.xlsx")
-        filtered_comps = [_filter_file(p, f"comp_{idx}_partial.xlsx") for idx, p in enumerate(comp_paths)]
+        filtered_main = _filter_file(norm_main, "main_partial.xlsx")
+        filtered_comps = [_filter_file(p, f"comp_{idx}_partial.xlsx") for idx, p in enumerate(norm_comps)]
         return filtered_main, filtered_comps
 
     def _run_analysis_bg():
@@ -277,12 +346,22 @@ def analyze_project(pid):
 
             _pmt = dm.get_post_match_template_for_project(pid)
             output_name = f"partial_{pid}_{int(time.time())}" if partial_categories else str(pid)
+            analysis_metrics = {}
             main_030822.run_analysis(
                 analysis_main_path, analysis_comp_paths,
                 output_name=output_name, output_dir=dirs["outputs"],
-                progress_cb=_analysis_cb, match_config=match_config_json, post_match_template=_pmt
+                progress_cb=_analysis_cb, match_config=match_config_json, post_match_template=_pmt,
+                analysis_metrics=analysis_metrics,
             )
             _update_step(pid, len(prog["steps"]) - 1, "done", "分析完成")
+            report = quality_preflight.build_quality_report(
+                preflight,
+                analysis_metrics,
+                {"project_id": pid, "output_name": output_name, "partial_categories": partial_categories},
+            )
+            report_path = os.path.join(dirs["outputs"], f"quality_report_{output_name}.json")
+            quality_preflight.save_quality_report(report, report_path)
+            quality_preflight.save_quality_report(report, os.path.join(dirs["outputs"], "quality_report_latest.json"))
             if partial_categories:
                 partial_output = os.path.join(dirs["outputs"], f"output_{output_name}.xlsx")
                 links_df = dm.parse_links_from_output(pid, partial_output)
@@ -313,3 +392,13 @@ def analyze_project(pid):
 @projects_bp.route('/api/projects/<int:pid>/progress')
 def get_analysis_progress_route(pid):
     return jsonify(_get_analysis_progress_data(pid))
+
+@projects_bp.route('/api/projects/<int:pid>/quality-report')
+def get_project_quality_report(pid):
+    dirs = dm._get_project_dirs(pid)
+    path = os.path.join(dirs["outputs"], "quality_report_latest.json")
+    if not os.path.isfile(path):
+        return jsonify({"status": "error", "message": "暂无质量报告"}), 404
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return jsonify({"status": "ok", "report": data})

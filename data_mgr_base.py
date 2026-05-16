@@ -7,23 +7,13 @@ import time
 import json
 import sys
 import utils
+from field_registry import build_field_mappings
 
 # --- Constants ---
 INTERNAL_COLUMNS = ['淘汰标记', '是否淘汰', '新活动价', '新售价', '跟价店']
 INTERNAL_EXPORT_KEYS = ['__idx', '淘汰标记', '_row_orig_idx', 'ref_name_store', 'ref_image_store']
 
-FIELD_MAPPINGS = {
-    '图片': '主图链接', 'SKUID': 'skuId', '商品名称': '商品名称', '菜单名': '商品名称',
-    'A商品名称': '商品名称', '规格': '规格名称', '规格名称': '规格名称', '规格名': '规格名称',
-    'A规格': '规格名称', '美团外卖渠道售价': '原价',
-    '活动价': '活动价', '单件折扣价': '活动价',
-    '月销量': '销售', '销售': '销售', '条码': '商品条码', '商品条码': '商品条码',
-    '美团类目一级': '美团类目一级',
-    '美团类目二级': '美团类目二级',
-    '美团类目三级': '美团类目三级', '美团三级类目': '美团类目三级',
-    '三级类目': '美团类目三级', '美团三级分类': '美团类目三级',
-    '三级分类': '美团类目三级', '美团分类三级': '美团类目三级'
-}
+FIELD_MAPPINGS = build_field_mappings()
 
 # --- Core Database Columns ---
 CORE_MAIN_COLUMNS = [

@@ -846,6 +846,20 @@
         font-weight: 700;
     }
     .workbench-message.error { color: #dc2626; }
+    .quality-report-card {
+        display: none;
+        margin: 0 0 14px;
+        border: 1px solid #dbe3ef;
+        border-radius: 8px;
+        padding: 10px 12px;
+        background: #f8fafc;
+        color: #334155;
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.6;
+    }
+    .quality-report-card.open { display: block; }
+    .quality-report-card.warn { border-color: #fbbf24; background: #fffbeb; color: #92400e; }
     @media (max-width: 720px) {
         .statistics-panel { padding: 16px; }
         .statistics-head {
@@ -876,6 +890,8 @@
             <button class="statistics-refresh" type="button" onclick="loadStatistics()">刷新</button>
         </div>
     </div>
+
+    <div class="quality-report-card" id="quality-report-card"></div>
 
     <div class="statistics-toolbar">
         <div class="statistics-filter-stack">
@@ -966,6 +982,8 @@
             <input type="hidden" name="mode" id="workbench-mode-input" value="auto">
             <input type="hidden" name="match_config_json" id="workbench-match-config-json" value="">
             <input type="hidden" name="selected_categories" id="workbench-selected-categories" value="">
+            <input type="hidden" name="preflight_confirmed" id="workbench-preflight-confirmed" value="0">
+            <input type="hidden" name="column_mappings_json" id="workbench-column-mappings-json" value="{}">
 
             <div class="workbench-form-group full" id="workbench-category-scope">
                 <label class="workbench-form-label">三级类目范围</label>
@@ -1362,6 +1380,8 @@
         document.getElementById("workbench-mode-input").value = "auto";
         document.getElementById("workbench-match-config-json").value = "";
         document.getElementById("workbench-selected-categories").value = "";
+        document.getElementById("workbench-preflight-confirmed").value = "0";
+        document.getElementById("workbench-column-mappings-json").value = "{}";
         document.getElementById("workbench-progress").classList.remove("open");
         document.getElementById("workbench-progress-fill").style.width = "0%";
         document.getElementById("workbench-progress-summary").textContent = "等待中...";
@@ -1420,6 +1440,66 @@
         }).join("");
     }
 
+    function buildWorkbenchPreflightMappings(preflight) {
+        const mappings = {};
+        (preflight.items || []).forEach((item) => {
+            const map = {};
+            Object.entries(item.mapping || {}).forEach(([field, info]) => {
+                if (!info.column && info.suggestions && info.suggestions.length) {
+                    map[field] = info.suggestions[0].column;
+                }
+            });
+            if (Object.keys(map).length) mappings[item.key] = map;
+        });
+        return mappings;
+    }
+
+    function summarizeWorkbenchPreflight(preflight) {
+        const lines = [];
+        (preflight.items || []).forEach((item) => {
+            const issues = item.issues || [];
+            if (!issues.length) return;
+            lines.push(`【${item.label || item.key}】`);
+            issues.slice(0, 8).forEach((issue) => lines.push(`- ${issue.message}`));
+        });
+        const suggested = [];
+        (preflight.items || []).forEach((item) => {
+            Object.entries(item.mapping || {}).forEach(([field, info]) => {
+                if (!info.column && info.suggestions && info.suggestions.length) {
+                    suggested.push(`${item.label || item.key}: ${field} → ${info.suggestions[0].column}`);
+                }
+            });
+        });
+        if (suggested.length) {
+            lines.push("", "建议采用以下列名映射：");
+            suggested.slice(0, 12).forEach((line) => lines.push(`- ${line}`));
+        }
+        return lines.join("\n") || "预检发现风险，是否继续？";
+    }
+
+    async function runWorkbenchPreflight(pid, form) {
+        const preflightData = new FormData();
+        preflightData.append("column_mappings_json", document.getElementById("workbench-column-mappings-json").value || "{}");
+        preflightData.append("rule_template_id", form.querySelector('[name="rule_template_id"]')?.value || "");
+        const resp = await fetch(`/api/projects/${pid}/preflight`, { method: "POST", body: preflightData });
+        const data = await resp.json();
+        if (!resp.ok || data.status === "error") throw new Error(data.message || "预检失败");
+        const mappings = buildWorkbenchPreflightMappings(data);
+        if (Object.keys(mappings).length) {
+            document.getElementById("workbench-column-mappings-json").value = JSON.stringify(mappings);
+        }
+        if (data.level === "block") {
+            throw new Error(summarizeWorkbenchPreflight(data));
+        }
+        if (data.requires_confirmation || data.level === "confirm") {
+            const ok = window.confirm(`${summarizeWorkbenchPreflight(data)}\n\n确认继续分析吗？`);
+            if (!ok) throw new Error("已取消分析");
+            document.getElementById("workbench-preflight-confirmed").value = "1";
+        } else {
+            document.getElementById("workbench-preflight-confirmed").value = "1";
+        }
+    }
+
     async function finishWorkbenchAnalyze() {
         if (workbenchProgressTimer) {
             clearInterval(workbenchProgressTimer);
@@ -1431,10 +1511,39 @@
         window.__workbenchConfig = null;
         await getWorkbenchConfig(true).catch(() => {});
         await loadStatistics().catch(() => {});
+        await loadQualityReport().catch(() => {});
         await loadData(true);
         if (typeof showPanel === "function") showPanel("projects");
         closeWorkbenchAnalyzeModal();
         resetWorkbenchAnalyzeForm();
+    }
+
+    async function loadQualityReport() {
+        const card = document.getElementById("quality-report-card");
+        if (!card) return;
+        const cfg = await getWorkbenchConfig(true);
+        if (!cfg || !cfg.project_id) return;
+        const resp = await fetch(`/api/projects/${cfg.project_id}/quality-report?t=${Date.now()}`);
+        if (!resp.ok) {
+            card.classList.remove("open", "warn");
+            card.textContent = "";
+            return;
+        }
+        const data = await resp.json();
+        const summary = data?.report?.summary || {};
+        const warnings = data?.report?.warnings || [];
+        const downloadRate = Math.round(Number(summary.download_success_rate || 0) * 100);
+        const vectorRate = Math.round(Number(summary.vector_success_rate || 0) * 100);
+        const bits = [
+            `本次分析质量：图片 ${summary.download_success || 0}/${summary.download_total || 0} (${downloadRate}%)`,
+            `向量 ${summary.vector_success || 0}/${summary.vector_total || 0} (${vectorRate}%)`,
+            `匹配 ${summary.matched || 0}`,
+            `规则拦截 ${summary.rule_rejected || 0}`,
+        ];
+        if (warnings.length) bits.push(`风险 ${warnings.length} 项：${warnings.slice(0, 2).join("；")}`);
+        card.textContent = bits.join(" · ");
+        card.classList.toggle("warn", warnings.length > 0);
+        card.classList.add("open");
     }
 
     async function pollWorkbenchProgress(pid) {
@@ -1715,7 +1824,7 @@
                 }
                 document.getElementById("workbench-selected-categories").value = JSON.stringify(selectedCategories);
             }
-            const formData = new FormData(event.target);
+            let formData = new FormData(event.target);
             const mode = formData.get("mode") || "auto";
             if (mode === "manual" && !document.getElementById("workbench-result-file").files.length) {
                 throw new Error("请上传关联结果文件");
@@ -1723,6 +1832,8 @@
             if (mode === "auto" && document.getElementById("workbench-use-ai").checked && !document.getElementById("workbench-api-key").value.trim()) {
                 throw new Error("启用 AI 提取时请填写 Gemini API Key");
             }
+            await runWorkbenchPreflight(pid, event.target);
+            formData = new FormData(event.target);
             const resp = await fetch(`/api/projects/${pid}/analyze`, { method: "POST", body: formData });
             const data = await resp.json();
             if (!resp.ok || data.status !== "success") {
@@ -1742,4 +1853,5 @@
     });
 
     window.addEventListener("DOMContentLoaded", loadStatistics);
+    window.addEventListener("DOMContentLoaded", () => loadQualityReport().catch(() => {}));
 </script>

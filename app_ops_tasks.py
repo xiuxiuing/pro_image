@@ -3,7 +3,9 @@ import time
 import threading
 import traceback
 import shutil
+import json
 from flask import Blueprint, request, jsonify
+import quality_preflight
 
 # Initialized by app_ops.init_ops
 extract_info_ai2 = None
@@ -132,6 +134,11 @@ def api_ops_output_generate():
     comp_source = (request.form.get("comp_source") or "").strip() or "local"
     main_file = request.files.get('main_file')
     comp_files = [f for f in request.files.getlist('comp_files') if f and f.filename]
+    preflight_confirmed = (request.form.get("preflight_confirmed") or "").strip() == "1"
+    try:
+        column_mappings = json.loads(request.form.get("column_mappings_json") or "{}")
+    except json.JSONDecodeError:
+        column_mappings = {}
 
     try:
         rule_template = _ops_rule_template_from_request(request.form.get("rule_template_id"))
@@ -232,6 +239,20 @@ def api_ops_output_generate():
         else:
             saved_comps.append(_ops_save_file(comp_input["file"], sources_dir, "comp", i))
 
+    preflight_files = [{"key": "main", "label": "主店 A* 文件", "path": saved_main["path"]}] + [
+        {"key": f"comp_{idx}", "label": f"竞店{idx+1} A* 文件", "path": item["path"]}
+        for idx, item in enumerate(saved_comps)
+    ]
+    preflight = quality_preflight.inspect_files(
+        preflight_files,
+        user_mappings=column_mappings,
+        rule_template=rule_template.get("config"),
+    )
+    if preflight["level"] == "block":
+        return jsonify({"status": "error", "message": "预检未通过，请修正字段后再生成 Output", "preflight": preflight}), 400
+    if preflight.get("requires_confirmation") and not preflight_confirmed:
+        return jsonify({"status": "needs_confirmation", "message": "预检发现字段风险，请确认后继续", "preflight": preflight}), 409
+
     if from_task:
         _ops_set_task(task_id, source_task_id=astar_task_id)
 
@@ -239,6 +260,18 @@ def api_ops_output_generate():
         _ops_set_task(task_id, status="running", started_at=_ops_now(), message="Output 生成中")
         try:
             _ops_update_step(task_id, 0, "running", "检查文件")
+            normalized_dir = os.path.join(task_dir, "normalized")
+            saved_main["path"] = quality_preflight.normalize_file_for_analysis(
+                saved_main["path"],
+                os.path.join(normalized_dir, "main_normalized.xlsx"),
+                (column_mappings or {}).get("main") or {},
+            )
+            for idx, item in enumerate(saved_comps):
+                item["path"] = quality_preflight.normalize_file_for_analysis(
+                    item["path"],
+                    os.path.join(normalized_dir, f"comp_{idx}_normalized.xlsx"),
+                    (column_mappings or {}).get(f"comp_{idx}") or {},
+                )
             _ops_validate_astar_input_columns(saved_main["path"])
             for item in saved_comps:
                 _ops_validate_astar_input_columns(item["path"])
@@ -257,6 +290,7 @@ def api_ops_output_generate():
                     _ops_update_step(task_id, len(_ops_get_task(task_id).get("steps", [])) - 1, "running", detail)
 
             out_name = f"ops_{task_id}"
+            analysis_metrics = {}
             out_path = main_030822.run_analysis(
                 saved_main["path"],
                 [item["path"] for item in saved_comps],
@@ -265,11 +299,19 @@ def api_ops_output_generate():
                 progress_cb=_analysis_cb,
                 match_config=None,
                 post_match_template=rule_template.get("config"),
+                analysis_metrics=analysis_metrics,
             )
             final_name = f"output_{rule_template.get('name') or '规则模板'}_{time.strftime('%Y%m%d_%H%M%S')}.xlsx"
             final_path = os.path.join(outputs_dir, final_name)
             if os.path.abspath(out_path) != os.path.abspath(final_path):
                 shutil.move(out_path, final_path)
+            report = quality_preflight.build_quality_report(
+                preflight,
+                analysis_metrics,
+                {"task_id": task_id, "rule_template": rule_template.get("name") or ""},
+            )
+            report_path = os.path.join(outputs_dir, "quality_report.json")
+            quality_preflight.save_quality_report(report, report_path)
             _ops_update_step(task_id, len(_ops_get_task(task_id).get("steps", [])) - 1, "done", "分析完成")
             _ops_set_task(
                 task_id,
@@ -279,6 +321,8 @@ def api_ops_output_generate():
                 result_path=final_path,
                 result_kind="output_xlsx",
                 download_name=final_name,
+                quality_report_path=report_path,
+                quality_summary=report.get("summary") or {},
             )
         except BaseException as e:
             traceback.print_exc()

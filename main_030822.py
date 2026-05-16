@@ -251,8 +251,10 @@ def download_img(url, sku_id, folder):
     """按 url 下载主图到 folder/{sku_id}.webp；多 URL 时逐个尝试，成功一张即停止。"""
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, f"{sku_id}.webp")
-    if os.path.exists(path): return
-    for u in split_image_urls(url):
+    urls = split_image_urls(url)
+    if os.path.exists(path):
+        return {"success": True, "multi_url": len(urls) > 1, "cached": True}
+    for u in urls:
         tmp_path = f"{path}.tmp"
         try:
             r = requests.get(u, timeout=20); r.raise_for_status()
@@ -260,26 +262,42 @@ def download_img(url, sku_id, folder):
             with Image.open(tmp_path) as img:
                 img.verify()
             os.replace(tmp_path, path)
-            return
+            return {"success": True, "multi_url": len(urls) > 1, "cached": False}
         except:
             try:
                 if os.path.exists(tmp_path):
                     os.remove(tmp_path)
             except OSError:
                 pass
+    return {"success": False, "multi_url": len(urls) > 1, "cached": False}
 
 def download_imgs(data, folder="img", workers=None, progress_cb=None):
     """并发下载 data 中每行的「图片」URL 到 folder，文件名为 skuId.webp。多 URL 取首个有效图。"""
     if workers is None:
         workers = 8 if sys.platform == "darwin" else 30
+    stats = {"total": 0, "success": 0, "failed": 0, "multi_url": 0, "cached": 0}
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        futures = [ex.submit(download_img, (item.get("图片") or "").strip(), get_sku_id(item), folder) for item in data]
+        futures = [ex.submit(download_img, g(item, ["图片", "主图链接"]), get_sku_id(item), folder) for item in data]
         total = len(futures)
+        stats["total"] = total
         if total == 0 and progress_cb:
             progress_cb(0, 0)
         for done, _future in enumerate(as_completed(futures), 1):
+            try:
+                res = _future.result() or {}
+            except Exception:
+                res = {"success": False}
+            if res.get("success"):
+                stats["success"] += 1
+            else:
+                stats["failed"] += 1
+            if res.get("multi_url"):
+                stats["multi_url"] += 1
+            if res.get("cached"):
+                stats["cached"] += 1
             if progress_cb:
                 progress_cb(done, total)
+    return stats
 
 # --- Embedding & Index ---
 def images_to_embeddings(paths, batch_size=32, on_batch_progress=None):
@@ -361,11 +379,13 @@ def build_index(data, mode="img", folder="img", path="index", batch_size=32, pro
     使用 IndexFlatIP + 已归一向量，检索分数为内积（等价余弦相似度）。
     """
     vecs, ids = [], []
+    stats = {"mode": mode, "total": 0, "vectors": 0, "failed": 0, "index_path": path}
     valid_items = []
     for item in data:
         sid = get_sku_id(item)
         if sid: valid_items.append((sid, item))
     total = len(valid_items)
+    stats["total"] = total
     if total == 0 and progress_cb:
         progress_cb(0, 0)
         
@@ -386,9 +406,14 @@ def build_index(data, mode="img", folder="img", path="index", batch_size=32, pro
                     numeric_id = int(float(sid))
                     vecs.append(v)
                     ids.append(numeric_id)
-                except: continue
+                except:
+                    stats["failed"] += 1
+                    continue
+            else:
+                stats["failed"] += 1
         if progress_cb:
             progress_cb(min(i + len(batch), total), total)
+    stats["vectors"] = len(vecs)
     if not vecs:
         # 本趟未写出索引时删旧文件，避免下一行 read_index 读到过期/损坏的 v2
         if path and os.path.isfile(path):
@@ -396,10 +421,11 @@ def build_index(data, mode="img", folder="img", path="index", batch_size=32, pro
                 os.remove(path)
             except OSError:
                 pass
-        return
+        return stats
     v_stack = np.vstack(vecs); id_arr = np.array(ids, dtype="int64")
     index = faiss.IndexIDMap2(faiss.IndexFlatIP(dim)); index.add_with_ids(v_stack, id_arr)
     faiss.write_index(index, path)
+    return stats
 
 
 def _safe_faiss_read_index(path: str):
@@ -438,7 +464,7 @@ def _add_candidate(candidates, sku_id, score, match):
         candidates[sid] = (score, match)
 
 # --- Analysis Pipeline ---
-def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", progress_cb=None, match_config=None, post_match_template=None):
+def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", progress_cb=None, match_config=None, post_match_template=None, analysis_metrics=None):
     """
     主分析入口：主店表 target_xlsx，竞店表列表 source_xlsxs。
 
@@ -452,6 +478,10 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
     返回：生成结果文件的绝对路径。
     """
     os.makedirs(output_dir, exist_ok=True)
+    if analysis_metrics is None:
+        analysis_metrics = {}
+    analysis_metrics.clear()
+    analysis_metrics.update({"sources": [], "query": {}, "matching": {"sources": []}})
     cache_dir = os.path.join(output_dir, "..", "cache") if output_dir != "." else "."
     os.makedirs(cache_dir, exist_ok=True)
 
@@ -476,50 +506,59 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
         # 各竞店独立目录。旧逻辑全部写入 img/，后处理的店会覆盖先下载的同 sku 文件。
         comp_img_dir = os.path.join(proj_dir, f"comp_img_{idx}")
         os.makedirs(comp_img_dir, exist_ok=True)
-        download_imgs(
+        download_stats = download_imgs(
             data,
             comp_img_dir,
             progress_cb=lambda done, total, _idx=idx: _emit_progress("source_start", _idx, f"下载图片 {done}/{total}"),
         )
+        source_metrics = {"index": idx, "name": fname, "rows": len(data), "download": download_stats}
 
         # 图索引用独立 comp_img；每次分析都重算图索引，避免只改表、不删 v2 时仍用旧图向量
         i_path = os.path.join(cache_dir, f"img_{output_name}{idx}.v2.index")
         t_path = os.path.join(cache_dir, f"txt_{output_name}{idx}.index")
 
         _emit_progress("source_start", idx, f"图片向量 0/{len(data)}")
-        build_index(
+        img_index_stats = build_index(
             data,
             "img",
             comp_img_dir,
             i_path,
             progress_cb=lambda done, total, _idx=idx: _emit_progress("source_start", _idx, f"图片向量 {done}/{total}"),
         )
+        source_metrics["image_index"] = img_index_stats
         if not os.path.exists(t_path):
             _emit_progress("source_start", idx, f"文本向量 0/{len(data)}")
-            build_index(
+            text_index_stats = build_index(
                 data,
                 "text",
                 "",
                 t_path,
                 progress_cb=lambda done, total, _idx=idx: _emit_progress("source_start", _idx, f"文本向量 {done}/{total}"),
             )
+            source_metrics["text_index"] = text_index_stats
+        else:
+            source_metrics["text_index"] = {"mode": "text", "reused": True, "index_path": t_path}
         _emit_progress("source_done", idx, "完成")
         sources.append({
             "sku_dict": {get_sku_id(i): i for i in data}, "tiaoma_dict": {get_条码(i): i for i in data if get_条码(i)},
             "i_idx": _safe_faiss_read_index(i_path),
             "t_idx": _safe_faiss_read_index(t_path),
+            "metrics": source_metrics,
         })
+        analysis_metrics["sources"].append(source_metrics)
 
     print(f"Loading query: {target_xlsx}")
     query_data = utils.excel_to_list_dict(target_xlsx, "Sheet1")
     _emit_progress("query_start", 0, f"下载查询图片 0/{len(query_data)}")
     query_img_dir = os.path.join(proj_dir, "query_img")
     os.makedirs(query_img_dir, exist_ok=True)
-    download_imgs(
+    query_download_stats = download_imgs(
         query_data,
         query_img_dir,
         progress_cb=lambda done, total: _emit_progress("query_progress", 0, f"下载查询图片 {done}/{total}"),
     )
+    analysis_metrics["query"]["rows"] = len(query_data)
+    analysis_metrics["query"]["download"] = query_download_stats
     
     total_q = len(query_data)
     if progress_cb:
@@ -548,26 +587,52 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
 
     query_img_vecs = images_to_embeddings(query_img_paths, batch_size=32, on_batch_progress=_throttled_query_embed_progress)
     query_txt_vecs = texts_to_embeddings(query_texts, batch_size=32, on_batch_progress=_throttled_query_embed_progress)
+    analysis_metrics["query"]["image_vectors"] = {
+        "total": len(query_img_vecs),
+        "vectors": sum(1 for v in query_img_vecs if v is not None),
+        "failed": sum(1 for v in query_img_vecs if v is None),
+    }
+    analysis_metrics["query"]["text_vectors"] = {
+        "total": len(query_txt_vecs),
+        "vectors": sum(1 for v in query_txt_vecs if v is not None),
+        "failed": sum(1 for v in query_txt_vecs if v is None),
+    }
     
     res_data = [build_match_item(item) for item in query_data]
     
     for idx, src in enumerate(sources):
         print(f"Analyzing source {idx}...")
         _emit_progress("query_progress", 0, f"分析来源 {idx+1}/{len(sources)}")
+        match_metrics = {
+            "index": idx,
+            "barcode_candidates": 0,
+            "barcode_kept": 0,
+            "vector_candidates": 0,
+            "rule_rejected": 0,
+            "matched": 0,
+            "unmatched_before_vector": 0,
+        }
             
         # 1. Barcode match (fast)
         for qi, item in enumerate(query_data):
             hit = src["tiaoma_dict"].get(get_条码(item))
             if hit:
+                match_metrics["barcode_candidates"] += 1
                 _blk = post_match_engine.rules_for_item(_pm_tmpl, item)
                 if not post_match_engine.should_accept_post_match(item, hit, _blk):
+                    match_metrics["rule_rejected"] += 1
                     continue
                 append_match_result(res_data[qi], hit, 1, "条码匹配", str(idx))
+                match_metrics["barcode_kept"] += 1
+                match_metrics["matched"] += 1
                 
         # 2. Batch vector search for items not yet matched by barcode in this source
         pfx = str(idx)
         unmatched_indices = [i for i, rd in enumerate(res_data) if not _has_comp_match_for_source(rd, pfx)]
-        if not unmatched_indices: continue
+        match_metrics["unmatched_before_vector"] = len(unmatched_indices)
+        if not unmatched_indices:
+            analysis_metrics["matching"]["sources"].append(match_metrics)
+            continue
         
         # Prepare vectors for Faiss batch search
         search_img_vecs = []
@@ -615,15 +680,19 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
 
             _blk = post_match_engine.rules_for_item(_pm_tmpl, item)
             for sid, (score, match) in sorted(candidates.items(), key=lambda kv: kv[1][0], reverse=True):
+                match_metrics["vector_candidates"] += 1
                 hit = src["sku_dict"].get(sid)
                 if not hit:
                     continue
                 if not post_match_engine.should_accept_post_match(item, hit, _blk):
+                    match_metrics["rule_rejected"] += 1
                     continue
                 append_match_result(res_data[ui], hit, score, match, str(idx))
+                match_metrics["matched"] += 1
                 break
             if progress_cb and (pos == total_unmatched or pos % 200 == 0):
-                _emit_progress("query_progress", 0, f"筛选候选 {idx+1}/{len(sources)} · {pos}/{total_unmatched}")
+                _emit_progress("query_progress", 0, f"筛选候选 {idx+1}/{len(sources)} · {pos}/{total_unmatched} · 拦截 {match_metrics['rule_rejected']}")
+        analysis_metrics["matching"]["sources"].append(match_metrics)
 
     out_path = os.path.join(output_dir, f"output_{output_name}.xlsx")
     utils.write_dict_list_to_excel(res_data, out_path)

@@ -30,6 +30,8 @@ BUSINESS_SOURCE_FILES = (
     "data_mgr_ops.py",
     "data_mgr_export.py",
     "data_mgr_rule_templates.py",
+    "field_registry.py",
+    "quality_preflight.py",
     "packaging_core.py",
 )
 

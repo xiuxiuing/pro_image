@@ -291,6 +291,8 @@
             <form id="output-form">
                 <input type="hidden" name="astar_task_id" id="output-astar-task-id">
                 <input type="hidden" name="use_astar_task" id="output-use-astar-task" value="0">
+                <input type="hidden" name="preflight_confirmed" id="output-preflight-confirmed" value="0">
+                <input type="hidden" name="column_mappings_json" id="output-column-mappings-json" value="{}">
                 <div class="role-source-panel">
                     <h3>主店 A* 文件</h3>
                     <div class="source-controls">
@@ -446,6 +448,43 @@
             });
         }
 
+        function buildPreflightMappings(preflight) {
+            const mappings = {};
+            (preflight.items || []).forEach((item) => {
+                const map = {};
+                Object.entries(item.mapping || {}).forEach(([field, info]) => {
+                    if (!info.column && info.suggestions && info.suggestions.length) {
+                        map[field] = info.suggestions[0].column;
+                    }
+                });
+                if (Object.keys(map).length) mappings[item.key] = map;
+            });
+            return mappings;
+        }
+
+        function summarizePreflight(preflight) {
+            const lines = [];
+            (preflight.items || []).forEach((item) => {
+                const issues = item.issues || [];
+                if (!issues.length) return;
+                lines.push(`【${item.label || item.key}】`);
+                issues.slice(0, 8).forEach((issue) => lines.push(`- ${issue.message}`));
+            });
+            const suggested = [];
+            (preflight.items || []).forEach((item) => {
+                Object.entries(item.mapping || {}).forEach(([field, info]) => {
+                    if (!info.column && info.suggestions && info.suggestions.length) {
+                        suggested.push(`${item.label || item.key}: ${field} → ${info.suggestions[0].column}`);
+                    }
+                });
+            });
+            if (suggested.length) {
+                lines.push("", "建议采用以下列名映射：");
+                suggested.slice(0, 12).forEach((line) => lines.push(`- ${line}`));
+            }
+            return lines.join("\n") || "预检发现风险，是否继续？";
+        }
+
         function renderAstarChoices() {
             const mainSelect = document.getElementById("astar-main-index");
             const compWrap = document.getElementById("comp-task-wrap");
@@ -560,7 +599,14 @@
                 const link = document.getElementById(kind + "-download");
                 link.href = `/api/ops/tasks/${taskId}/download`;
                 link.style.display = "inline-flex";
-                setMessage(messageId, "任务完成，可以下载结果。");
+                const qs = task.quality_summary || {};
+                if (kind === "output" && Object.keys(qs).length) {
+                    const downloadRate = Math.round(Number(qs.download_success_rate || 0) * 100);
+                    const vectorRate = Math.round(Number(qs.vector_success_rate || 0) * 100);
+                    setMessage(messageId, `任务完成，可以下载结果。质量摘要：图片 ${qs.download_success || 0}/${qs.download_total || 0} (${downloadRate}%)，向量 ${qs.vector_success || 0}/${qs.vector_total || 0} (${vectorRate}%)，匹配 ${qs.matched || 0}，规则拦截 ${qs.rule_rejected || 0}。`);
+                } else {
+                    setMessage(messageId, "任务完成，可以下载结果。");
+                }
                 if (kind === "astar") {
                     lastAstarTaskId = taskId;
                     lastAstarFiles = task.astar_files || [];
@@ -654,8 +700,23 @@
             document.getElementById("output-download").style.display = "none";
             setMessage("output-message", "已提交，后台开始处理。");
             try {
-                const resp = await fetch("/api/ops/output-generate", { method: "POST", body: new FormData(event.target) });
-                const data = await resp.json();
+                document.getElementById("output-preflight-confirmed").value = "0";
+                document.getElementById("output-column-mappings-json").value = "{}";
+                let formData = new FormData(event.target);
+                let resp = await fetch("/api/ops/output-generate", { method: "POST", body: formData });
+                let data = await resp.json();
+                if (data.status === "needs_confirmation") {
+                    const mappings = buildPreflightMappings(data.preflight || {});
+                    if (Object.keys(mappings).length) {
+                        document.getElementById("output-column-mappings-json").value = JSON.stringify(mappings);
+                    }
+                    const ok = window.confirm(`${summarizePreflight(data.preflight || {})}\n\n确认继续生成 Output 吗？`);
+                    if (!ok) throw new Error("已取消生成");
+                    document.getElementById("output-preflight-confirmed").value = "1";
+                    formData = new FormData(event.target);
+                    resp = await fetch("/api/ops/output-generate", { method: "POST", body: formData });
+                    data = await resp.json();
+                }
                 if (data.status !== "ok") throw new Error(data.message || "提交失败");
                 startPolling(data.task_id, "output");
             } catch (err) {

@@ -9,6 +9,16 @@ from data_mgr import DataManager
 
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION_RULE_TEMPLATE_NAME = "生产规则V1"
+EXPECTED_PRODUCTION_RULE_PATH_COUNT = 1294
+EXPECTED_PRODUCTION_RULE_INCREMENT_COUNT = 428
+EXPECTED_PRODUCTION_RULE_INCREMENT_GROUP_COUNTS = {
+    "A_food_drink": 167,
+    "B_care_clean_beauty": 27,
+    "C_apparel_size_color": 41,
+    "D_daily_kitchen_stationery": 47,
+    "E_digital_model": 70,
+    "F_sensitive_goods": 76,
+}
 
 
 class BuiltinRuleTemplateTests(unittest.TestCase):
@@ -112,6 +122,40 @@ class BuiltinRuleTemplateTests(unittest.TestCase):
         for spec_name in ("ProImage_Windows.spec", "ProImage_macOS.spec"):
             spec = (ROOT / spec_name).read_text(encoding="utf-8")
             self.assertIn("('data', 'data')", spec)
+
+    def test_production_rule_v1_increment_paths_are_merged_and_color_is_disabled(self):
+        template_path = ROOT / "data" / "default_rule_templates" / "production_rule_v1.json"
+        increment_path = ROOT / "data" / "default_rule_templates" / "production_rule_v1_increment_2026_05.json"
+
+        template = json.loads(template_path.read_text(encoding="utf-8"))
+        increment = json.loads(increment_path.read_text(encoding="utf-8"))
+
+        groups = template["config"]["rule_groups"]
+        all_paths = [
+            (p["l1"], p["l2"], p["l3"])
+            for group in groups
+            for p in group["categories"]["paths"]
+        ]
+        increment_paths = {
+            (item["l1"], item["l2"], item["l3"])
+            for item in increment["items"]
+        }
+
+        self.assertEqual(len(all_paths), EXPECTED_PRODUCTION_RULE_PATH_COUNT)
+        self.assertEqual(len(set(all_paths)), EXPECTED_PRODUCTION_RULE_PATH_COUNT)
+        self.assertEqual(
+            increment["increment_path_count"],
+            EXPECTED_PRODUCTION_RULE_INCREMENT_COUNT,
+        )
+        self.assertEqual(
+            increment["group_counts"],
+            EXPECTED_PRODUCTION_RULE_INCREMENT_GROUP_COUNTS,
+        )
+        self.assertEqual(len(increment_paths), EXPECTED_PRODUCTION_RULE_INCREMENT_COUNT)
+        self.assertTrue(increment_paths.issubset(set(all_paths)))
+        self.assertTrue(
+            all(not group["metrics"].get("color", {}).get("en") for group in groups)
+        )
 
 
 if __name__ == "__main__":

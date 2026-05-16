@@ -7,6 +7,8 @@ import json
 import threading
 import uuid
 from typing import Optional
+import utils
+from field_registry import detect_field_mapping, canonical_storage_field, REQUIRED_STANDARD_FIELDS, RULE_ATTRIBUTE_FIELDS
 
 from extract_info_schema import (
     BatchResponse,
@@ -297,10 +299,22 @@ def process_file_ai(
         print(f"Failed to read {file_path} with openpyxl: {e}")
         return
 
+    df.columns = [utils.clean_text_value(c) for c in df.columns]
+    detected = detect_field_mapping(df.columns, standards=REQUIRED_STANDARD_FIELDS + RULE_ATTRIBUTE_FIELDS)
+    for standard, info in detected.items():
+        source_col = info.get("column")
+        target_col = canonical_storage_field(standard)
+        if not source_col or source_col not in df.columns or source_col == target_col:
+            continue
+        if target_col in df.columns:
+            df[target_col] = df[target_col].where(df[target_col].fillna("").astype(str).str.strip() != "", df[source_col])
+        else:
+            df.rename(columns={source_col: target_col}, inplace=True)
+
     # Identify column names
     cols = df.columns.tolist()
     name_col = '商品名称'
-    spec_col = '规格' if '规格' in cols else '规格名称'
+    spec_col = '规格名称'
 
     if name_col not in cols or spec_col not in cols:
         print(f"Required columns not found in {file_path}. Available: {cols}")

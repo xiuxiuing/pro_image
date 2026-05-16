@@ -14,6 +14,7 @@ import datetime
 from flask import Blueprint, request, jsonify, render_template, send_file
 from werkzeug.utils import secure_filename
 from openpyxl import load_workbook
+from field_registry import detect_field_mapping
 
 # These will be initialized by app.py
 dm = None
@@ -99,6 +100,7 @@ def _ops_public_task(task):
         "download_name": task.get("download_name", ""),
         "result_kind": task.get("result_kind", ""),
         "source_task_id": task.get("source_task_id", ""),
+        "quality_summary": task.get("quality_summary", {}),
         "astar_files": astar_files,
     }
 
@@ -237,7 +239,8 @@ def _ops_validate_astar_input_columns(path):
         ws = wb.active
         row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), None)
         headers = {str(c).strip() for c in (row or []) if c is not None}
-        if "商品名称" not in headers or not ({"规格", "规格名称"} & headers):
+        mapping = detect_field_mapping(headers, standards=["商品名称", "规格名称"])
+        if not mapping.get("商品名称", {}).get("column") or not mapping.get("规格名称", {}).get("column"):
             raise ValueError("缺少必需列：商品名称 + 规格/规格名称")
     finally:
         wb.close()
