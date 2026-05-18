@@ -93,6 +93,8 @@
         display: flex;
         flex-direction: column;
         gap: 8px;
+        flex: 1 1 520px;
+        min-width: 360px;
     }
     .statistics-search {
         width: min(320px, 100%);
@@ -114,9 +116,11 @@
         gap: 6px;
         margin: 0;
         flex-wrap: wrap;
+        max-width: min(760px, 100%);
     }
     .statistics-tab {
-        width: 72px;
+        min-width: 112px;
+        max-width: 220px;
         height: 30px;
         border: 1px solid #dbe3ef;
         background: #fff;
@@ -886,8 +890,9 @@
         <div class="statistics-actions">
             <button class="statistics-refresh statistics-primary" id="statistics-enter-workbench" type="button" onclick="openWorkbenchAnalyzeModal()">进入工作台</button>
             <button class="statistics-refresh" id="statistics-reanalyze" type="button" onclick="openReanalyzeModal()" disabled>重新分析</button>
+            <button class="statistics-refresh" type="button" onclick="location.href='/market-analysis'">商圈分析</button>
             <button class="statistics-refresh" type="button" onclick="exportStatistics()">导出</button>
-            <button class="statistics-refresh" type="button" onclick="loadStatistics()">刷新</button>
+            <button class="statistics-refresh" type="button" onclick="loadStatistics(true)">刷新</button>
         </div>
     </div>
 
@@ -1098,7 +1103,7 @@
         const root = document.getElementById("statistics-tabs");
         if (!root) return;
         root.innerHTML = statisticsTabs.map((tab) => `
-            <button class="statistics-tab ${tab.id === statisticsActiveTabId ? "active" : ""}" type="button" onclick="switchStatisticsTab('${statisticsEscapeHtml(tab.id)}')">
+            <button class="statistics-tab ${tab.id === statisticsActiveTabId ? "active" : ""}" type="button" title="${statisticsEscapeHtml(tab.label || tab.source_name || "数据")}" onclick="switchStatisticsTab('${statisticsEscapeHtml(tab.id)}')">
                 ${statisticsEscapeHtml(tab.label || tab.source_name || "数据")}
             </button>
         `).join("");
@@ -1121,12 +1126,14 @@
 
     function syncStatisticsSubjectHeaders() {
         const tab = getActiveStatisticsTab();
-        const name = tab.source_type === "main" ? "主店" : (tab.source_name || "竞店");
+        const name = tab.source_type === "main" ? (statisticsMeta.main_store || tab.source_name || "主店") : (tab.source_name || "竞店");
         document.querySelectorAll(".statistics-subject-head").forEach((el) => {
             el.textContent = name;
+            el.title = name;
         });
         document.querySelectorAll(".statistics-contribution-subject-head").forEach((el) => {
             el.textContent = `${name}贡献`;
+            el.title = `${name}贡献`;
         });
     }
 
@@ -1787,13 +1794,13 @@
         }).join("");
     }
 
-    async function loadStatistics() {
+    async function loadStatistics(refresh = false) {
         const body = document.getElementById("statistics-body");
         const pager = document.getElementById("statistics-pagination");
         if (body) body.innerHTML = '<tr><td colspan="17" class="statistics-empty">正在加载数据分析...</td></tr>';
         if (pager) pager.innerHTML = "";
         try {
-            const resp = await fetch("/api/statistics");
+            const resp = await fetch(refresh ? "/api/statistics?refresh=1" : "/api/statistics");
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             renderStatistics(await resp.json());
             getWorkbenchConfig(true).catch(() => syncWorkbenchButton({ has_links: false }));

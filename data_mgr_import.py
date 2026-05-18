@@ -59,6 +59,7 @@ class DataManagerImportMixin:
         self.grid_df = None
         self.main_df = None
         self.store_dfs = {}
+        self.rebuild_analysis_snapshot()
 
     def parse_links_from_output(self, project_id, output_file):
         """Parse an analysis/output workbook into standard product_links rows."""
@@ -180,6 +181,7 @@ class DataManagerImportMixin:
                         conn.execute("DELETE FROM product_links WHERE project_id = ?", (project_id,))
                         if links_df is not None and not links_df.empty:
                             links_df.to_sql('product_links', conn, index=False, if_exists='append')
+                    conn.execute("DELETE FROM project_analysis_snapshots WHERE project_id = ?", (project_id,))
             finally:
                 conn.close()
 
@@ -338,7 +340,12 @@ class DataManagerImportMixin:
             for c in CORE_MAIN_COLUMNS:
                 if c not in main_df.columns: main_df[c] = None
             main_df = main_df[CORE_MAIN_COLUMNS]
-            main_df = main_df.drop_duplicates(subset=['project_id', 'skuId'], keep='first')
+            for c in ["商品名称", "规格名称"]:
+                main_df[c] = main_df[c].fillna("").astype(str)
+            main_df = main_df.drop_duplicates(
+                subset=['project_id', 'skuId', '商品名称', '规格名称'],
+                keep='first',
+            )
 
         # ── Phase 2: Prepare competitor store data (memory only) ──
         comp_dfs = []

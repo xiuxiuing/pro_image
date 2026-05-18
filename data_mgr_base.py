@@ -181,6 +181,48 @@ class DataManagerBase:
         )
         print(f"Created builtin rule template: {item['name']}")
 
+    def _ensure_main_products_identity_schema(self, conn):
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='main_products'"
+        ).fetchone()
+        table_sql = (row[0] or "") if row else ""
+        main_cols = ", ".join(
+            [f"`{c}` TEXT" for c in CORE_MAIN_COLUMNS if c not in ["project_id", "skuId", "_row_orig_idx"]]
+        )
+        desired_sql = (
+            "CREATE TABLE IF NOT EXISTS main_products "
+            f"(project_id INTEGER, skuId TEXT, _row_orig_idx INT, {main_cols})"
+        )
+        normalized_sql = table_sql.replace(" ", "").replace("\n", "").replace("\t", "")
+        if "PRIMARYKEY(project_id,skuId)" not in normalized_sql:
+            conn.execute(desired_sql)
+        else:
+            tmp = f"main_products_migrate_{int(time.time())}"
+            conn.execute(
+                f"CREATE TABLE `{tmp}` "
+                f"(project_id INTEGER, skuId TEXT, _row_orig_idx INT, {main_cols})"
+            )
+            existing_cols = [
+                r[1] for r in conn.execute("PRAGMA table_info(main_products)").fetchall()
+            ]
+            copy_cols = [c for c in CORE_MAIN_COLUMNS if c in existing_cols]
+            cols = ", ".join([f"`{c}`" for c in copy_cols])
+            conn.execute(f"INSERT INTO `{tmp}` ({cols}) SELECT {cols} FROM main_products")
+            conn.execute("DROP TABLE main_products")
+            conn.execute(f"ALTER TABLE `{tmp}` RENAME TO main_products")
+            print("Migration: main_products identity now includes skuId + 商品名称 + 规格名称")
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_main_products_identity
+            ON main_products (
+                project_id,
+                skuId,
+                COALESCE(`商品名称`, ''),
+                COALESCE(`规格名称`, '')
+            )
+            """
+        )
+
     def _init_db(self):
         with self._db_lock:
             conn = self._get_conn()
@@ -190,10 +232,22 @@ class DataManagerBase:
                     conn.execute("CREATE TABLE IF NOT EXISTS meta_info (key TEXT PRIMARY KEY, value TEXT)")
                     conn.execute("CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, is_active INTEGER DEFAULT 0, status TEXT DEFAULT 'ready', analysis_started_at TEXT, match_config TEXT DEFAULT '')")
                     conn.execute("CREATE TABLE IF NOT EXISTS project_files (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER, type TEXT, local_path TEXT, store_name TEXT, FOREIGN KEY(project_id) REFERENCES projects(id))")
+                    conn.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS project_analysis_snapshots (
+                            project_id INTEGER PRIMARY KEY,
+                            statistics_json TEXT NOT NULL DEFAULT '{}',
+                            market_analysis_json TEXT NOT NULL DEFAULT '{}',
+                            computed_at TEXT,
+                            version TEXT DEFAULT '',
+                            status TEXT DEFAULT 'ready',
+                            error_message TEXT DEFAULT ''
+                        )
+                        """
+                    )
                     
                     # Core Data Tables (with project_id awareness)
-                    main_cols = ", ".join([f"{c} TEXT" for c in CORE_MAIN_COLUMNS if c not in ['project_id', 'skuId', '_row_orig_idx']])
-                    conn.execute(f"CREATE TABLE IF NOT EXISTS main_products (project_id INTEGER, skuId TEXT, _row_orig_idx INT, {main_cols}, PRIMARY KEY(project_id, skuId))")
+                    self._ensure_main_products_identity_schema(conn)
                     
                     conn.execute("CREATE TABLE IF NOT EXISTS product_links (project_id INTEGER, main_sku_id TEXT, store_id TEXT, comp_sku_id TEXT, similarity REAL, match_type TEXT, is_new_add TEXT)")
                     

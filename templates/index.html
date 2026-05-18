@@ -1140,6 +1140,90 @@
             border-color: var(--primary-color);
         }
 
+        .product-list-item.main-product-choice {
+            display: block;
+        }
+
+        .modal-product-row {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .modal-linked-badge {
+            display: inline-flex;
+            align-items: center;
+            background: #10b981;
+            color: #fff;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 6px;
+            border: 0;
+            border-radius: 10px;
+            margin-left: 8px;
+            cursor: pointer;
+            vertical-align: middle;
+        }
+
+        .modal-linked-badge:hover {
+            background: #059669;
+        }
+
+        .modal-linked-badge.is-open {
+            box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.18);
+        }
+
+        .modal-linked-details {
+            display: none;
+            margin: 12px 0 0 64px;
+            padding: 12px;
+            border: 1px solid #dbeafe;
+            border-radius: 12px;
+            background: #f8fbff;
+        }
+
+        .modal-linked-details.is-open {
+            display: block;
+        }
+
+        .modal-linked-detail-item {
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+            padding: 10px 0;
+            border-bottom: 1px solid #e5eefb;
+        }
+
+        .modal-linked-detail-item:last-child {
+            border-bottom: 0;
+            padding-bottom: 0;
+        }
+
+        .modal-linked-detail-store {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 7px;
+            border-radius: 999px;
+            background: #eef2ff;
+            color: #4f46e5;
+            font-size: 11px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .modal-linked-detail-meta {
+            color: #64748b;
+            font-size: 12px;
+            line-height: 1.55;
+        }
+
+        .modal-linked-detail-price {
+            min-width: 70px;
+            text-align: right;
+            color: var(--primary-color);
+            font-weight: 800;
+        }
+
         .product-list-img {
             width: 90px;
             height: 90px;
@@ -1619,6 +1703,7 @@
         let isUnlinkedMode = false;      // 是否处于“未关联数据池”模式
         let linkModalMode = "store_comp"; // store_comp | main_pool
         let mainProductsCache = [];
+        let linkedDetailsCache = {};
 
         const PLACEHOLDER_IMG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 
@@ -2976,25 +3061,31 @@
                 countEl.textContent = mainProductsTotal > (mainProductsCache || []).length
                     ? `共 ${mainProductsTotal} 条，显示 ${(mainProductsCache || []).length} 条`
                     : `共 ${(mainProductsCache || []).length} 条`;
-                (mainProductsCache || []).forEach(p => {
+                (mainProductsCache || []).forEach((p, idx) => {
                     const item = document.createElement('div');
-                    item.className = 'product-list-item';
+                    item.className = 'product-list-item main-product-choice';
                     const price = p['活动价'] || "-";
                     const imgSrc = p['主图链接'] || 'https://via.placeholder.com/40';
+                    const sku = String(p['skuId'] || '');
+                    const safeSku = escAttr(sku);
+                    const detailId = `modalLinkedDetails-${idx}`;
                     const linkedCount = parseInt(p['__linked_count'] || 0);
                     const linkedBadge = linkedCount > 0
-                        ? `<span style="display:inline-block;background:#10b981;color:#fff;font-size:10px;padding:2px 6px;border-radius:10px;margin-left:8px;">已关联(${linkedCount})</span>`
+                        ? `<button type="button" class="modal-linked-badge" onclick="toggleModalLinkedDetails(event, '${safeSku}', '${detailId}')" ondblclick="event.stopPropagation()">已关联(${linkedCount})</button>`
                         : `<span style="display:inline-block;background:#64748b;color:#fff;font-size:10px;padding:2px 6px;border-radius:10px;margin-left:8px;">无关联</span>`;
                     item.innerHTML = `
-                <span class="modal-thumb-zoom"><img src="${imgSrc}" alt=""></span>
-                <div style="flex:1">
-                    <div style="font-weight:600">${p['商品名称'] || '-'}${linkedBadge}</div>
-                    <div style="font-size:12px; color:#6b7280; margin-top:2px;">规格: ${p['规格名称'] || '-'}</div>
-                    <div style="font-size:12px; color:#94a3b8">SKU: ${p['skuId'] || '-'}</div>
+                <div class="modal-product-row">
+                    <span class="modal-thumb-zoom"><img src="${imgSrc}" alt=""></span>
+                    <div style="flex:1">
+                        <div style="font-weight:600">${p['商品名称'] || '-'}${linkedBadge}</div>
+                        <div style="font-size:12px; color:#6b7280; margin-top:2px;">规格: ${p['规格名称'] || '-'}</div>
+                        <div style="font-size:12px; color:#94a3b8">SKU: ${p['skuId'] || '-'}</div>
+                    </div>
+                    <div style="text-align:right">
+                        <div class="modal-product-price">¥${price}</div>
+                    </div>
                 </div>
-                <div style="text-align:right">
-                    <div class="modal-product-price">¥${price}</div>
-                </div>`;
+                <div id="${detailId}" class="modal-linked-details"></div>`;
                     item.ondblclick = () => performLinkFromPoolWithMain(p);
                     list.appendChild(item);
                 });
@@ -3028,6 +3119,72 @@
                 item.ondblclick = () => performLink(p);
                 list.appendChild(item);
             });
+        }
+
+        async function toggleModalLinkedDetails(event, mainSkuId, detailId) {
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            const box = document.getElementById(detailId);
+            if (!box || !mainSkuId) return;
+            const btn = event?.currentTarget;
+            const willOpen = !box.classList.contains('is-open');
+            document.querySelectorAll('.modal-linked-details.is-open').forEach(el => {
+                if (el !== box) {
+                    el.classList.remove('is-open');
+                    el.innerHTML = '';
+                }
+            });
+            document.querySelectorAll('.modal-linked-badge.is-open').forEach(el => {
+                if (el !== btn) el.classList.remove('is-open');
+            });
+            if (!willOpen) {
+                box.classList.remove('is-open');
+                if (btn) btn.classList.remove('is-open');
+                return;
+            }
+            box.classList.add('is-open');
+            if (btn) btn.classList.add('is-open');
+            if (!linkedDetailsCache[mainSkuId]) {
+                box.innerHTML = '<div class="modal-linked-detail-meta">正在加载已关联数据...</div>';
+                const res = await fetch(`/api/main_products/${encodeURIComponent(mainSkuId)}/links`);
+                if (!res.ok) {
+                    box.innerHTML = '<div class="modal-linked-detail-meta">已关联数据加载失败</div>';
+                    return;
+                }
+                linkedDetailsCache[mainSkuId] = await res.json();
+            }
+            renderModalLinkedDetails(box, linkedDetailsCache[mainSkuId]);
+        }
+
+        function renderModalLinkedDetails(box, data) {
+            const items = (data && data.items) || [];
+            if (!items.length) {
+                box.innerHTML = '<div class="modal-linked-detail-meta">暂无已关联数据</div>';
+                return;
+            }
+            box.innerHTML = items.map(p => {
+                const imgSrc = getImageSrc(p['主图链接'] || p['图片']);
+                const price = p['活动价'] || p['单件折扣价'] || p['原价'] || '-';
+                const sales = p['销售'] || p['销量'] || '-';
+                const similarity = p['__link_similarity'] !== '' && p['__link_similarity'] != null
+                    ? `${(parseFloat(p['__link_similarity']) * 100).toFixed(0)}%`
+                    : '-';
+                const matchType = p['__link_match_type'] || p['匹配'] || '-';
+                return `
+                    <div class="modal-linked-detail-item">
+                        <span class="modal-thumb-zoom"><img src="${imgSrc}" alt="" onerror="this.src='${PLACEHOLDER_IMG}'"></span>
+                        <div style="flex:1; min-width:0;">
+                            <div class="modal-linked-detail-store">${escHtml(p['__store_name'] || '竞店')}</div>
+                            <div style="font-weight:700; color:#0f172a;">${escHtml(p['商品名称'] || '-')}</div>
+                            <div class="modal-linked-detail-meta">规格: ${escHtml(p['规格名称'] || p['规格名'] || p['规格'] || '-')} ｜ SKU: ${escHtml(p['skuId'] || p['skuid'] || p['SKUID'] || p['__link_comp_sku_id'] || '-')}</div>
+                            <div class="modal-linked-detail-meta">销量: ${escHtml(sales)} ｜ 类目: ${escHtml(p['美团类目三级'] || '-')} ｜ 相似/方式: ${escHtml(similarity)} / ${escHtml(matchType)}</div>
+                        </div>
+                        <div class="modal-linked-detail-price">¥${escHtml(price)}</div>
+                    </div>
+                `;
+            }).join('');
         }
 
         async function performLink(productData) {
@@ -3066,6 +3223,7 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ main_sku_id: String(mainSkuId).trim(), store_id: storeId, comp_sku_id: String(compSkuId).trim() })
             });
+            delete linkedDetailsCache[String(mainSkuId)];
             closeModal();
             filterData(false);
         }
@@ -3098,6 +3256,7 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ main_sku_id: String(mainSkuId).trim(), store_id: storeId, comp_sku_id: compSkuId })
             });
+            delete linkedDetailsCache[String(mainSkuId)];
             closeModal();
             await filterData(false);
         }

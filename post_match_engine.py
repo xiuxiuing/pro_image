@@ -175,6 +175,99 @@ def _parse_net(s: str) -> Optional[Tuple[str, float]]:
     return None
 
 
+CategoryPattern = Tuple[Optional[str], Optional[str], Optional[str]]
+
+_MASS_VOLUME_EQUIVALENT_CATEGORIES: Tuple[CategoryPattern, ...] = (
+    ("饮品", None, None),
+    ("乳品", None, None),
+    ("酒类", None, None),
+    ("雪糕/冰淇淋/食用冰", None, None),
+    ("营养冲调", "乳饮冲调", None),
+    ("营养冲调", "果饮/可可冲调", None),
+    ("营养冲调", "蜂蜜冲饮", None),
+    ("营养冲调", "速溶咖啡/咖啡豆/粉", "咖啡液"),
+    ("粮油调味干货", "调味汁", None),
+    ("粮油调味干货", "烹饪油", None),
+    ("粮油调味干货", "调味酱", "沙拉酱"),
+    ("粮油调味干货", "调味酱", "番茄酱/沙司"),
+    ("粮油调味干货", "调味酱", "果酱"),
+    ("粮油调味干货", "调味料", "椰蓉/椰浆"),
+    ("速食/罐头", "方便罐头", None),
+    ("速食/罐头", "方便速食", "即食汤"),
+    ("速食/罐头", "方便速食", "即食粥"),
+    ("个人洗护", None, None),
+    ("家庭清洁", None, None),
+    ("洗涤清洁", None, None),
+    ("美容护肤", "男士护肤", None),
+    ("美容护肤", "面部护理", None),
+    ("美容护肤", "眼部护理", "眼部护理液/清洁液"),
+    ("彩妆香水", "香水", None),
+    ("彩妆香水", "面部彩妆", "粉底液/膏"),
+    ("彩妆香水", "面部彩妆", "气垫BB/BB霜"),
+    ("彩妆香水", "面部彩妆", "隔离/妆前"),
+    ("彩妆香水", "面部彩妆", "定妆喷雾"),
+    ("医疗器械", "居家护理", "皮肤消毒"),
+    ("医疗器械", "居家护理", "医用美护"),
+    ("宠物生活", "洗护美容", None),
+    ("成人用品", "润滑/延时", None),
+    ("母婴用品", "洗护清洁", None),
+    ("母婴用品", "日常护理", "儿童口腔护理"),
+    ("母婴用品", "日常护理", "儿童驱蚊用品"),
+    ("母婴用品", "日常护理", "婴儿湿巾/纸巾"),
+    ("汽车用品", "清洗保养", "玻璃水"),
+    ("汽车用品", "清洗保养", "汽车用剂"),
+    ("汽车用品", "清洗保养", "汽机油"),
+    ("汽车用品", "清洗保养", "保养用品"),
+)
+
+_MASS_VOLUME_EQUIVALENT_EXCLUDES: Tuple[CategoryPattern, ...] = (
+    ("休闲食品", None, None),
+    ("粮油调味干货", "杂粮", None),
+    ("粮油调味干货", "米类/面类", None),
+    ("粮油调味干货", "烘焙材料", None),
+    ("粮油调味干货", "干货", None),
+    ("营养冲调", "谷物冲调", None),
+    ("营养冲调", "速溶咖啡/咖啡豆/粉", "速溶咖啡"),
+)
+
+
+def _category_tuple(item: dict) -> Tuple[str, str, str]:
+    return (_norm_str(get_cat1(item)), _norm_str(get_cat2(item)), _norm_str(get_cat3(item)))
+
+
+def _matches_category_pattern(cat: Tuple[str, str, str], pattern: CategoryPattern) -> bool:
+    return all(expected is None or actual == expected for actual, expected in zip(cat, pattern))
+
+
+def _category_allows_mass_volume_equivalence(item: dict) -> bool:
+    cat = _category_tuple(item)
+    if any(_matches_category_pattern(cat, p) for p in _MASS_VOLUME_EQUIVALENT_EXCLUDES):
+        return False
+    return any(_matches_category_pattern(cat, p) for p in _MASS_VOLUME_EQUIVALENT_CATEGORIES)
+
+
+def _net_values_match(
+    qn: Tuple[str, float],
+    hn: Tuple[str, float],
+    max_rel: float,
+    query_item: dict,
+    hit_item: dict,
+) -> bool:
+    if qn[1] <= 0 or hn[1] <= 0:
+        return True
+    if qn[0] == hn[0]:
+        rel = abs(hn[1] - qn[1]) / max(qn[1], 1e-9)
+        return rel <= max_rel + 1e-9
+    if {qn[0], hn[0]} != {"g", "ml"}:
+        return False
+    if _category_tuple(query_item) != _category_tuple(hit_item):
+        return False
+    if not (_category_allows_mass_volume_equivalence(query_item) and _category_allows_mass_volume_equivalence(hit_item)):
+        return False
+    rel = abs(hn[1] - qn[1]) / max(qn[1], 1e-9)
+    return rel <= max_rel + 1e-9
+
+
 def _parse_size_mm(s: str) -> Optional[float]:
     s = _norm_str(s).lower()
     if not s:
@@ -410,11 +503,7 @@ def should_accept_post_match(query_item: dict, hit_item: dict, block: Optional[D
         max_rel = float(r.get("max_rel", 0.2) or 0.0)
         qn = _parse_net(_g(query_item, (COL_NET,)))
         hn = _parse_net(_g(hit_item, (COL_NET,)))
-        if qn and hn and qn[0] == hn[0] and qn[1] > 0 and hn[1] > 0:
-            rel = abs(hn[1] - qn[1]) / max(qn[1], 1e-9)
-            if rel > max_rel + 1e-9:
-                return False
-        if qn and hn and qn[0] != hn[0]:
+        if qn and hn and not _net_values_match(qn, hn, max_rel, query_item, hit_item):
             return False
 
     # 3. sell

@@ -257,6 +257,12 @@ def index():
     if not is_valid: return render_template('activate.html', hwid=CURRENT_HWID)
     return render_template('index.html', active_project=dm.active_project_name)
 
+@app.route('/market-analysis')
+def market_analysis_page():
+    is_valid, _ = check_license()
+    if not is_valid: return render_template('activate.html', hwid=CURRENT_HWID)
+    return render_template('market_analysis.html', active_project=dm.active_project_name)
+
 @app.route("/match-rules")
 def match_rules_page():
     is_valid, _ = check_license()

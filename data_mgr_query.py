@@ -1,16 +1,30 @@
 import json
+import os
 import re
+import sys
 import pandas as pd
 from data_mgr_query_unlinked import DataManagerUnlinkedQueryMixin
 from utils import clean_text_value
 
 class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
+    ANALYSIS_SNAPSHOT_VERSION = "2026-05-18.1"
+    CATEGORY1_ALIASES = ("美团类目一级", "美团一级类目", "一级类目", "美团一级分类", "一级分类", "美团分类一级")
     CATEGORY3_ALIASES = ("美团类目三级", "美团三级类目", "三级类目", "美团三级分类", "三级分类", "美团分类三级")
 
     def _statistics_category_series(self, df):
         if df is None or df.empty:
             return pd.Series([], dtype=str)
         for col in self.CATEGORY3_ALIASES:
+            if col in df.columns:
+                s = df[col].fillna("").map(clean_text_value).astype(str).str.strip()
+                if (s[(s != "") & (s.str.lower() != "nan")]).any():
+                    return s
+        return pd.Series([""] * len(df), index=df.index, dtype=str)
+
+    def _statistics_category1_series(self, df):
+        if df is None or df.empty:
+            return pd.Series([], dtype=str)
+        for col in self.CATEGORY1_ALIASES:
             if col in df.columns:
                 s = df[col].fillna("").map(clean_text_value).astype(str).str.strip()
                 if (s[(s != "") & (s.str.lower() != "nan")]).any():
@@ -55,6 +69,344 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
             "sales_amount": float((sales * price).sum()) if not sales.empty else 0.0,
             "spu": spu,
             "active_rate": round((active / spu * 100), 2) if spu else 0.0,
+        }
+
+    def _market_category_buckets_path(self):
+        rel = os.path.join("data", "market_category_buckets.json")
+        candidates = [
+            os.path.join(getattr(sys, "_MEIPASS", ""), rel),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), rel),
+            os.path.join(getattr(self, "base_dir", ""), rel),
+        ]
+        for path in candidates:
+            if path and os.path.isfile(path):
+                return path
+        return ""
+
+    def _load_market_category_buckets(self):
+        path = self._market_category_buckets_path()
+        if not path:
+            return {"snack": set(), "department_store": set(), "other": set()}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            return {"snack": set(), "department_store": set(), "other": set()}
+        buckets = data.get("buckets") if isinstance(data, dict) else {}
+        return {
+            "snack": {str(v).strip() for v in buckets.get("snack", []) if str(v).strip()},
+            "department_store": {str(v).strip() for v in buckets.get("department_store", []) if str(v).strip()},
+            "other": {str(v).strip() for v in buckets.get("other", []) if str(v).strip()},
+        }
+
+    def _market_bucket_for_l1(self, l1, buckets):
+        name = str(l1 or "").strip()
+        if name in buckets.get("snack", set()):
+            return "snack"
+        if name in buckets.get("department_store", set()):
+            return "department_store"
+        if name in buckets.get("other", set()):
+            return "other"
+        return "other"
+
+    def _market_level_for_sales(self, sales_amount):
+        value = float(sales_amount or 0)
+        if value >= 400000:
+            return "夯"
+        if value >= 300000:
+            return "顶级"
+        if value >= 200000:
+            return "人上人"
+        if value >= 100000:
+            return "NPC"
+        return "拉完了"
+
+    def _market_prepare_file_df(self, df, file_id, file_name, buckets):
+        if df is None or df.empty or "商品名称" not in df.columns:
+            return pd.DataFrame(columns=["file_id", "file_name", "name", "category_l1", "bucket", "sales", "price", "sales_amount"])
+
+        work = df.copy()
+        work["name"] = work["商品名称"].fillna("").map(clean_text_value).astype(str).str.strip()
+        work = work[(work["name"] != "") & (work["name"].str.lower() != "nan")]
+        if work.empty:
+            return pd.DataFrame(columns=["file_id", "file_name", "name", "category_l1", "bucket", "sales", "price", "sales_amount"])
+
+        work = work.drop_duplicates(subset=["name"], keep="first").copy()
+        work["category_l1"] = self._statistics_category1_series(work).reindex(work.index).fillna("").astype(str).str.strip()
+        work["sales"] = work["销售"].apply(self._statistics_number) if "销售" in work.columns else 0.0
+        work["price"] = work["活动价"].apply(self._statistics_number) if "活动价" in work.columns else 0.0
+        work["sales_amount"] = work["sales"] * work["price"]
+        work["bucket"] = work["category_l1"].map(lambda v: self._market_bucket_for_l1(v, buckets))
+        work["file_id"] = file_id
+        work["file_name"] = file_name
+        return work[["file_id", "file_name", "name", "category_l1", "bucket", "sales", "price", "sales_amount"]]
+
+    def _market_metric_pack(self, sales, sales_amount):
+        sales = float(sales or 0)
+        sales_amount = float(sales_amount or 0)
+        monthly_orders = sales / 4.5 if sales else 0.0
+        daily_orders = monthly_orders / 30 if monthly_orders else 0.0
+        customer_unit_price = sales_amount / monthly_orders if monthly_orders else 0.0
+        gross_profit = sales_amount * 0.22
+        return {
+            "daily_orders": round(daily_orders, 2),
+            "monthly_orders": round(monthly_orders, 2),
+            "monthly_sales_amount": round(sales_amount, 2),
+            "customer_unit_price": round(customer_unit_price, 2),
+            "estimated_gross_profit": round(gross_profit, 2),
+        }
+
+    def _snapshot_empty_statistics(self):
+        return {"items": [], "tabs": [], "stores": [], "main_store": ""}
+
+    def _snapshot_empty_market_analysis(self):
+        return {
+            "status": "error",
+            "message": "No active project",
+            "file_count": 0,
+            "top10_categories": [],
+            "recommendation": {},
+            "metrics": {"average": {}, "top1": {}},
+            "metric_diffs": {},
+            "mode_options": ["average", "top1"],
+        }
+
+    def _read_analysis_snapshot(self):
+        if not self.active_project_id:
+            return None
+        with self._db_lock:
+            conn = self._get_conn()
+            try:
+                row = conn.execute(
+                    """
+                    SELECT statistics_json, market_analysis_json
+                    FROM project_analysis_snapshots
+                    WHERE project_id = ? AND version = ? AND status = 'ready'
+                    """,
+                    (self.active_project_id, self.ANALYSIS_SNAPSHOT_VERSION),
+                ).fetchone()
+            finally:
+                conn.close()
+        if not row:
+            return None
+        try:
+            return {
+                "statistics": json.loads(row[0] or "{}"),
+                "market_analysis": json.loads(row[1] or "{}"),
+            }
+        except Exception:
+            return None
+
+    def invalidate_analysis_snapshot(self, project_id=None):
+        pid = project_id or self.active_project_id
+        if not pid:
+            return
+        with self._db_lock:
+            conn = self._get_conn()
+            try:
+                with conn:
+                    conn.execute("DELETE FROM project_analysis_snapshots WHERE project_id = ?", (pid,))
+            finally:
+                conn.close()
+
+    def rebuild_analysis_snapshot(self):
+        if not self.active_project_id:
+            return {"statistics": self._snapshot_empty_statistics(), "market_analysis": self._snapshot_empty_market_analysis()}
+
+        computed_at = __import__("time").strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            statistics = self._compute_statistics()
+            market_analysis = self._compute_market_analysis()
+            statistics_json = json.dumps(statistics, ensure_ascii=False, separators=(",", ":"))
+            market_json = json.dumps(market_analysis, ensure_ascii=False, separators=(",", ":"))
+            status = "ready"
+            error_message = ""
+        except Exception as exc:
+            statistics = self._snapshot_empty_statistics()
+            market_analysis = self._snapshot_empty_market_analysis()
+            statistics_json = json.dumps(statistics, ensure_ascii=False, separators=(",", ":"))
+            market_json = json.dumps(market_analysis, ensure_ascii=False, separators=(",", ":"))
+            status = "error"
+            error_message = str(exc)
+
+        with self._db_lock:
+            conn = self._get_conn()
+            try:
+                with conn:
+                    conn.execute(
+                        """
+                        INSERT INTO project_analysis_snapshots
+                            (project_id, statistics_json, market_analysis_json, computed_at, version, status, error_message)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(project_id) DO UPDATE SET
+                            statistics_json = excluded.statistics_json,
+                            market_analysis_json = excluded.market_analysis_json,
+                            computed_at = excluded.computed_at,
+                            version = excluded.version,
+                            status = excluded.status,
+                            error_message = excluded.error_message
+                        """,
+                        (
+                            self.active_project_id,
+                            statistics_json,
+                            market_json,
+                            computed_at,
+                            self.ANALYSIS_SNAPSHOT_VERSION,
+                            status,
+                            error_message,
+                        ),
+                    )
+            finally:
+                conn.close()
+        if status != "ready":
+            raise RuntimeError(error_message)
+        return {"statistics": statistics, "market_analysis": market_analysis}
+
+    def get_statistics(self, refresh=False):
+        if not self.active_project_id:
+            return self._snapshot_empty_statistics()
+        snapshot = None if refresh else self._read_analysis_snapshot()
+        if snapshot:
+            return snapshot["statistics"]
+        return self.rebuild_analysis_snapshot()["statistics"]
+
+    def get_market_analysis(self, refresh=False):
+        if not self.active_project_id:
+            return self._snapshot_empty_market_analysis()
+        snapshot = None if refresh else self._read_analysis_snapshot()
+        if snapshot:
+            return snapshot["market_analysis"]
+        return self.rebuild_analysis_snapshot()["market_analysis"]
+
+    def _compute_market_analysis(self):
+        if not self.active_project_id:
+            return self._snapshot_empty_market_analysis()
+
+        with self._db_lock:
+            conn = self._get_conn()
+            try:
+                main_df = pd.read_sql(
+                    "SELECT * FROM main_products WHERE project_id = ? ORDER BY _row_orig_idx ASC",
+                    conn,
+                    params=(self.active_project_id,),
+                )
+                comp_df = pd.read_sql(
+                    "SELECT rowid AS __rowid, * FROM comp_products WHERE project_id = ? ORDER BY store_id ASC, __rowid ASC",
+                    conn,
+                    params=(self.active_project_id,),
+                )
+            finally:
+                conn.close()
+
+        buckets = self._load_market_category_buckets()
+        file_frames = []
+        if not main_df.empty:
+            file_frames.append(self._market_prepare_file_df(main_df, "main", self.main_store_name or "主店", buckets))
+        if not comp_df.empty and "store_id" in comp_df.columns:
+            comp_df["store_id"] = comp_df["store_id"].astype(str)
+            for i, store_name in enumerate(self.store_names):
+                sid = str(i)
+                sdf = comp_df[comp_df["store_id"] == sid]
+                file_frames.append(self._market_prepare_file_df(sdf, f"comp-{sid}", store_name, buckets))
+
+        file_count = len(file_frames)
+        if not file_count:
+            return {
+                "status": "ok",
+                "project_id": self.active_project_id,
+                "project_name": self.active_project_name,
+                "file_count": 0,
+                "top10_categories": [],
+                "recommendation": {
+                    "level": "拉完了",
+                    "total_sales_amount": 0,
+                    "department_store_ratio": 0,
+                    "snack_ratio": 0,
+                    "other_ratio": 100,
+                    "amounts": {"department_store": 0, "snack": 0, "other": 0},
+                },
+                "metrics": {"average": self._market_metric_pack(0, 0), "top1": self._market_metric_pack(0, 0)},
+                "metric_diffs": {k: 0 for k in self._market_metric_pack(0, 0).keys()},
+                "mode_options": ["average", "top1"],
+            }
+
+        all_df = pd.concat(file_frames, ignore_index=True)
+        valid_category_df = all_df[(all_df["category_l1"] != "") & (all_df["category_l1"].str.lower() != "nan")]
+        category_rows = []
+        if not valid_category_df.empty:
+            grouped = valid_category_df.groupby("category_l1", sort=False)[["sales", "sales_amount"]].sum().reset_index()
+            grouped["sales"] = grouped["sales"] / file_count
+            grouped["sales_amount"] = grouped["sales_amount"] / file_count
+            grouped = grouped.sort_values("sales_amount", ascending=False).head(10)
+            category_rows = [
+                {
+                    "category": row["category_l1"],
+                    "order_count": round(float(row["sales"]), 2),
+                    "sales_amount": round(float(row["sales_amount"]), 2),
+                }
+                for _, row in grouped.iterrows()
+            ]
+
+        total_sales = float(all_df["sales"].sum())
+        total_sales_amount = float(all_df["sales_amount"].sum())
+        average_sales = total_sales / file_count
+        average_sales_amount = total_sales_amount / file_count
+        bucket_amounts = all_df.groupby("bucket")["sales_amount"].sum().to_dict()
+        department_amount = float(bucket_amounts.get("department_store", 0)) / file_count
+        snack_amount = float(bucket_amounts.get("snack", 0)) / file_count
+        other_amount = float(bucket_amounts.get("other", 0)) / file_count
+        ratio_base = average_sales_amount
+        department_ratio = department_amount / ratio_base * 100 if ratio_base else 0.0
+        snack_ratio = snack_amount / ratio_base * 100 if ratio_base else 0.0
+        other_ratio = max(0.0, 100.0 - department_ratio - snack_ratio) if ratio_base else 100.0
+
+        per_file = all_df.groupby(["file_id", "file_name"], sort=False)[["sales", "sales_amount"]].sum().reset_index()
+        if per_file.empty:
+            top1_sales = top1_sales_amount = 0.0
+            top1_file = {"file_id": "", "file_name": ""}
+        else:
+            top1_row = per_file.sort_values("sales_amount", ascending=False).iloc[0]
+            top1_sales = float(top1_row["sales"])
+            top1_sales_amount = float(top1_row["sales_amount"])
+            top1_file = {"file_id": str(top1_row["file_id"]), "file_name": str(top1_row["file_name"])}
+
+        average_metrics = self._market_metric_pack(average_sales, average_sales_amount)
+        top1_metrics = self._market_metric_pack(top1_sales, top1_sales_amount)
+        metric_diffs = {
+            key: int(round(float(average_metrics.get(key, 0)) - float(top1_metrics.get(key, 0))))
+            for key in average_metrics.keys()
+        }
+
+        return {
+            "status": "ok",
+            "project_id": self.active_project_id,
+            "project_name": self.active_project_name,
+            "file_count": file_count,
+            "top10_categories": category_rows,
+            "recommendation": {
+                "level": self._market_level_for_sales(average_sales_amount),
+                "total_sales_amount": round(average_sales_amount, 2),
+                "department_store_ratio": round(department_ratio, 2),
+                "snack_ratio": round(snack_ratio, 2),
+                "other_ratio": round(other_ratio, 2),
+                "amounts": {
+                    "department_store": round(department_amount, 2),
+                    "snack": round(snack_amount, 2),
+                    "other": round(other_amount, 2),
+                },
+            },
+            "metrics": {
+                "average": average_metrics,
+                "top1": top1_metrics,
+            },
+            "metric_diffs": metric_diffs,
+            "top1_file": top1_file,
+            "mode_options": ["average", "top1"],
+            "bucket_reference": {
+                "snack": sorted(buckets.get("snack", set())),
+                "department_store": sorted(buckets.get("department_store", set())),
+                "other": sorted(buckets.get("other", set())),
+            },
         }
 
     def get_statistics_products(self, category, source_type="main", store_id=""):
@@ -120,9 +472,9 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
             "source_name": source_name,
         }
 
-    def get_statistics(self):
+    def _compute_statistics(self):
         if not self.active_project_id:
-            return {"items": [], "tabs": [], "stores": [], "main_store": ""}
+            return self._snapshot_empty_statistics()
 
         with self._db_lock:
             conn = self._get_conn()
@@ -688,3 +1040,43 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
             df["__linked_count"] = pd.Series(dtype="int64")
         pages = (total + limit - 1) // limit if total else 0
         return {"items": df.fillna("").to_dict(orient="records"), "total": total, "page": page, "limit": limit, "pages": pages}
+
+    def get_main_product_links(self, main_sku_id):
+        if not self.active_project_id or not main_sku_id:
+            return {"items": [], "total": 0}
+        with self._db_lock:
+            conn = self._get_conn()
+            try:
+                df = pd.read_sql(
+                    """
+                    SELECT
+                        pl.store_id AS __link_store_id,
+                        pl.comp_sku_id AS __link_comp_sku_id,
+                        pl.similarity AS __link_similarity,
+                        pl.match_type AS __link_match_type,
+                        pl.is_new_add AS __link_is_new_add,
+                        cp.*
+                    FROM product_links pl
+                    LEFT JOIN comp_products cp
+                      ON cp.project_id = pl.project_id
+                     AND cp.store_id = pl.store_id
+                     AND cp.skuId = pl.comp_sku_id
+                    WHERE pl.project_id = ?
+                      AND pl.main_sku_id = ?
+                    ORDER BY CAST(pl.store_id AS INTEGER) ASC
+                    """,
+                    conn,
+                    params=(self.active_project_id, str(main_sku_id)),
+                )
+            finally:
+                conn.close()
+        if df.empty:
+            return {"items": [], "total": 0}
+        records = df.fillna("").to_dict(orient="records")
+        for item in records:
+            store_id = str(item.get("__link_store_id", ""))
+            try:
+                item["__store_name"] = self.store_names[int(store_id)]
+            except (ValueError, IndexError):
+                item["__store_name"] = store_id or "竞店"
+        return {"items": records, "total": len(records)}

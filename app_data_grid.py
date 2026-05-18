@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 from flask import Blueprint, request, jsonify, send_file, send_from_directory
@@ -130,7 +131,11 @@ def get_grid_data():
 
 @grid_bp.route('/api/statistics')
 def get_statistics():
-    return jsonify(dm.get_statistics())
+    return jsonify(dm.get_statistics(refresh=request.args.get("refresh", "0") == "1"))
+
+@grid_bp.route('/api/market-analysis')
+def get_market_analysis():
+    return jsonify(dm.get_market_analysis(refresh=request.args.get("refresh", "0") == "1"))
 
 @grid_bp.route('/api/statistics/products')
 def get_statistics_products():
@@ -226,6 +231,10 @@ def get_main_products():
     limit = request.args.get('limit', 50, type=int)
     search = request.args.get('search', "")
     return jsonify(dm.get_main_products_page(page=page, limit=limit, search=search))
+
+@grid_bp.route('/api/main_products/<path:main_sku_id>/links')
+def get_main_product_links(main_sku_id):
+    return jsonify(dm.get_main_product_links(main_sku_id))
 
 @grid_bp.route('/api/eliminate', methods=['POST'])
 def eliminate():
