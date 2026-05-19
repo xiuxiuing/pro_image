@@ -90,7 +90,7 @@ class MarketAnalysisTests(unittest.TestCase):
             with sqlite3.connect(tmp / "pro_image.db") as conn:
                 row = conn.execute(
                     """
-                    SELECT statistics_json, market_analysis_json, status
+                    SELECT statistics_json, market_analysis_json, workbench_summary_json, status
                     FROM project_analysis_snapshots
                     WHERE project_id = ?
                     """,
@@ -99,7 +99,8 @@ class MarketAnalysisTests(unittest.TestCase):
             self.assertIsNotNone(row)
             self.assertIn("tabs", json.loads(row[0]))
             self.assertIn("top10_categories", json.loads(row[1]))
-            self.assertEqual(row[2], "ready")
+            self.assertEqual(json.loads(row[2])["stores"]["0"]["total"]["sku_count"], 2)
+            self.assertEqual(row[3], "ready")
 
             data = dm.get_market_analysis()
 
@@ -118,6 +119,139 @@ class MarketAnalysisTests(unittest.TestCase):
         self.assertAlmostEqual(data["metrics"]["average"]["monthly_orders"], 43.33)
         self.assertAlmostEqual(data["metrics"]["top1"]["monthly_sales_amount"], 2250.0)
         self.assertEqual(data["metric_diffs"]["monthly_sales_amount"], -915)
+    def test_activity_price_falls_back_to_channel_sale_when_blank(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            headers = [
+                "skuid",
+                "商品名称",
+                "规格",
+                "图片",
+                "条码",
+                "一级类目",
+                "二级类目",
+                "三级类目",
+                "活动价",
+                "美团外卖渠道售价",
+                "销量",
+            ]
+            main_path = tmp / "main.xlsx"
+            comp_path = tmp / "comp.xlsx"
+            make_workbook(main_path, headers, [["m1", "可乐", "500ml", "u", "1", "饮品", "饮料", "碳酸饮料", "", 12, 10]])
+            make_workbook(comp_path, headers, [["c1", "可乐A", "500ml", "u", "2", "饮品", "饮料", "碳酸饮料", "", 8, 5]])
+
+            dm = DataManager(tmpdir)
+            pid = dm.create_project(
+                "fallback price",
+                {"path": str(main_path), "store_name": "主店"},
+                [{"path": str(comp_path), "store_name": "竞店"}],
+            )
+            dm.import_project_sources(pid)
+
+            stats = dm.get_statistics()
+            market = dm.get_market_analysis()
+
+        self.assertAlmostEqual(stats["tabs"][0]["items"][0]["summary"]["sales_amount"]["main"], 120.0)
+        self.assertAlmostEqual(market["top10_categories"][0]["sales_amount"], 80.0)
+        self.assertAlmostEqual(market["recommendation"]["total_sales_amount"], 80.0)
+        self.assertAlmostEqual(market["metrics"]["average"]["monthly_sales_amount"], 80.0)
+
+
+    def test_competitor_detail_contribution_uses_each_store_total_sales_amount(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            headers = [
+                "skuid", "商品名称", "规格", "图片", "条码",
+                "一级类目", "二级类目", "三级类目", "活动价", "原价", "销量",
+            ]
+            main_path = tmp / "main.xlsx"
+            comp_a_path = tmp / "comp_a.xlsx"
+            comp_b_path = tmp / "comp_b.xlsx"
+            make_workbook(
+                main_path,
+                headers,
+                [
+                    ["m1", "主A", "1个", "u", "1", "饮品", "饮料", "类目A", 10, 10, 5],
+                    ["m2", "主B", "1个", "u", "2", "饮品", "饮料", "类目B", 10, 10, 5],
+                ],
+            )
+            make_workbook(
+                comp_a_path,
+                headers,
+                [
+                    ["a1", "竞A-类目A", "1个", "u", "3", "饮品", "饮料", "类目A", 10, 10, 8],
+                    ["a2", "竞A-类目B", "1个", "u", "4", "饮品", "饮料", "类目B", 10, 10, 2],
+                ],
+            )
+            make_workbook(
+                comp_b_path,
+                headers,
+                [
+                    ["b1", "竞B-类目A", "1个", "u", "5", "饮品", "饮料", "类目A", 10, 10, 4],
+                    ["b2", "竞B-类目B", "1个", "u", "6", "饮品", "饮料", "类目B", 10, 10, 6],
+                ],
+            )
+
+            dm = DataManager(tmpdir)
+            pid = dm.create_project(
+                "contribution",
+                {"path": str(main_path), "store_name": "主店"},
+                [
+                    {"path": str(comp_a_path), "store_name": "A"},
+                    {"path": str(comp_b_path), "store_name": "B"},
+                ],
+            )
+            dm.import_project_sources(pid)
+            stats = dm.get_statistics()
+
+        main_tab = next(tab for tab in stats["tabs"] if tab["id"] == "main")
+        item_a = next(item for item in main_tab["items"] if item["category"] == "类目A")
+        comp_a, comp_b = item_a["competitors"]
+
+        self.assertAlmostEqual(comp_a["metrics"]["category_contribution"], 80.0)
+        self.assertAlmostEqual(comp_b["metrics"]["category_contribution"], 40.0)
+        self.assertAlmostEqual(comp_a["main_diff"]["category_contribution"], -30.0)
+        self.assertAlmostEqual(comp_b["main_diff"]["category_contribution"], 10.0)
+
+
+    def test_competitor_unique_tab_totals_use_full_store_data(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            headers = [
+                "skuid", "商品名称", "规格", "图片", "条码",
+                "一级类目", "二级类目", "三级类目", "活动价", "原价", "销量",
+            ]
+            main_path = tmp / "main.xlsx"
+            comp_path = tmp / "comp.xlsx"
+            make_workbook(
+                main_path,
+                headers,
+                [["m1", "主店重合品", "1个", "u", "1", "饮品", "饮料", "重合类目", 10, 10, 1]],
+            )
+            make_workbook(
+                comp_path,
+                headers,
+                [
+                    ["c1", "竞店重合品", "1个", "u", "2", "饮品", "饮料", "重合类目", 10, 10, 10],
+                    ["c2", "竞店独有品", "1个", "u", "3", "饮品", "饮料", "独有类目", 10, 10, 5],
+                ],
+            )
+
+            dm = DataManager(tmpdir)
+            pid = dm.create_project(
+                "competitor totals",
+                {"path": str(main_path), "store_name": "主店"},
+                [{"path": str(comp_path), "store_name": "竞店"}],
+            )
+            dm.import_project_sources(pid)
+            stats = dm.get_statistics()
+
+        comp_tab = next(tab for tab in stats["tabs"] if tab["id"] == "comp-0")
+        self.assertEqual([item["category"] for item in comp_tab["items"]], ["独有类目"])
+        self.assertAlmostEqual(comp_tab["totals"]["sales"], 15.0)
+        self.assertAlmostEqual(comp_tab["totals"]["sales_amount"], 150.0)
+        self.assertAlmostEqual(comp_tab["totals"]["active_rate"], 100.0)
+
 
     def test_deleted_snapshot_is_rebuilt_on_api_read(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -154,6 +288,43 @@ class MarketAnalysisTests(unittest.TestCase):
         self.assertEqual(count, 1)
         self.assertIn("tabs", stats)
         self.assertEqual(market["status"], "ok")
+
+    def test_workbench_summary_is_snapshotted_and_rebuilt_after_link_change(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            headers = [
+                "skuid", "商品名称", "规格", "图片", "条码",
+                "一级类目", "二级类目", "三级类目", "活动价", "原价", "销量",
+            ]
+            main_path = tmp / "main.xlsx"
+            comp_path = tmp / "comp.xlsx"
+            make_workbook(main_path, headers, [["m1", "可乐", "500ml", "u", "1", "饮品", "饮料", "碳酸饮料", 10, 12, 9]])
+            make_workbook(comp_path, headers, [["c1", "可乐", "500ml", "u", "2", "饮品", "饮料", "碳酸饮料", 9, 10, 8]])
+
+            dm = DataManager(tmpdir)
+            pid = dm.create_project(
+                "workbench summary",
+                {"path": str(main_path), "store_name": "主店"},
+                [{"path": str(comp_path), "store_name": "竞店"}],
+            )
+            dm.import_project_sources(pid)
+
+            before = dm.get_workbench_summary()
+            self.assertEqual(before["stores"]["0"]["linked"]["sku_count"], 0)
+            self.assertEqual(before["stores"]["0"]["unlinked"]["sku_count"], 1)
+
+            dm.manual_link("m1", "0", "c1")
+            with sqlite3.connect(tmp / "pro_image.db") as conn:
+                row = conn.execute(
+                    "SELECT workbench_summary_json FROM project_analysis_snapshots WHERE project_id = ?",
+                    (pid,),
+                ).fetchone()
+            self.assertIsNotNone(row)
+            self.assertEqual(json.loads(row[0])["stores"]["0"]["linked"]["sku_count"], 1)
+
+            after = dm.get_workbench_summary()
+            self.assertEqual(after["stores"]["0"]["linked"]["sku_count"], 1)
+            self.assertEqual(after["stores"]["0"]["unlinked"]["sku_count"], 0)
 
     def test_market_level_boundaries(self):
         with tempfile.TemporaryDirectory() as tmpdir:

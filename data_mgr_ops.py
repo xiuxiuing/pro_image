@@ -121,6 +121,7 @@ class DataManagerOpsMixin:
         if not comp_sku_id:
             return False
         is_new_str = "是" if is_new else "否"
+        ignore_str = "否" if is_new else None
         changed = False
         with self._db_lock:
             conn = self._get_conn()
@@ -134,15 +135,62 @@ class DataManagerOpsMixin:
                     changed = cur.rowcount > 0
 
                     self._ensure_column(conn, "comp_products", "is_new_add")
-                    comp_cur = conn.execute(
-                        "UPDATE comp_products SET is_new_add=? WHERE project_id=? AND store_id=? AND skuId=?",
-                        (is_new_str, self.active_project_id, str(store_id), str(comp_sku_id))
-                    )
+                    self._ensure_column(conn, "comp_products", "is_ignored")
+                    if ignore_str is not None:
+                        comp_cur = conn.execute(
+                            "UPDATE comp_products SET is_new_add=?, is_ignored=? WHERE project_id=? AND store_id=? AND skuId=?",
+                            (is_new_str, ignore_str, self.active_project_id, str(store_id), str(comp_sku_id))
+                        )
+                    else:
+                        comp_cur = conn.execute(
+                            "UPDATE comp_products SET is_new_add=? WHERE project_id=? AND store_id=? AND skuId=?",
+                            (is_new_str, self.active_project_id, str(store_id), str(comp_sku_id))
+                        )
                     changed = changed or (comp_cur.rowcount > 0)
             finally:
                 conn.close()
         if changed:
-            self._patch_grid_comp(store_id, comp_sku_id, {'是否新增': is_new_str})
+            updates = {'是否新增': is_new_str}
+            if ignore_str is not None:
+                updates['是否不处理'] = ignore_str
+            self._patch_grid_comp(store_id, comp_sku_id, updates)
+        return changed
+
+    def mark_as_ignored(self, store_id, comp_sku_id, is_ignored):
+        if not comp_sku_id:
+            return False
+        ignore_str = "是" if is_ignored else "否"
+        new_str = "否" if is_ignored else None
+        changed = False
+        with self._db_lock:
+            conn = self._get_conn()
+            try:
+                with conn:
+                    self._ensure_column(conn, "comp_products", "is_ignored")
+                    self._ensure_column(conn, "comp_products", "is_new_add")
+                    if new_str is not None:
+                        comp_cur = conn.execute(
+                            "UPDATE comp_products SET is_ignored=?, is_new_add=? WHERE project_id=? AND store_id=? AND skuId=?",
+                            (ignore_str, new_str, self.active_project_id, str(store_id), str(comp_sku_id))
+                        )
+                        self._ensure_column(conn, "product_links", "is_new_add")
+                        conn.execute(
+                            "UPDATE product_links SET is_new_add=? WHERE project_id = ? AND store_id=? AND comp_sku_id=?",
+                            (new_str, self.active_project_id, str(store_id), str(comp_sku_id))
+                        )
+                    else:
+                        comp_cur = conn.execute(
+                            "UPDATE comp_products SET is_ignored=? WHERE project_id=? AND store_id=? AND skuId=?",
+                            (ignore_str, self.active_project_id, str(store_id), str(comp_sku_id))
+                        )
+                    changed = changed or (comp_cur.rowcount > 0)
+            finally:
+                conn.close()
+        if changed:
+            updates = {'是否不处理': ignore_str}
+            if new_str is not None:
+                updates['是否新增'] = new_str
+            self._patch_grid_comp(store_id, comp_sku_id, updates)
         return changed
 
     def price_match(self, main_sku_id, store_id):
@@ -223,6 +271,7 @@ class DataManagerOpsMixin:
             finally:
                 conn.close()
         self._reconstruct_from_sqlite()
+        self.refresh_workbench_summary_snapshot()
         return True
 
     def unlink_product(self, main_sku_id, store_id):
@@ -239,6 +288,7 @@ class DataManagerOpsMixin:
             finally:
                 conn.close()
         self._reconstruct_from_sqlite()
+        self.refresh_workbench_summary_snapshot()
         return True
 
     def _calculate_margins(self):

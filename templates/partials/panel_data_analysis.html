@@ -93,11 +93,14 @@
         display: flex;
         flex-direction: column;
         gap: 8px;
-        flex: 1 1 520px;
-        min-width: 360px;
+        flex: 0 1 auto;
+        width: max-content;
+        max-width: 100%;
+        min-width: 0;
     }
     .statistics-search {
-        width: min(320px, 100%);
+        width: 100%;
+        box-sizing: border-box;
         border: 1px solid #dbe3ef;
         background: #fff;
         border-radius: 6px;
@@ -116,7 +119,8 @@
         gap: 6px;
         margin: 0;
         flex-wrap: wrap;
-        max-width: min(760px, 100%);
+        width: max-content;
+        max-width: 100%;
     }
     .statistics-tab {
         min-width: 112px;
@@ -158,6 +162,7 @@
         align-items: stretch;
         gap: 12px;
         flex-wrap: wrap;
+        justify-content: flex-end;
     }
     .statistics-summary-card {
         min-width: 150px;
@@ -203,14 +208,14 @@
     .statistics-table thead tr:first-child th {
         position: sticky;
         top: 0;
-        z-index: 8;
+        z-index: 28;
         height: 43px;
         background: #f5f7fa;
     }
     .statistics-table thead tr:nth-child(2) th {
         position: sticky;
         top: 43px;
-        z-index: 7;
+        z-index: 27;
         height: 43px;
         background: #f5f7fa;
     }
@@ -340,22 +345,84 @@
         cursor: pointer;
         user-select: none;
     }
+    .statistics-category-content {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        max-width: 100%;
+        min-width: 0;
+    }
+    .statistics-expand-triangle {
+        width: 0;
+        height: 0;
+        border-top: 4px solid transparent;
+        border-bottom: 4px solid transparent;
+        border-left: 5px solid #94a3b8;
+        flex: 0 0 auto;
+        transition: transform 0.16s ease, border-left-color 0.16s ease;
+    }
+    .statistics-main-row.expanded .statistics-expand-triangle {
+        transform: rotate(90deg);
+        border-left-color: #409eff;
+    }
+    .statistics-category-label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0;
+    }
     .statistics-category:hover {
         color: #1d4ed8;
         background: #ecf5ff !important;
     }
     .statistics-category-static {
-        cursor: default;
+        cursor: pointer;
     }
     .statistics-category-static:hover {
-        color: #409eff;
-        background: inherit !important;
+        color: #1d4ed8;
+        background: #ecf5ff !important;
+    }
+    .statistics-category-static .statistics-category-label {
+        position: relative;
+        display: inline-block;
+        border-radius: 4px;
+        transition: background 0.15s;
+        vertical-align: top;
+    }
+    .statistics-category-static:hover .statistics-category-label {
+        background: rgba(64, 158, 255, 0.12);
+    }
+    .statistics-category-static .statistics-category-label::after {
+        content: "点击复制";
+        position: absolute;
+        left: 0;
+        top: 100%;
+        margin-top: 4px;
+        padding: 3px 8px;
+        font-size: 10px;
+        font-weight: 600;
+        color: #fff;
+        background: #334155;
+        border-radius: 6px;
+        white-space: nowrap;
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(-4px);
+        transition: opacity 0.15s ease, transform 0.15s ease;
+        z-index: 50;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+    }
+    .statistics-category-static:hover .statistics-category-label::after {
+        opacity: 1;
+        transform: translateY(0);
     }
     .statistics-main-row:hover td {
         background: #fdfdfd;
     }
     .statistics-expand-row {
         display: none;
+        position: relative;
+        z-index: 1;
         background: #fafcff;
     }
     .statistics-expand-row td {
@@ -374,6 +441,8 @@
         background: transparent;
     }
     .statistics-sub-table th {
+        position: relative;
+        z-index: 1;
         background: #f5f7fa;
         border: 1px solid #ebeef5;
         color: #303133;
@@ -1071,6 +1140,10 @@
     let statisticsActiveTabId = "main";
     let statisticsPage = 1;
     let statisticsPageSize = 20;
+    let statisticsTotal = 0;
+    let statisticsPages = 1;
+    let statisticsSearchTerm = "";
+    let statisticsMainCategories = [];
     let statisticsSort = { key: "", order: "desc" };
     let workbenchProjectId = null;
     let workbenchProgressTimer = null;
@@ -1111,16 +1184,8 @@
 
     function switchStatisticsTab(tabId) {
         statisticsActiveTabId = tabId;
-        const activeTab = getActiveStatisticsTab();
-        statisticsAllItems = (activeTab.items || []).slice();
-        const totals = activeTab.totals || {};
-        document.getElementById("statistics-total-sales").textContent = statisticsNumber(totals.sales || 0);
-        document.getElementById("statistics-total-amount").textContent = statisticsMoney(totals.sales_amount || 0);
-        document.getElementById("statistics-total-active-rate").textContent = statisticsPct(totals.active_rate || 0);
-        renderStatisticsTabs();
-        syncStatisticsSubjectHeaders();
         statisticsPage = 1;
-        filterStatistics();
+        loadStatistics();
         syncWorkbenchButton(window.__workbenchConfig);
     }
 
@@ -1147,7 +1212,7 @@
     }
 
     function statisticsPct(value) {
-        return `${statisticsNumber(value)}%`;
+        return `${Number(value || 0).toFixed(2)}%`;
     }
 
     function statisticsDiffClass(value) {
@@ -1172,6 +1237,43 @@
             '"': "&quot;",
             "'": "&#39;"
         }[ch]));
+    }
+
+    function showStatisticsCopyToast(text = "已复制") {
+        let el = document.getElementById("statistics-copy-toast");
+        if (!el) {
+            el = document.createElement("div");
+            el.id = "statistics-copy-toast";
+            el.style.cssText = "position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#111827;color:#fff;padding:8px 12px;border-radius:999px;font-size:12px;font-weight:700;z-index:9999;box-shadow:0 8px 24px rgba(15,23,42,.18);opacity:0;transition:opacity .18s ease;";
+            document.body.appendChild(el);
+        }
+        el.textContent = text;
+        el.style.opacity = "1";
+        clearTimeout(el._timer);
+        el._timer = setTimeout(() => { el.style.opacity = "0"; }, 1300);
+    }
+
+    async function copyStatisticsCategory(value) {
+        const text = String(value || "").trim();
+        if (!text) return;
+        try {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(text);
+            } else {
+                const textarea = document.createElement("textarea");
+                textarea.value = text;
+                textarea.style.position = "fixed";
+                textarea.style.left = "-9999px";
+                document.body.appendChild(textarea);
+                textarea.focus();
+                textarea.select();
+                document.execCommand("copy");
+                textarea.remove();
+            }
+            showStatisticsCopyToast("已复制三级分类");
+        } catch (err) {
+            showStatisticsCopyToast("复制失败");
+        }
     }
 
     function toggleStatisticsRow(row) {
@@ -1223,22 +1325,25 @@
         `;
     }
 
-    async function openStatisticsProductModal(category) {
+    async function openStatisticsProductModal(category, sourceType = "", storeId = "", sourceName = "") {
         const tab = getActiveStatisticsTab();
+        const resolvedSourceType = sourceType || tab.source_type || "main";
+        const resolvedStoreId = storeId || tab.source_store_id || "";
+        const resolvedSourceName = sourceName || tab.source_name || tab.label || "当前店铺";
         const modal = document.getElementById("statistics-product-modal");
         const title = document.getElementById("statistics-product-modal-title");
         const subtitle = document.getElementById("statistics-product-modal-subtitle");
         const body = document.getElementById("statistics-product-modal-body");
         title.textContent = `${category} · 商品详情`;
-        subtitle.textContent = `${tab.source_name || tab.label || "当前店铺"} · 销量 ≥ 1 的商品明细`;
+        subtitle.textContent = `${resolvedSourceName} · 销量 ≥ 1 的商品明细`;
         body.innerHTML = '<div class="statistics-product-empty">正在加载商品数据...</div>';
         modal.classList.add("open");
 
         try {
             const params = new URLSearchParams({
                 category,
-                source_type: tab.source_type || "main",
-                store_id: tab.source_store_id || "",
+                source_type: resolvedSourceType,
+                store_id: resolvedStoreId,
             });
             const resp = await fetch(`/api/statistics/products?${params.toString()}`);
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -1348,7 +1453,9 @@
         const list = document.getElementById("workbench-category-list");
         if (!list) return;
         const mainTab = statisticsTabs.find((tab) => tab.source_type === "main") || { items: statisticsAllItems };
-        const categories = (mainTab.items || []).map((item) => item.category).filter(Boolean);
+        const categories = statisticsMainCategories.length
+            ? statisticsMainCategories
+            : (mainTab.items || []).map((item) => item.category).filter(Boolean);
         if (!categories.length) {
             list.innerHTML = '<div class="workbench-message">暂无三级类目</div>';
             updateWorkbenchCategorySummary();
@@ -1407,7 +1514,7 @@
         if (title) title.textContent = options.title || (workbenchAnalyzeScope === "full" ? "进入工作台" : "重新分析");
         modal.classList.add("open");
         resetWorkbenchAnalyzeForm();
-        if (!statisticsAllItems.length) {
+        if (!statisticsMainCategories.length) {
             await loadStatistics();
         }
         renderWorkbenchCategoryChoices();
@@ -1579,11 +1686,7 @@
     }
 
     function paginateStatistics(items) {
-        const total = items.length;
-        const pages = Math.max(1, Math.ceil(total / statisticsPageSize));
-        statisticsPage = Math.min(Math.max(1, statisticsPage), pages);
-        const start = (statisticsPage - 1) * statisticsPageSize;
-        return { total, pages, items: items.slice(start, start + statisticsPageSize) };
+        return { total: statisticsTotal, pages: statisticsPages, items };
     }
 
     function renderStatisticsPagination(total, pages) {
@@ -1644,29 +1747,26 @@
             statisticsSort = { key, order: "desc" };
         }
         statisticsPage = 1;
-        renderStatisticsTable();
+        loadStatistics();
     }
 
     function goStatisticsPage(page) {
         statisticsPage = page;
-        renderStatisticsTable();
+        loadStatistics();
     }
 
     function changeStatisticsPageSize() {
         const sel = document.getElementById("statistics-page-size");
         statisticsPageSize = Number(sel?.value || 20);
         statisticsPage = 1;
-        renderStatisticsTable();
+        loadStatistics();
     }
 
     function filterStatistics() {
         const q = (document.getElementById("statistics-search")?.value || "").trim().toLowerCase();
-        const tabItems = getActiveStatisticsTab().items || [];
-        statisticsFilteredItems = q
-            ? tabItems.filter((item) => String(item.category || "").toLowerCase().includes(q))
-            : tabItems.slice();
+        statisticsSearchTerm = q;
         statisticsPage = 1;
-        renderStatisticsTable();
+        loadStatistics();
     }
 
     function renderStatistics(data) {
@@ -1680,6 +1780,12 @@
             items: data.items || [],
             totals: data.main_totals || {},
         }]).slice();
+        statisticsTotal = Number(data.total ?? ((statisticsTabs.find((tab) => tab.id === (data.active_tab_id || statisticsActiveTabId)) || {}).item_count || 0));
+        statisticsPages = Number(data.pages || Math.max(1, Math.ceil(statisticsTotal / statisticsPageSize)));
+        statisticsPage = Number(data.page || statisticsPage || 1);
+        statisticsPageSize = Number(data.limit || statisticsPageSize || 20);
+        statisticsMainCategories = (data.main_categories || statisticsMainCategories || []).slice();
+        if (data.active_tab_id) statisticsActiveTabId = data.active_tab_id;
         if (!statisticsTabs.some((tab) => tab.id === statisticsActiveTabId)) {
             statisticsActiveTabId = statisticsTabs[0]?.id || "main";
         }
@@ -1701,12 +1807,11 @@
         const body = document.getElementById("statistics-body");
         const activeTab = getActiveStatisticsTab();
         const isMainTab = activeTab.source_type === "main";
-        const sortedItems = applyStatisticsSort(statisticsFilteredItems);
-        const pageData = paginateStatistics(sortedItems);
+        const pageData = paginateStatistics(statisticsFilteredItems);
         const items = pageData.items;
         syncStatisticsSortHeaders();
         renderStatisticsPagination(pageData.total, pageData.pages);
-        if (!statisticsAllItems.length) {
+        if (!statisticsTotal) {
             body.innerHTML = '<tr><td colspan="17" class="statistics-empty">当前项目暂无可统计的三级分类数据</td></tr>';
             return;
         }
@@ -1734,18 +1839,22 @@
                     ${statisticsCell(mainDiff[key], type, true)}
                     ${statisticsCell(marketDiff[key], type, true)}
                 `).join("");
+                const safeStoreId = statisticsEscapeHtml(c.store_id || "");
+                const safeStoreName = statisticsEscapeHtml(c.store_name || "竞店");
                 return `
                     <tr>
-                        <td class="text-center">${c.store_name || "-"}</td>
+                        <td class="text-center">${safeStoreName || "-"}</td>
                         ${metricCells}
-                        <td class="statistics-sub-op"></td>
+                        <td class="statistics-sub-op">
+                            <button class="statistics-detail-btn" type="button" data-category="${statisticsEscapeHtml(item.category || "")}" data-store-id="${safeStoreId}" data-store-name="${safeStoreName}" onclick="openStatisticsProductModal(this.dataset.category, 'competitor_unique', this.dataset.storeId, this.dataset.storeName)">详情</button>
+                        </td>
                     </tr>
                 `;
             }).join("") : '<tr><td colspan="17" class="text-center">暂无竞店数据</td></tr>';
             const safeCategory = statisticsEscapeHtml(item.category || "-");
             const categoryCell = isMainTab
-                ? `<td class="statistics-category" title="点击展开 ${safeCategory}" onclick="toggleStatisticsRow(this.closest('tr'))">${safeCategory}</td>`
-                : `<td class="statistics-category statistics-category-static">${safeCategory}</td>`;
+                ? `<td class="statistics-category" title="点击展开 ${safeCategory}" onclick="toggleStatisticsRow(this.closest('tr'))"><span class="statistics-category-content"><span class="statistics-expand-triangle" aria-hidden="true"></span><span class="statistics-category-label">${safeCategory}</span></span></td>`
+                : `<td class="statistics-category statistics-category-static" title="点击复制 ${safeCategory}" onclick="copyStatisticsCategory(this.dataset.category)" data-category="${safeCategory}"><span class="statistics-category-content"><span class="statistics-category-label">${safeCategory}</span></span></td>`;
             const actionCell = `<td class="text-center"><button class="statistics-detail-btn" type="button" data-category="${safeCategory}" onclick="openStatisticsProductModal(this.dataset.category)">详情</button></td>`;
             const expandRow = isMainTab ? `
                 <tr class="statistics-expand-row" data-statistics-row="${idx}">
@@ -1800,7 +1909,17 @@
         if (body) body.innerHTML = '<tr><td colspan="17" class="statistics-empty">正在加载数据分析...</td></tr>';
         if (pager) pager.innerHTML = "";
         try {
-            const resp = await fetch(refresh ? "/api/statistics?refresh=1" : "/api/statistics");
+            const params = new URLSearchParams({
+                paged: "1",
+                tab: statisticsActiveTabId || "main",
+                page: String(statisticsPage || 1),
+                limit: String(statisticsPageSize || 20),
+                search: statisticsSearchTerm || "",
+                sort_key: statisticsSort.key || "",
+                sort_order: statisticsSort.order || "desc",
+            });
+            if (refresh) params.set("refresh", "1");
+            const resp = await fetch(`/api/statistics?${params.toString()}`);
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             renderStatistics(await resp.json());
             getWorkbenchConfig(true).catch(() => syncWorkbenchButton({ has_links: false }));

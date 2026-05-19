@@ -1,9 +1,50 @@
 import json
 import re
+import unicodedata
 import pandas as pd
 
 
 class DataManagerUnlinkedQueryMixin:
+    SEARCH_TOKEN_LIMIT = 5
+
+    def _normalize_search_text(self, value):
+        if value is None:
+            return ""
+        try:
+            if pd.isna(value):
+                return ""
+        except (TypeError, ValueError):
+            pass
+        return unicodedata.normalize("NFKC", str(value)).casefold().strip()
+
+    def _search_tokens(self, search, limit=None):
+        text = self._normalize_search_text(search)
+        if not text:
+            return []
+        max_tokens = self.SEARCH_TOKEN_LIMIT if limit is None else int(limit)
+        tokens = []
+        seen = set()
+        for token in re.split(r"[\s,，;；、]+", text):
+            token = token.strip()
+            if not token or token in seen:
+                continue
+            seen.add(token)
+            tokens.append(token)
+            if len(tokens) >= max_tokens:
+                break
+        return tokens
+
+    def _row_matches_search_tokens(self, row, tokens):
+        if not tokens:
+            return True
+        haystack = " ".join(self._normalize_search_text(v) for v in row)
+        return all(token in haystack for token in tokens)
+
+    def _add_search_token_clauses(self, where, params, columns, tokens):
+        for token in tokens:
+            where.append("(" + " OR ".join(f"LOWER(COALESCE({col}, '')) LIKE ?" for col in columns) + ")")
+            params.extend([f"%{token}%" for _ in columns])
+
     def _build_unlinked_virtual_row(self, idx, main_df, store_slices, link_map):
         row = {}
         if idx < len(main_df):
@@ -22,6 +63,7 @@ class DataManagerUnlinkedQueryMixin:
                 for k, v in c.items():
                     row[f"{sid}{k}"] = "" if pd.isna(v) else v
                 row[f"{sid}是否新增"] = row.get(f"{sid}is_new_add", "否") or "否"
+                row[f"{sid}是否不处理"] = row.get(f"{sid}is_ignored", "否") or "否"
                 row[f"{sid}__from_pool"] = "1"
             else:
                 row[f"{sid}__from_pool"] = ""
@@ -76,6 +118,26 @@ class DataManagerUnlinkedQueryMixin:
             return True
         return False
 
+    def _empty_unlinked_store_stats(self):
+        return {str(i): {"spu_count": 0, "sku_count": 0} for i in range(len(self.store_names))}
+
+    def _add_unlinked_store_stat_from_row(self, stat_sets, row):
+        for i in range(len(self.store_names)):
+            sid = str(i)
+            sku = str(row.get(f"{sid}skuId", "") or "").strip()
+            if not sku or sku.lower() in ("nan", "none"):
+                continue
+            stat_sets[sid]["sku"].add(sku)
+            name = str(row.get(f"{sid}商品名称", "") or "").strip()
+            if name and name.lower() != "nan":
+                stat_sets[sid]["spu"].add(name)
+
+    def _unlinked_store_stats_from_sets(self, stat_sets):
+        return {
+            sid: {"spu_count": len(v["spu"]), "sku_count": len(v["sku"])}
+            for sid, v in stat_sets.items()
+        }
+
     def get_unlinked_pool_page(self, page=1, limit=30, search="", category3="", sort_store_id="", sort_order="desc",
                                filters_json=None, negative_sales_only=False):
         """
@@ -84,12 +146,12 @@ class DataManagerUnlinkedQueryMixin:
         - following columns: each store's unlinked products (sales desc)
         """
         if not self.active_project_id:
-            return {"items": [], "total": 0, "page": page, "limit": limit, "pages": 0, "spu_count": 0}
+            return {"items": [], "total": 0, "page": page, "limit": limit, "pages": 0, "spu_count": 0, "store_stats": {}}
 
         page = max(1, int(page))
         limit = max(1, min(int(limit), 100))
         offset = (page - 1) * limit
-        search_like = f"%{search.strip()}%" if search else None
+        search_tokens = self._search_tokens(search)
         try:
             filters_dict = json.loads(filters_json) if (filters_json and str(filters_json).strip()) else {}
         except json.JSONDecodeError:
@@ -107,9 +169,8 @@ class DataManagerUnlinkedQueryMixin:
             try:
                 main_where = ["project_id = ?"]
                 main_params = [self.active_project_id]
-                if search_like:
-                    main_where.append("(skuId LIKE ? OR 商品名称 LIKE ? OR 规格名称 LIKE ?)")
-                    main_params.extend([search_like, search_like, search_like])
+                if search_tokens:
+                    self._add_search_token_clauses(main_where, main_params, ["skuId", "商品名称", "规格名称"], search_tokens)
                 if cat_like:
                     main_where.append("美团类目三级 LIKE ?")
                     main_params.append(cat_like)
@@ -142,9 +203,8 @@ class DataManagerUnlinkedQueryMixin:
                         )""",
                     ]
                     params = [self.active_project_id, sid]
-                    if search_like:
-                        where.append("(cp.skuId LIKE ? OR cp.商品名称 LIKE ? OR cp.规格名称 LIKE ?)")
-                        params.extend([search_like, search_like, search_like])
+                    if search_tokens:
+                        self._add_search_token_clauses(where, params, ["cp.skuId", "cp.商品名称", "cp.规格名称"], search_tokens)
                     if cat_like:
                         where.append("cp.美团类目三级 LIKE ?")
                         params.append(cat_like)
@@ -201,8 +261,15 @@ class DataManagerUnlinkedQueryMixin:
                     pages = (total + limit - 1) // limit if total else 0
                     page_indices = indices[offset : offset + limit]
                     items = []
+                    store_stat_sets = {str(i): {"spu": set(), "sku": set()} for i in range(len(self.store_names))}
                     for idx in page_indices:
                         items.append(self._build_unlinked_virtual_row(idx, main_df, store_slices, link_map))
+                    for idx in indices:
+                        self._add_unlinked_store_stat_from_row(
+                            store_stat_sets,
+                            self._build_unlinked_virtual_row(idx, main_df, store_slices, link_map),
+                        )
+                    store_stats = self._unlinked_store_stats_from_sets(store_stat_sets)
                 else:
                     main_count = conn.execute(f"SELECT COUNT(*) FROM main_products WHERE {main_where_sql}", tuple(main_params)).fetchone()[0]
                     main_df = pd.read_sql(
@@ -217,6 +284,7 @@ class DataManagerUnlinkedQueryMixin:
                     )
                     store_slices = {}
                     store_counts = []
+                    store_stats = {}
                     for i, _ in enumerate(self.store_names):
                         sid = str(i)
                         where = [
@@ -230,15 +298,28 @@ class DataManagerUnlinkedQueryMixin:
                             )""",
                         ]
                         params = [self.active_project_id, sid]
-                        if search_like:
-                            where.append("(cp.skuId LIKE ? OR cp.商品名称 LIKE ? OR cp.规格名称 LIKE ?)")
-                            params.extend([search_like, search_like, search_like])
+                        if search_tokens:
+                            self._add_search_token_clauses(where, params, ["cp.skuId", "cp.商品名称", "cp.规格名称"], search_tokens)
                         if cat_like:
                             where.append("cp.美团类目三级 LIKE ?")
                             params.append(cat_like)
                         where_sql = " AND ".join(where)
                         count = conn.execute(f"SELECT COUNT(*) FROM comp_products cp WHERE {where_sql}", tuple(params)).fetchone()[0]
                         store_counts.append(count)
+                        stat_row = conn.execute(
+                            f"""
+                            SELECT
+                                COUNT(DISTINCT NULLIF(TRIM(cp.商品名称), '')) AS spu_count,
+                                COUNT(DISTINCT NULLIF(TRIM(cp.skuId), '')) AS sku_count
+                            FROM comp_products cp
+                            WHERE {where_sql}
+                            """,
+                            tuple(params),
+                        ).fetchone()
+                        store_stats[sid] = {
+                            "spu_count": int(stat_row[0] or 0),
+                            "sku_count": int(stat_row[1] or 0),
+                        }
                         store_slices[sid] = load_store_slice(sid, limit, offset)
 
                     total = max([main_count] + store_counts) if (self.store_names or main_count) else 0
@@ -254,5 +335,17 @@ class DataManagerUnlinkedQueryMixin:
             finally:
                 conn.close()
 
-        return {"items": items, "total": total, "page": page, "limit": limit, "pages": pages, "spu_count": spu_count}
-
+        summary = self.get_workbench_summary()
+        summary_store_stats = {
+            sid: (store.get("unlinked") or {})
+            for sid, store in (summary.get("stores") or {}).items()
+        }
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "pages": pages,
+            "spu_count": spu_count,
+            "store_stats": summary_store_stats or store_stats,
+        }

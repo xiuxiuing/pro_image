@@ -181,12 +181,12 @@ class DataManagerImportMixin:
                         conn.execute("DELETE FROM product_links WHERE project_id = ?", (project_id,))
                         if links_df is not None and not links_df.empty:
                             links_df.to_sql('product_links', conn, index=False, if_exists='append')
-                    conn.execute("DELETE FROM project_analysis_snapshots WHERE project_id = ?", (project_id,))
             finally:
                 conn.close()
 
         if self.active_project_id == project_id:
             self._reconstruct_from_sqlite()
+            self.refresh_workbench_summary_snapshot()
 
     def import_project_links_from_output(self, output_file, categories=None):
         """Replace product links from an output file, optionally limited to main-store category names."""
@@ -369,7 +369,12 @@ class DataManagerImportMixin:
                 for c in CORE_COMP_COLUMNS:
                     if c not in cdf.columns: cdf[c] = None
                 cdf = cdf[CORE_COMP_COLUMNS]
-                cdf = cdf.drop_duplicates(subset=['project_id', 'store_id', 'skuId'], keep='first')
+                for c in ["商品名称", "规格名称"]:
+                    cdf[c] = cdf[c].fillna("").astype(str)
+                cdf = cdf.drop_duplicates(
+                    subset=['project_id', 'store_id', 'skuId', '商品名称', '规格名称'],
+                    keep='first',
+                )
                 comp_dfs.append(cdf)
 
         # ── Phase 3: Prepare links only for legacy explicit imports. Normal

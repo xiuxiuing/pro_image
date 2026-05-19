@@ -44,6 +44,8 @@ class DataManagerExportMixin:
             notes.append(match_type)
         if str(row.get("是否新增", "")).strip() == "是":
             notes.append("标记新增")
+        if str(row.get("是否不处理", "")).strip() == "是":
+            notes.append("不处理")
         return "；".join(notes)
 
     def save_to_excel(self):
@@ -124,18 +126,21 @@ class DataManagerExportMixin:
                     )
                     if "is_new_add" not in comp_export.columns:
                         comp_export["is_new_add"] = ""
+                    if "is_ignored" not in comp_export.columns:
+                        comp_export["is_ignored"] = ""
                     comp_export["是否新增"] = comp_export["is_new_add"].where(
                         comp_export["is_new_add"].fillna("").astype(str).str.strip() != "",
                         comp_export.get("链接是否新增", ""),
                     )
+                    comp_export["是否不处理"] = comp_export["is_ignored"]
                     comp_export["店铺"] = store_name
                     comp_export["关联状态"] = comp_export["关联主店skuId"].fillna("").astype(str).str.strip().map(lambda v: "已关联" if v else "未关联")
                     comp_export["操作记录"] = comp_export.apply(self._export_comp_operation_note, axis=1)
                     comp_export["导出时间"] = op_time
-                    drop_cols = [c for c in ["project_id", "store_id", "comp_sku_id", "链接是否新增", "is_new_add"] if c in comp_export.columns]
+                    drop_cols = [c for c in ["project_id", "store_id", "comp_sku_id", "链接是否新增", "is_new_add", "is_ignored"] if c in comp_export.columns]
                     if drop_cols:
                         comp_export.drop(columns=drop_cols, inplace=True)
-                    leading = [c for c in ["店铺", "关联状态", "关联主店skuId", "关联主店商品名称", "关联方式", "匹配相似度", "是否新增", "操作记录", "导出时间", "skuId", "商品名称", "规格名称", "主图链接", "销售", "原价", "活动价", "采购价"] if c in comp_export.columns]
+                    leading = [c for c in ["店铺", "关联状态", "关联主店skuId", "关联主店商品名称", "关联方式", "匹配相似度", "是否新增", "是否不处理", "操作记录", "导出时间", "skuId", "商品名称", "规格名称", "主图链接", "销售", "原价", "活动价", "采购价"] if c in comp_export.columns]
                     comp_export = comp_export[leading + [c for c in comp_export.columns if c not in leading]]
                     comp_file = self._export_safe_filename(f"竞店_{store_name}", f"竞店_{store_id}")
                     comp_export.fillna("").to_excel(os.path.join(temp_dir, f"{comp_file}.xlsx"), index=False)
@@ -162,7 +167,8 @@ class DataManagerExportMixin:
                 row[1] for row in conn.execute("PRAGMA table_info(comp_products)").fetchall()
             }
             if "is_new_add" in comp_cols:
-                query = "SELECT * FROM comp_products WHERE project_id = ? AND is_new_add = '是'"
+                ignored_clause = "AND COALESCE(is_ignored, '') != '是'" if "is_ignored" in comp_cols else ""
+                query = f"SELECT * FROM comp_products WHERE project_id = ? AND is_new_add = '是' {ignored_clause}"
                 all_comp_new_df = pd.read_sql(query, conn, params=(self.active_project_id,))
             else:
                 all_comp_new_df = pd.DataFrame()

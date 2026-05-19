@@ -218,6 +218,36 @@
             margin-top: 6px;
         }
         .inline-note.error { color: var(--red); font-weight: 700; }
+        .modal {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: rgba(15, 23, 42, 0.4);
+            z-index: 50;
+            padding: 24px;
+        }
+        .modal.open { display: flex; }
+        .modal-box {
+            width: min(520px, 100%);
+            background: #fff;
+            border-radius: 12px;
+            border: 1px solid var(--line);
+            box-shadow: 0 20px 48px rgba(15, 23, 42, 0.18);
+            padding: 24px;
+        }
+        .modal-title {
+            margin: 0 0 8px;
+            font-size: 20px;
+            font-weight: 800;
+        }
+        .modal-actions {
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+            margin-top: 22px;
+        }
         @media (max-width: 900px) {
             main { grid-template-columns: 1fr; width: min(720px, calc(100vw - 28px)); }
             header { padding: 0 18px; }
@@ -405,7 +435,39 @@
             </div>
             <div class="message" id="package-message"></div>
         </section>
+
+        <section>
+            <h2>商圈分析</h2>
+            <p class="hint">上传一份或多份原始 Excel 样本，系统会按平级商圈样本聚合生成一张商圈分析 PNG，不区分主店/竞店角色。</p>
+            <div class="actions">
+                <button class="primary" type="button" id="market-open">上传并生成</button>
+                <a id="market-download" class="download-link" style="display:none;">下载商圈分析图</a>
+            </div>
+            <div class="progress" id="market-progress">
+                <div class="progress-head"><span id="market-status">等待中</span><span id="market-task-id"></span></div>
+                <div class="steps" id="market-steps"></div>
+            </div>
+            <div class="message" id="market-message"></div>
+        </section>
     </main>
+
+    <div class="modal" id="market-modal">
+        <div class="modal-box">
+            <h3 class="modal-title">生成商圈分析</h3>
+            <p class="hint" style="margin-bottom:18px;">上传多份原始 Excel，系统会把它们作为同一批商圈样本进行汇总并生成 PNG 图片。</p>
+            <form id="market-form">
+                <div class="field">
+                    <label>商圈样本文件</label>
+                    <input type="file" name="source_files" accept=".xlsx,.xls" multiple required>
+                    <div class="inline-note">不区分主店/竞店，上传几个样本就汇总几个样本。</div>
+                </div>
+                <div class="modal-actions">
+                    <button class="secondary" type="button" id="market-cancel">取消</button>
+                    <button class="primary" type="submit" id="market-submit">开始生成</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <script>
         let lastAstarTaskId = "";
@@ -757,6 +819,40 @@
                 startPolling(data.task_id, "package");
             } catch (err) {
                 setMessage("package-message", err.message, true);
+            } finally {
+                btn.disabled = false;
+            }
+        });
+
+        function openMarketModal() {
+            document.getElementById("market-modal").classList.add("open");
+        }
+
+        function closeMarketModal() {
+            document.getElementById("market-modal").classList.remove("open");
+        }
+
+        document.getElementById("market-open").addEventListener("click", openMarketModal);
+        document.getElementById("market-cancel").addEventListener("click", closeMarketModal);
+        document.getElementById("market-modal").addEventListener("click", (event) => {
+            if (event.target.id === "market-modal") closeMarketModal();
+        });
+
+        document.getElementById("market-form").addEventListener("submit", async (event) => {
+            event.preventDefault();
+            const btn = document.getElementById("market-submit");
+            btn.disabled = true;
+            document.getElementById("market-download").style.display = "none";
+            setMessage("market-message", "已提交，后台开始生成商圈分析图片。");
+            try {
+                const resp = await fetch("/api/ops/market-analysis-generate", { method: "POST", body: new FormData(event.target) });
+                const data = await resp.json();
+                if (data.status !== "ok") throw new Error(data.message || "提交失败");
+                closeMarketModal();
+                event.target.reset();
+                startPolling(data.task_id, "market");
+            } catch (err) {
+                setMessage("market-message", err.message, true);
             } finally {
                 btn.disabled = false;
             }

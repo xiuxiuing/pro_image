@@ -131,7 +131,19 @@ def get_grid_data():
 
 @grid_bp.route('/api/statistics')
 def get_statistics():
-    return jsonify(dm.get_statistics(refresh=request.args.get("refresh", "0") == "1"))
+    paged = request.args.get("paged", "0") == "1"
+    refresh = request.args.get("refresh", "0") == "1"
+    if paged:
+        return jsonify(dm.get_statistics_page(
+            refresh=refresh,
+            tab_id=request.args.get("tab", "main"),
+            page=request.args.get("page", 1, type=int),
+            limit=request.args.get("limit", 20, type=int),
+            search=request.args.get("search", ""),
+            sort_key=request.args.get("sort_key", ""),
+            sort_order=request.args.get("sort_order", "desc"),
+        ))
+    return jsonify(dm.get_statistics(refresh=refresh))
 
 @grid_bp.route('/api/market-analysis')
 def get_market_analysis():
@@ -273,6 +285,18 @@ def toggle_add():
     if store_id is None or not comp_sku_id:
         return jsonify({"status": "error", "message": "Missing store_id or sku_id"}), 400
     ok = dm.mark_as_new(store_id, comp_sku_id, d.get('is_new', True))
+    if not ok:
+        return jsonify({"status": "error", "message": "未找到可标记的商品"}), 400
+    return jsonify({"status": "success"})
+
+@grid_bp.route('/api/toggle_ignore', methods=['POST'])
+def toggle_ignore():
+    d = request.json
+    store_id = d.get('store_id')
+    comp_sku_id = d.get('sku_id')
+    if store_id is None or not comp_sku_id:
+        return jsonify({"status": "error", "message": "Missing store_id or sku_id"}), 400
+    ok = dm.mark_as_ignored(store_id, comp_sku_id, d.get('is_ignored', True))
     if not ok:
         return jsonify({"status": "error", "message": "未找到可标记的商品"}), 400
     return jsonify({"status": "success"})

@@ -58,6 +58,7 @@ def init_ops(app_obj, dm_obj, res_root, dat_root, license_fn, hwid, ai_mod, main
         "pyarmor_files": _OPS_PYARMOR_FILES, "verify_pyarmor_output": _ops_verify_pyarmor_output,
         "zip_path": _ops_zip_path,
         "extract_info_ai2": extract_info_ai2, "main_030822": main_030822,
+        "dm": dm,
         "collect_astar_source_files": _ops_collect_astar_source_files,
         "validate_source_uploads": _ops_validate_source_uploads,
         "file_label": _ops_file_label, "save_file": _ops_save_file,

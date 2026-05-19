@@ -7,7 +7,7 @@ from data_mgr_query_unlinked import DataManagerUnlinkedQueryMixin
 from utils import clean_text_value
 
 class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
-    ANALYSIS_SNAPSHOT_VERSION = "2026-05-18.1"
+    ANALYSIS_SNAPSHOT_VERSION = "2026-05-19.3"
     CATEGORY1_ALIASES = ("美团类目一级", "美团一级类目", "一级类目", "美团一级分类", "一级分类", "美团分类一级")
     CATEGORY3_ALIASES = ("美团类目三级", "美团三级类目", "三级类目", "美团三级分类", "三级分类", "美团分类三级")
 
@@ -49,6 +49,35 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
         except (TypeError, ValueError):
             return 0.0
 
+    def _statistics_effective_price_series(self, df):
+        if df is None or df.empty:
+            return pd.Series([], dtype=float)
+
+        primary_col = "活动价" if "活动价" in df.columns else None
+        fallback_col = None
+        for col in ("美团外卖渠道售价", "原价", "渠道价格", "渠道价"):
+            if col in df.columns:
+                fallback_col = col
+                break
+
+        if primary_col is None and fallback_col is None:
+            return pd.Series([0.0] * len(df), index=df.index, dtype=float)
+
+        fallback = (
+            df[fallback_col].apply(self._statistics_number)
+            if fallback_col
+            else pd.Series([0.0] * len(df), index=df.index, dtype=float)
+        )
+        if primary_col is None:
+            return fallback.astype(float)
+
+        primary_raw = df[primary_col].fillna("").map(clean_text_value).astype(str).str.strip()
+        has_primary = ~primary_raw.str.lower().isin(("", "nan", "none"))
+        primary = df[primary_col].apply(self._statistics_number)
+        result = fallback.copy()
+        result.loc[has_primary] = primary.loc[has_primary]
+        return result.astype(float)
+
     def _statistics_metric_pack(self, df):
         if df is None or df.empty or "商品名称" not in df.columns:
             return {"sales": 0.0, "sales_amount": 0.0, "spu": 0, "active_rate": 0.0}
@@ -61,7 +90,7 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
 
         work = work.drop_duplicates(subset=["__name"], keep="first")
         sales = work["销售"].apply(self._statistics_number) if "销售" in work.columns else pd.Series([], dtype=float)
-        price = work["活动价"].apply(self._statistics_number) if "活动价" in work.columns else pd.Series([], dtype=float)
+        price = self._statistics_effective_price_series(work)
         spu = int(len(work))
         active = int((sales >= 1).sum()) if spu else 0
         return {
@@ -134,7 +163,7 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
         work = work.drop_duplicates(subset=["name"], keep="first").copy()
         work["category_l1"] = self._statistics_category1_series(work).reindex(work.index).fillna("").astype(str).str.strip()
         work["sales"] = work["销售"].apply(self._statistics_number) if "销售" in work.columns else 0.0
-        work["price"] = work["活动价"].apply(self._statistics_number) if "活动价" in work.columns else 0.0
+        work["price"] = self._statistics_effective_price_series(work)
         work["sales_amount"] = work["sales"] * work["price"]
         work["bucket"] = work["category_l1"].map(lambda v: self._market_bucket_for_l1(v, buckets))
         work["file_id"] = file_id
@@ -171,6 +200,21 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
             "mode_options": ["average", "top1"],
         }
 
+    def _snapshot_empty_workbench_summary(self):
+        stores = {}
+        for i, name in enumerate(getattr(self, "store_names", []) or []):
+            stores[str(i)] = {
+                "name": name,
+                "linked": {"spu_count": 0, "sku_count": 0},
+                "unlinked": {"spu_count": 0, "sku_count": 0},
+                "total": {"spu_count": 0, "sku_count": 0},
+            }
+        return {
+            "project_id": self.active_project_id,
+            "main": {"spu_count": 0, "sku_count": 0},
+            "stores": stores,
+        }
+
     def _read_analysis_snapshot(self):
         if not self.active_project_id:
             return None
@@ -179,7 +223,7 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
             try:
                 row = conn.execute(
                     """
-                    SELECT statistics_json, market_analysis_json
+                    SELECT statistics_json, market_analysis_json, workbench_summary_json
                     FROM project_analysis_snapshots
                     WHERE project_id = ? AND version = ? AND status = 'ready'
                     """,
@@ -193,6 +237,7 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
             return {
                 "statistics": json.loads(row[0] or "{}"),
                 "market_analysis": json.loads(row[1] or "{}"),
+                "workbench_summary": json.loads(row[2] or "{}"),
             }
         except Exception:
             return None
@@ -217,15 +262,19 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
         try:
             statistics = self._compute_statistics()
             market_analysis = self._compute_market_analysis()
+            workbench_summary = self._compute_workbench_summary()
             statistics_json = json.dumps(statistics, ensure_ascii=False, separators=(",", ":"))
             market_json = json.dumps(market_analysis, ensure_ascii=False, separators=(",", ":"))
+            workbench_json = json.dumps(workbench_summary, ensure_ascii=False, separators=(",", ":"))
             status = "ready"
             error_message = ""
         except Exception as exc:
             statistics = self._snapshot_empty_statistics()
             market_analysis = self._snapshot_empty_market_analysis()
+            workbench_summary = self._snapshot_empty_workbench_summary()
             statistics_json = json.dumps(statistics, ensure_ascii=False, separators=(",", ":"))
             market_json = json.dumps(market_analysis, ensure_ascii=False, separators=(",", ":"))
+            workbench_json = json.dumps(workbench_summary, ensure_ascii=False, separators=(",", ":"))
             status = "error"
             error_message = str(exc)
 
@@ -236,11 +285,12 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
                     conn.execute(
                         """
                         INSERT INTO project_analysis_snapshots
-                            (project_id, statistics_json, market_analysis_json, computed_at, version, status, error_message)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                            (project_id, statistics_json, market_analysis_json, workbench_summary_json, computed_at, version, status, error_message)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(project_id) DO UPDATE SET
                             statistics_json = excluded.statistics_json,
                             market_analysis_json = excluded.market_analysis_json,
+                            workbench_summary_json = excluded.workbench_summary_json,
                             computed_at = excluded.computed_at,
                             version = excluded.version,
                             status = excluded.status,
@@ -250,6 +300,7 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
                             self.active_project_id,
                             statistics_json,
                             market_json,
+                            workbench_json,
                             computed_at,
                             self.ANALYSIS_SNAPSHOT_VERSION,
                             status,
@@ -260,7 +311,7 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
                 conn.close()
         if status != "ready":
             raise RuntimeError(error_message)
-        return {"statistics": statistics, "market_analysis": market_analysis}
+        return {"statistics": statistics, "market_analysis": market_analysis, "workbench_summary": workbench_summary}
 
     def get_statistics(self, refresh=False):
         if not self.active_project_id:
@@ -277,6 +328,190 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
         if snapshot:
             return snapshot["market_analysis"]
         return self.rebuild_analysis_snapshot()["market_analysis"]
+
+    def get_workbench_summary(self, refresh=False):
+        if not self.active_project_id:
+            return self._snapshot_empty_workbench_summary()
+        snapshot = None if refresh else self._read_analysis_snapshot()
+        if snapshot:
+            return snapshot.get("workbench_summary") or self._snapshot_empty_workbench_summary()
+        return self.rebuild_analysis_snapshot()["workbench_summary"]
+
+    def _compute_workbench_summary(self):
+        """Project-level counts used by the workbench header; kept out of page queries."""
+        if not self.active_project_id:
+            return self._snapshot_empty_workbench_summary()
+
+        def _count_pack(row):
+            if not row:
+                return {"spu_count": 0, "sku_count": 0}
+            return {"spu_count": int(row[0] or 0), "sku_count": int(row[1] or 0)}
+
+        with self._db_lock:
+            conn = self._get_conn()
+            try:
+                main = _count_pack(conn.execute(
+                    """
+                    SELECT
+                        COUNT(DISTINCT NULLIF(TRIM(商品名称), '')) AS spu_count,
+                        COUNT(*) AS sku_count
+                    FROM main_products
+                    WHERE project_id = ?
+                    """,
+                    (self.active_project_id,),
+                ).fetchone())
+
+                stores = {}
+                for i, name in enumerate(getattr(self, "store_names", []) or []):
+                    sid = str(i)
+                    total = _count_pack(conn.execute(
+                        """
+                        SELECT
+                            COUNT(DISTINCT NULLIF(TRIM(商品名称), '')) AS spu_count,
+                            COUNT(DISTINCT NULLIF(TRIM(skuId), '')) AS sku_count
+                        FROM comp_products
+                        WHERE project_id = ? AND store_id = ?
+                        """,
+                        (self.active_project_id, sid),
+                    ).fetchone())
+                    linked = _count_pack(conn.execute(
+                        """
+                        SELECT
+                            COUNT(DISTINCT NULLIF(TRIM(cp.商品名称), '')) AS spu_count,
+                            COUNT(DISTINCT NULLIF(TRIM(pl.comp_sku_id), '')) AS sku_count
+                        FROM product_links pl
+                        LEFT JOIN comp_products cp
+                          ON cp.project_id = pl.project_id
+                         AND cp.store_id = pl.store_id
+                         AND cp.skuId = pl.comp_sku_id
+                        WHERE pl.project_id = ? AND pl.store_id = ?
+                        """,
+                        (self.active_project_id, sid),
+                    ).fetchone())
+                    unlinked = _count_pack(conn.execute(
+                        """
+                        SELECT
+                            COUNT(DISTINCT NULLIF(TRIM(cp.商品名称), '')) AS spu_count,
+                            COUNT(DISTINCT NULLIF(TRIM(cp.skuId), '')) AS sku_count
+                        FROM comp_products cp
+                        WHERE cp.project_id = ? AND cp.store_id = ?
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM product_links pl
+                              WHERE pl.project_id = cp.project_id
+                                AND pl.store_id = cp.store_id
+                                AND pl.comp_sku_id = cp.skuId
+                          )
+                        """,
+                        (self.active_project_id, sid),
+                    ).fetchone())
+                    stores[sid] = {
+                        "name": name,
+                        "linked": linked,
+                        "unlinked": unlinked,
+                        "total": total,
+                    }
+            finally:
+                conn.close()
+
+        return {
+            "project_id": self.active_project_id,
+            "main": main,
+            "stores": stores,
+        }
+
+    def refresh_workbench_summary_snapshot(self):
+        if not self.active_project_id:
+            return self._snapshot_empty_workbench_summary()
+        summary = self._compute_workbench_summary()
+        summary_json = json.dumps(summary, ensure_ascii=False, separators=(",", ":"))
+        computed_at = __import__("time").strftime("%Y-%m-%d %H:%M:%S")
+        with self._db_lock:
+            conn = self._get_conn()
+            try:
+                with conn:
+                    conn.execute(
+                        """
+                        UPDATE project_analysis_snapshots
+                        SET workbench_summary_json = ?,
+                            computed_at = ?,
+                            version = ?,
+                            status = 'ready',
+                            error_message = ''
+                        WHERE project_id = ?
+                        """,
+                        (summary_json, computed_at, self.ANALYSIS_SNAPSHOT_VERSION, self.active_project_id),
+                    )
+            finally:
+                conn.close()
+        return summary
+
+    def get_statistics_page(
+        self,
+        refresh=False,
+        tab_id="main",
+        page=1,
+        limit=20,
+        search="",
+        sort_key="",
+        sort_order="desc",
+    ):
+        data = self.get_statistics(refresh=refresh)
+        tabs = data.get("tabs") or []
+        if not tabs:
+            return data
+        tab_id = str(tab_id or "main")
+        active = next((tab for tab in tabs if str(tab.get("id")) == tab_id), tabs[0])
+        items = list(active.get("items") or [])
+        q = str(search or "").strip().lower()
+        if q:
+            items = [item for item in items if q in str(item.get("category") or "").lower()]
+
+        sort_key = str(sort_key or "").strip()
+        if sort_key:
+            reverse = str(sort_order or "desc").lower() != "asc"
+
+            def _sort_value(item):
+                try:
+                    return float(((item.get("summary") or {}).get(sort_key) or {}).get("avg_diff") or 0)
+                except (TypeError, ValueError):
+                    return 0.0
+
+            items = sorted(items, key=lambda item: (_sort_value(item), str(item.get("category") or "")), reverse=reverse)
+
+        total = len(items)
+        limit = max(1, min(int(limit or 20), 100))
+        pages = max(1, (total + limit - 1) // limit)
+        page = min(max(1, int(page or 1)), pages)
+        start = (page - 1) * limit
+        page_items = items[start:start + limit]
+
+        slim_tabs = []
+        main_categories = []
+        for tab in tabs:
+            tab_items = tab.get("items") or []
+            if tab.get("source_type") == "main":
+                main_categories = [item.get("category") for item in tab_items if item.get("category")]
+            slim = {k: v for k, v in tab.items() if k != "items"}
+            slim["item_count"] = len(tab_items)
+            slim["items"] = page_items if str(tab.get("id")) == str(active.get("id")) else []
+            slim_tabs.append(slim)
+
+        result = {
+            **{k: v for k, v in data.items() if k not in ("items", "tabs")},
+            "items": page_items if active.get("source_type") == "main" else [],
+            "tabs": slim_tabs,
+            "active_tab_id": active.get("id"),
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "pages": pages,
+            "search": search or "",
+            "sort_key": sort_key,
+            "sort_order": sort_order or "desc",
+            "main_categories": main_categories,
+        }
+        return result
 
     def _compute_market_analysis(self):
         if not self.active_project_id:
@@ -585,14 +820,19 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
                     (item.get("summary") or {}).get("sales_amount", {}).get("industry_avg", 0)
                     for item in items
                 )
+            competitor_total_sales_amount = {}
+            for item in items:
+                for comp in item.get("competitors", []):
+                    sid = str(comp.get("store_id") or "")
+                    if not sid:
+                        continue
+                    competitor_total_sales_amount[sid] = competitor_total_sales_amount.get(sid, 0.0) + (
+                        (comp.get("metrics") or {}).get("sales_amount", 0)
+                    )
 
             for item in items:
                 summary = item.get("summary") or {}
                 sales_amount = summary.get("sales_amount") or {}
-                category_sales_amount_total = sales_amount.get("main", 0) + sum(
-                    ((comp.get("metrics") or {}).get("sales_amount", 0))
-                    for comp in item.get("competitors", [])
-                )
                 subject_contribution = (
                     sales_amount.get("main", 0) / total_subject_sales_amount * 100
                     if total_subject_sales_amount else 0
@@ -608,9 +848,11 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
                 }
                 for comp in item.get("competitors", []):
                     metrics = comp.get("metrics") or {}
+                    sid = str(comp.get("store_id") or "")
+                    comp_total_sales_amount = competitor_total_sales_amount.get(sid, 0.0)
                     comp_contribution = (
-                        metrics.get("sales_amount", 0) / category_sales_amount_total * 100
-                        if category_sales_amount_total else 0
+                        metrics.get("sales_amount", 0) / comp_total_sales_amount * 100
+                        if comp_total_sales_amount else 0
                     )
                     metrics["category_contribution"] = round(comp_contribution, 2)
                     comp.setdefault("main_diff", {})["category_contribution"] = round(subject_contribution - comp_contribution, 2)
@@ -663,6 +905,10 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
             unique_categories = [cat for cat in store_categories if cat and cat not in main_category_set]
             unique_items = []
             unique_totals = empty_totals()
+            store_totals = empty_totals()
+            for cat in store_categories:
+                store_df = comp_df[(comp_df.get("store_id", "") == sid) & (comp_df["__cat3"] == cat)]
+                add_totals(store_totals, self._statistics_metric_pack(store_df))
             for cat in unique_categories:
                 subject_df = comp_df[(comp_df.get("store_id", "") == sid) & (comp_df["__cat3"] == cat)]
                 subject_metrics = self._statistics_metric_pack(subject_df)
@@ -680,7 +926,7 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
                 "source_store_id": sid,
                 "source_name": store_name,
                 "items": unique_items,
-                "totals": finish_totals(unique_totals),
+                "totals": finish_totals(store_totals),
             })
 
         return {
@@ -723,7 +969,7 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
             st_df = comp_df[comp_df['store_id'] == prefix].copy() if not comp_df.empty else pd.DataFrame()
             if not st_df.empty:
                 # Keep competitor product fields only; remove aux columns to avoid _x/_y suffix noise.
-                st_df.drop(columns=['store_id', 'project_id', 'is_new_add'], inplace=True, errors='ignore')
+                st_df.drop(columns=['store_id', 'project_id', 'is_new_add', 'is_ignored'], inplace=True, errors='ignore')
             self.store_dfs[prefix] = {"name": store_name, "df": st_df}
 
         if self.main_df is None: self.grid_df = pd.DataFrame(); return
@@ -822,6 +1068,57 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
         tmp['__eliminated'] = eliminated_mask.reindex(tmp.index).fillna(False).astype(bool)
         return int(tmp.groupby('商品名称')['__eliminated'].all().sum())
 
+    def _linked_store_stats_from_grid_df(self, df):
+        """当前关联页筛选结果中，各竞店已关联商品的去重 SPU/SKU 数。"""
+        stats = {str(i): {"spu_count": 0, "sku_count": 0} for i in range(len(self.store_names))}
+        if df is None or df.empty:
+            return stats
+        main_skus = (
+            df.get("skuId", pd.Series(dtype=str))
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+        main_skus = [s for s in main_skus.unique().tolist() if s and s.lower() not in ("nan", "none")]
+        if not main_skus:
+            return stats
+        stat_sets = {sid: {"spu": set(), "sku": set()} for sid in stats}
+        with self._db_lock:
+            conn = self._get_conn()
+            try:
+                for start in range(0, len(main_skus), 800):
+                    chunk = main_skus[start:start + 800]
+                    placeholders = ",".join(["?"] * len(chunk))
+                    rows = conn.execute(
+                        f"""
+                        SELECT pl.store_id, pl.comp_sku_id, cp.商品名称
+                        FROM product_links pl
+                        LEFT JOIN comp_products cp
+                          ON cp.project_id = pl.project_id
+                         AND cp.store_id = pl.store_id
+                         AND cp.skuId = pl.comp_sku_id
+                        WHERE pl.project_id = ?
+                          AND pl.main_sku_id IN ({placeholders})
+                        """,
+                        [self.active_project_id] + chunk,
+                    ).fetchall()
+                    for store_id, comp_sku, name in rows:
+                        sid = str(store_id)
+                        if sid not in stat_sets:
+                            continue
+                        sku = str(comp_sku or "").strip()
+                        if sku and sku.lower() not in ("nan", "none"):
+                            stat_sets[sid]["sku"].add(sku)
+                        nm = str(name or "").strip()
+                        if nm and nm.lower() != "nan":
+                            stat_sets[sid]["spu"].add(nm)
+            finally:
+                conn.close()
+        return {
+            sid: {"spu_count": len(v["spu"]), "sku_count": len(v["sku"])}
+            for sid, v in stat_sets.items()
+        }
+
     def get_grid_data(self):
         if self.grid_df is None or self.grid_df.empty: return {"items": [], "total": 0}
         # Backward compatibility for old calls, but returning paginated for safety
@@ -859,18 +1156,20 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
     def get_paginated_grid(self, page=1, limit=50, search="", mode="all", filters_json=None,
                            sort_field="", sort_order="desc", negative_sales_only=False):
         if self.grid_df is None or self.grid_df.empty:
+            summary = self.get_workbench_summary()
             return {
                 "items": [], "total": 0, "page": page, "pages": 0,
                 "sku_count": 0, "sku_eliminated_count": 0,
                 "spu_count": 0, "spu_eliminated_count": 0,
+                "store_stats": {sid: (store.get("linked") or {}) for sid, store in (summary.get("stores") or {}).items()},
             }
 
         df = self.grid_df.copy()
 
         # 1. Search Filter
-        if search:
-            search = str(search).lower()
-            mask = df.apply(lambda row: any(search in str(v).lower() for v in row), axis=1)
+        search_tokens = self._search_tokens(search)
+        if search_tokens:
+            mask = df.apply(lambda row: self._row_matches_search_tokens(row, search_tokens), axis=1)
             df = df[mask]
 
         # 2. Mode Filter
@@ -943,6 +1242,7 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
         end = start + limit
 
         items = df.iloc[start:end].fillna("").to_dict(orient='records')
+        summary = self.get_workbench_summary()
 
         return {
             "items": items,
@@ -954,6 +1254,7 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
             "sku_eliminated_count": int(eliminated_mask.sum()),
             "spu_count": self._spu_count_from_grid_df(df),
             "spu_eliminated_count": self._fully_eliminated_spu_count(df, eliminated_mask),
+            "store_stats": {sid: (store.get("linked") or {}) for sid, store in (summary.get("stores") or {}).items()},
         }
 
     def get_store_products(self, store_id):
@@ -993,16 +1294,15 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
         if not self.active_project_id:
             return {"items": [], "total": 0, "page": page, "limit": limit, "pages": 0}
         page = max(1, int(page))
-        like = f"%{search.strip()}%" if search else None
-        has_search = like is not None
+        search_tokens = self._search_tokens(search)
+        has_search = bool(search_tokens)
         if not has_search:
             limit = max(1, min(int(limit), 100))
         offset = (page - 1) * limit
         where = ["project_id = ?"]
         params = [self.active_project_id]
-        if like:
-            where.append("(skuId LIKE ? OR 商品名称 LIKE ? OR 规格名称 LIKE ?)")
-            params.extend([like, like, like])
+        if search_tokens:
+            self._add_search_token_clauses(where, params, ["skuId", "商品名称", "规格名称"], search_tokens)
         where_sql = " AND ".join(where)
         with self._db_lock:
             conn = self._get_conn()
@@ -1010,9 +1310,18 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
                 total = conn.execute(f"SELECT COUNT(*) FROM main_products WHERE {where_sql}", tuple(params)).fetchone()[0]
                 limit_clause = "" if has_search else "LIMIT ? OFFSET ?"
                 query_params = tuple(params) if has_search else tuple(params + [limit, offset])
+                existing_cols = {
+                    str(row[1])
+                    for row in conn.execute("PRAGMA table_info(main_products)").fetchall()
+                }
+                optional_cols = [c for c in ("采购价", "库存") if c in existing_cols]
+                select_cols = [
+                    "skuId", "商品名称", "规格名称", "主图链接", "活动价", "原价",
+                    "销售", "美团类目三级", "_row_orig_idx",
+                ] + optional_cols
                 df = pd.read_sql(
                     f"""
-                    SELECT skuId, 商品名称, 规格名称, 主图链接, 活动价, 原价, 销售, 美团类目三级, _row_orig_idx
+                    SELECT {", ".join(select_cols)}
                     FROM main_products
                     WHERE {where_sql}
                     ORDER BY CAST(COALESCE(NULLIF(销售, ''), '0') AS REAL) DESC, _row_orig_idx ASC
@@ -1033,6 +1342,9 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
                 )
             finally:
                 conn.close()
+        for optional in ("采购价", "库存"):
+            if optional not in df.columns:
+                df[optional] = ""
         if not df.empty:
             link_map = {str(r["main_sku_id"]): int(r["cnt"]) for _, r in link_cnt.iterrows()} if not link_cnt.empty else {}
             df["__linked_count"] = df["skuId"].astype(str).map(lambda x: link_map.get(x, 0))

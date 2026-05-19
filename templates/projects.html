@@ -328,6 +328,51 @@
             border: 1px solid #fde68a;
         }
 
+        .project-card.card-creating {
+            border-color: #fbbf24;
+            background: rgba(255, 255, 255, 0.78);
+            cursor: default;
+        }
+        .project-card.card-creating:hover {
+            transform: translateY(-3px);
+            border-color: #fbbf24;
+            box-shadow: 0 14px 34px rgba(251, 191, 36, 0.14);
+        }
+
+        .card-loading-body {
+            flex: 1;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            min-height: 76px;
+        }
+
+        .card-progress-track {
+            width: 74%;
+            height: 6px;
+            border-radius: 999px;
+            background: #f1f5f9;
+            overflow: hidden;
+            margin-top: 4px;
+        }
+
+        .card-progress-fill {
+            height: 100%;
+            width: 40%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, var(--primary-accent), #f59e0b);
+            animation: cardProgressWait 1.35s ease-in-out infinite;
+        }
+
+        @keyframes cardProgressWait {
+            0% { transform: translateX(-110%); }
+            55% { transform: translateX(60%); }
+            100% { transform: translateX(190%); }
+        }
+
         .project-card.card-failed {
             border-color: #fca5a5;
             background: rgba(254, 242, 242, 0.7);
@@ -856,6 +901,7 @@
         let _pollTimer = null;
         let _hasAnalyzing = false;
         let _analyzingIds = new Set();
+        let _pendingCreates = new Map();
         let _projectListHot = false;
 
         function getProjectList() {
@@ -933,6 +979,16 @@
             }
         }
 
+        function escHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, ch => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            }[ch]));
+        }
+
         function notifyAnalysisComplete(name, success) {
             if ('Notification' in window && Notification.permission === 'granted') {
                 new Notification(success ? '分析完成' : '分析失败', {
@@ -961,6 +1017,72 @@
 
         function stopPolling() {
             if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+        }
+
+        function renderPendingCreateCard(pending) {
+            const card = document.createElement('div');
+            card.className = 'project-card card-creating';
+            card.setAttribute('aria-busy', 'true');
+            card.innerHTML = `
+                <div class="project-name" title="${escHtml(pending.name)}">${escHtml(pending.name)}</div>
+                <div class="card-loading-body">
+                    <div class="card-spinner" style="width:22px; height:22px; border-width:2.5px;"></div>
+                    <div class="card-status-text analyzing">项目创建中...</div>
+                    <div style="font-size:11px; color:#94a3b8; font-weight:600;">正在上传并导入数据</div>
+                    <div class="card-progress-track"><div class="card-progress-fill"></div></div>
+                </div>
+                <div class="card-actions">
+                    <button class="btn-card btn-progress" disabled style="opacity:.72; cursor:wait;">请稍候</button>
+                </div>
+            `;
+            return card;
+        }
+
+        function prependPendingCreate(name) {
+            const id = `pending-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            _pendingCreates.set(id, { id, name: name || '新项目', createdAt: Date.now() });
+            renderProjectListCache();
+            const list = getProjectList();
+            if (list) list.scrollTo({ left: 0, behavior: 'smooth' });
+            return id;
+        }
+
+        function removePendingCreate(id) {
+            if (!id) return;
+            _pendingCreates.delete(id);
+            renderProjectListCache();
+        }
+
+        let _lastProjects = [];
+
+        function renderProjectListCache(projects = _lastProjects) {
+            _lastProjects = Array.isArray(projects) ? projects : [];
+            const list = document.getElementById('project-list');
+            if (!list) return;
+            list.innerHTML = '';
+
+            _pendingCreates.forEach(p => list.appendChild(renderPendingCreateCard(p)));
+
+            _lastProjects.forEach(p => {
+                list.appendChild(renderCard(p));
+                const s = p.status || 'ready';
+                if (_analyzingIds.has(p.id) && s !== 'analyzing') {
+                    _analyzingIds.delete(p.id);
+                    notifyAnalysisComplete(p.name, s === 'ready');
+                    showToast(s === 'ready' ? `项目「${p.name}」分析完成` : `项目「${p.name}」分析失败`);
+                }
+                if (s === 'analyzing') _analyzingIds.add(p.id);
+            });
+
+            const addCard = document.createElement('div');
+            addCard.className = 'project-card new-card';
+            addCard.onclick = openModal;
+            addCard.innerHTML = `<div class="plus-icon">+</div>`;
+            list.appendChild(addCard);
+
+            const totalCards = _pendingCreates.size + _lastProjects.length + 1;
+            list.classList.toggle('grid-centered', totalCards <= 3);
+            requestAnimationFrame(updateProjectScrollButtons);
         }
 
         function renderCard(p) {
@@ -1031,29 +1153,7 @@
             try {
                 const resp = await fetch('/api/projects');
                 const projects = await resp.json();
-                const list = document.getElementById('project-list');
-                list.innerHTML = '';
-
-                projects.forEach(p => {
-                    list.appendChild(renderCard(p));
-                    const s = p.status || 'ready';
-                    if (_analyzingIds.has(p.id) && s !== 'analyzing') {
-                        _analyzingIds.delete(p.id);
-                        notifyAnalysisComplete(p.name, s === 'ready');
-                        showToast(s === 'ready' ? `项目「${p.name}」分析完成` : `项目「${p.name}」分析失败`);
-                    }
-                    if (s === 'analyzing') _analyzingIds.add(p.id);
-                });
-
-                const addCard = document.createElement('div');
-                addCard.className = 'project-card new-card';
-                addCard.onclick = openModal;
-                addCard.innerHTML = `<div class="plus-icon">+</div>`;
-                list.appendChild(addCard);
-
-                const totalCards = projects.length + 1;
-                list.classList.toggle('grid-centered', totalCards <= 3);
-                requestAnimationFrame(updateProjectScrollButtons);
+                renderProjectListCache(projects);
 
                 updateWarningBanner(projects);
 
@@ -1118,12 +1218,16 @@
             submitBtn.style.opacity = '0.5';
 
             const formData = new FormData(e.target);
+            const projectName = (formData.get('name') || '').toString().trim() || '新项目';
             closeModal();
+            const pendingId = prependPendingCreate(projectName);
+            showToast('项目已加入列表，正在创建...');
 
             try {
                 const resp = await fetch('/api/projects', { method: 'POST', body: formData });
                 const res = await resp.json();
                 if (res.status === 'success') {
+                    _pendingCreates.delete(pendingId);
                     e.target.reset();
                     showToast('项目创建完成');
                     await loadProjects();
@@ -1131,9 +1235,11 @@
                     if (list) list.scrollTo({ left: 0, behavior: 'smooth' });
                     return;
                 } else {
+                    removePendingCreate(pendingId);
                     alert('错误: ' + res.message);
                 }
             } catch (err) {
+                removePendingCreate(pendingId);
                 alert('请求失败');
             } finally {
                 submitBtn.disabled = false;

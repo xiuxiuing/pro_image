@@ -19,7 +19,7 @@ FIELD_MAPPINGS = build_field_mappings()
 CORE_MAIN_COLUMNS = [
     'project_id', 'skuId', '_row_orig_idx', '商品名称', '规格名称', '原价', '活动价', '销售', 
     '主图链接', '商品条码', 'SPUID', '美团类目一级', '美团类目二级', '美团类目三级', '采购价', '采购单价', '采购链接',
-    'A单件净含量', 'A售卖数量', 'A包装单位', 'A颜色', 'A尺寸', 'A型号',
+    '库存', 'A单件净含量', 'A售卖数量', 'A包装单位', 'A颜色', 'A尺寸', 'A型号',
     '淘汰标记', '是否淘汰', '新活动价', '新售价', '跟价店', '现价毛利', '跟价毛利'
 ]
 
@@ -27,7 +27,7 @@ CORE_COMP_COLUMNS = [
     'project_id', 'store_id', 'skuId', '商品名称', '规格名称', '原价', '活动价', '销售', 
     '主图链接', '商品条码', 'SPUID', '美团类目一级', '美团类目二级', '美团类目三级',
     'A单件净含量', 'A售卖数量', 'A包装单位', 'A颜色', 'A尺寸', 'A型号',
-    'is_new_add',
+    'is_new_add', 'is_ignored',
 ]
 
 MAPPING_VERSION = "3.3"  # 3.3: 兼容更多三级类目字段别名
@@ -238,6 +238,7 @@ class DataManagerBase:
                             project_id INTEGER PRIMARY KEY,
                             statistics_json TEXT NOT NULL DEFAULT '{}',
                             market_analysis_json TEXT NOT NULL DEFAULT '{}',
+                            workbench_summary_json TEXT NOT NULL DEFAULT '{}',
                             computed_at TEXT,
                             version TEXT DEFAULT '',
                             status TEXT DEFAULT 'ready',
@@ -245,6 +246,10 @@ class DataManagerBase:
                         )
                         """
                     )
+                    cursor = conn.execute("PRAGMA table_info(project_analysis_snapshots)")
+                    snapshot_cols = [c[1] for c in cursor.fetchall()]
+                    if "workbench_summary_json" not in snapshot_cols:
+                        conn.execute("ALTER TABLE project_analysis_snapshots ADD COLUMN workbench_summary_json TEXT NOT NULL DEFAULT '{}'")
                     
                     # Core Data Tables (with project_id awareness)
                     self._ensure_main_products_identity_schema(conn)
@@ -335,6 +340,7 @@ class DataManagerBase:
                     # Performance indexes for unlinked-pool / grid queries
                     conn.execute("CREATE INDEX IF NOT EXISTS idx_product_links_lookup ON product_links(project_id, store_id, comp_sku_id)")
                     conn.execute("CREATE INDEX IF NOT EXISTS idx_comp_products_store ON comp_products(project_id, store_id)")
+                    conn.execute("CREATE INDEX IF NOT EXISTS idx_comp_products_lookup ON comp_products(project_id, store_id, skuId)")
                     conn.execute("CREATE INDEX IF NOT EXISTS idx_product_links_main ON product_links(project_id, main_sku_id)")
 
                     # Initialize default project if none exist
