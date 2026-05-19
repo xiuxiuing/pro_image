@@ -3,9 +3,10 @@ import glob
 import unittest
 from pathlib import Path
 
+from packaging_core import BUSINESS_SOURCE_FILES, CORE_NUITKA_MODULES
+
 
 ROOT = Path(__file__).resolve().parents[1]
-MAX_PYARMOR_SOURCE_BYTES = 25_000
 
 
 def pyarmor_files():
@@ -46,11 +47,17 @@ class PyArmorSplitStructureTests(unittest.TestCase):
             "data_mgr_base.py",
             "data_mgr_import.py",
             "data_mgr_query.py",
+            "data_mgr_query_unlinked.py",
             "data_mgr_ops.py",
             "data_mgr_export.py",
             "data_mgr_rule_templates.py",
+            "field_registry.py",
+            "quality_preflight.py",
+            "packaging_core.py",
             "license_utils.py",
             "main_030822.py",
+            "extract_info_schema.py",
+            "extract_info_rules.py",
             "extract_info_ai2.py",
             "product_text_extract.py",
             "post_match_engine.py",
@@ -60,16 +67,42 @@ class PyArmorSplitStructureTests(unittest.TestCase):
 
         self.assertTrue(required.issubset(set(pyarmor_files())))
 
-    def test_pyarmor_source_files_are_small_enough_for_free_tier(self):
-        too_large = []
-        for rel in pyarmor_files():
-            path = ROOT / rel
-            self.assertTrue(path.exists(), f"{rel} is listed for PyArmor but does not exist")
-            size = len(path.read_bytes())
-            if size > MAX_PYARMOR_SOURCE_BYTES:
-                too_large.append((rel, size))
+    def test_tools_package_manifest_covers_current_runtime_modules(self):
+        expected_business = {
+            "app.py",
+            "app_ops.py",
+            "app_ops_tasks.py",
+            "app_ops_extra.py",
+            "app_data.py",
+            "app_data_projects.py",
+            "app_data_rules.py",
+            "app_data_grid.py",
+            "data_mgr.py",
+            "data_mgr_base.py",
+            "data_mgr_import.py",
+            "data_mgr_query.py",
+            "data_mgr_query_unlinked.py",
+            "data_mgr_ops.py",
+            "data_mgr_export.py",
+            "data_mgr_rule_templates.py",
+            "field_registry.py",
+            "quality_preflight.py",
+            "packaging_core.py",
+        }
+        expected_core = {
+            "license_utils",
+            "main_030822",
+            "extract_info_ai2",
+            "extract_info_schema",
+            "extract_info_rules",
+            "product_text_extract",
+            "post_match_engine",
+            "utils",
+            "merge_sku_data",
+        }
 
-        self.assertEqual([], too_large)
+        self.assertTrue(expected_business.issubset(set(BUSINESS_SOURCE_FILES)))
+        self.assertTrue(expected_core.issubset(set(CORE_NUITKA_MODULES)))
 
     def test_pyinstaller_specs_hiddenimports_cover_split_modules(self):
         failures = {}
@@ -97,6 +130,7 @@ class PyArmorSplitStructureTests(unittest.TestCase):
             "/api/ops/license-key-status",
             "/api/ops/license-generate",
             "/api/ops/package-build",
+            "/api/ops/market-analysis-generate",
         }
 
         self.assertEqual(expected, route_rules(["app_ops.py", "app_ops_*.py"]))

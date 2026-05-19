@@ -28,7 +28,7 @@
 
 > 如果 PyArmor 许可证过期或不可用，可以**跳过本步骤**。`ProImage_macOS.spec` 会自动检测：若 `dist/obfuscated/app.py` 不存在，则回退到源码打包。
 
-### 1.1 需要混淆的业务文件（15 个）
+### 1.1 需要混淆的业务文件（28 个）
 
 | 文件 | 说明 |
 |------|------|
@@ -59,7 +59,7 @@
 > CMD 中不要使用 `\` 换行；如需换行请用 `^`，且 `^` 后不能有空格。最稳妥是直接使用下面这一行。
 
 ```bat
-pyarmor gen -O dist\obfuscated app.py app_ops.py app_ops_tasks.py app_ops_extra.py app_data.py app_data_projects.py app_data_rules.py app_data_grid.py data_mgr.py data_mgr_base.py data_mgr_import.py data_mgr_query.py data_mgr_query_unlinked.py data_mgr_ops.py data_mgr_export.py data_mgr_rule_templates.py license_utils.py main_030822.py extract_info_ai2.py extract_info_schema.py extract_info_rules.py product_text_extract.py post_match_engine.py utils.py merge_sku_data.py
+pyarmor gen -O dist\obfuscated app.py app_ops.py app_ops_tasks.py app_ops_extra.py app_data.py app_data_projects.py app_data_rules.py app_data_grid.py data_mgr.py data_mgr_base.py data_mgr_import.py data_mgr_query.py data_mgr_query_unlinked.py data_mgr_ops.py data_mgr_export.py data_mgr_rule_templates.py field_registry.py quality_preflight.py packaging_core.py license_utils.py main_030822.py extract_info_ai2.py extract_info_schema.py extract_info_rules.py product_text_extract.py post_match_engine.py utils.py merge_sku_data.py
 ```
 
 #### Windows PowerShell
@@ -70,7 +70,8 @@ $files = @(
   "app_data.py", "app_data_projects.py", "app_data_rules.py", "app_data_grid.py",
   "data_mgr.py", "data_mgr_base.py", "data_mgr_import.py", "data_mgr_query.py",
   "data_mgr_query_unlinked.py", "data_mgr_ops.py", "data_mgr_export.py",
-  "data_mgr_rule_templates.py", "license_utils.py", "main_030822.py",
+  "data_mgr_rule_templates.py", "field_registry.py", "quality_preflight.py",
+  "packaging_core.py", "license_utils.py", "main_030822.py",
   "extract_info_ai2.py", "extract_info_schema.py", "extract_info_rules.py",
   "product_text_extract.py", "post_match_engine.py", "utils.py", "merge_sku_data.py"
 )
@@ -86,14 +87,15 @@ pyarmor gen -O dist/obfuscated \
   app_data.py app_data_projects.py app_data_rules.py app_data_grid.py \
   data_mgr.py data_mgr_base.py data_mgr_import.py data_mgr_query.py \
   data_mgr_query_unlinked.py data_mgr_ops.py data_mgr_export.py \
-  data_mgr_rule_templates.py license_utils.py main_030822.py \
+  data_mgr_rule_templates.py field_registry.py quality_preflight.py \
+  packaging_core.py license_utils.py main_030822.py \
   extract_info_ai2.py extract_info_schema.py extract_info_rules.py \
   product_text_extract.py post_match_engine.py utils.py merge_sku_data.py
 ```
 
 ### 1.3 验证混淆结果
 
-> **关键步骤**：必须确认 `dist/obfuscated/` 下包含上述 **全部 25 个** `.py` 文件和 `pyarmor_runtime_*` 目录。
+> **关键步骤**：必须确认 `dist/obfuscated/` 下包含上述 **全部 28 个** `.py` 文件和 `pyarmor_runtime_*` 目录。
 > 如果有文件缺失，打包后 `.app`/`.exe` 启动会报 `ModuleNotFoundError`。
 
 ```bash
@@ -136,7 +138,7 @@ rm -rf dist/obfuscated
    python3 tools/patch_pyinstaller_site_packages.py
    ```
 2. **确认入口模式**（二选一）：
-   - **混淆模式**：`dist/obfuscated/` 下有完整的 15 个 `.py` 文件 → spec 自动使用混淆入口。
+   - **混淆模式**：`dist/obfuscated/` 下有完整的 28 个 `.py` 文件 → spec 自动使用混淆入口。
    - **源码模式**：`dist/obfuscated/` 目录不存在或已删除 → spec 自动回退到项目根目录的 `app.py`。
 3. 在项目根目录执行打包：
    ```bash
@@ -208,7 +210,7 @@ python3 keygen_tool.py sign <HWID> 30
 
 - **原因**：`dist/obfuscated/` 目录中只有部分文件（如仅 `app.py`），其他业务模块缺失。PyArmor 许可证受限时只会混淆第一个文件，而 `.spec` 检测到 `dist/obfuscated/app.py` 存在就会使用混淆模式，`pathex` 指向 `dist/obfuscated/`，导致项目根目录的其他 `.py` 文件不在搜索路径中。
 - **解决方法**：
-  1. 检查 `dist/obfuscated/` 是否包含全部 15 个 `.py` 文件。
+  1. 检查 `dist/obfuscated/` 是否包含全部 28 个 `.py` 文件。
   2. 如果不全，删除整个 `dist/obfuscated/` 目录，重新执行 `pyinstaller -y ProImage_macOS.spec`，此时 spec 会自动回退到源码模式。
 
 ### 2. 点击程序后没有反应

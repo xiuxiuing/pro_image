@@ -27,6 +27,7 @@ _build_src/
 nuitka_modules/*.build/
 nuitka_modules/*.pyi
 nuitka_modules/*.pyd
+nuitka_modules/*.so
 
 # Runtime & secrets
 venv/
