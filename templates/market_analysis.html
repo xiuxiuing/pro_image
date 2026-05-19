@@ -81,6 +81,21 @@
             font-weight: 700;
         }
 
+        .market-snapshot-status {
+            margin-top: 4px;
+            color: #64748b;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .market-snapshot-status.is-building {
+            color: #d97706;
+        }
+
+        .market-snapshot-status.is-error {
+            color: #dc2626;
+        }
+
         .top-actions {
             display: flex;
             justify-content: flex-end;
@@ -357,6 +372,7 @@
         <div class="market-title-link" onclick="location.href='/dashboard'">
             <h1 class="market-title">商圈分析</h1>
             <div class="market-project-slogan">洞察竞对态势 • 驱动价格决策 <span style="margin-left: 15px; color: #64748b; font-weight: 400;">(当前项目: <span class="market-project-name">{{ active_project }}</span>)</span></div>
+            <div class="market-snapshot-status" id="market-snapshot-status">统计状态读取中...</div>
         </div>
         <div class="top-actions">
             <button class="btn" type="button" onclick="openDownloadModal()">下载</button>
@@ -436,6 +452,7 @@
         const barChart = echarts.init(document.getElementById('barChart'));
         const donutChart = echarts.init(document.getElementById('donutChart'));
         let marketData = null;
+        let marketSnapshotTimer = null;
 
         function numberText(value) {
             const n = Number(value || 0);
@@ -473,6 +490,63 @@
             document.getElementById('diff-monthly-sales').textContent = diffText(diffs.monthly_sales_amount || 0);
             document.getElementById('diff-customer-unit').textContent = diffText(diffs.customer_unit_price || 0);
             document.getElementById('diff-gross-profit').textContent = diffText(diffs.estimated_gross_profit || 0);
+        }
+
+        function updateMarketSnapshotStatus(data) {
+            const el = document.getElementById('market-snapshot-status');
+            if (!el) return;
+            const status = data?.snapshot_status || 'missing';
+            const at = data?.snapshot_computed_at || '';
+            const msg = data?.snapshot_message || '';
+            el.classList.toggle('is-building', ['building', 'stale', 'missing'].includes(status));
+            el.classList.toggle('is-error', status === 'error');
+            if (status === 'ready') {
+                el.textContent = at ? `统计时间：${at}` : '统计数据已更新';
+            } else if (status === 'building') {
+                el.textContent = at ? `数据刷新中... 当前显示：${at}` : '数据刷新中...';
+            } else if (status === 'stale') {
+                el.textContent = at ? `数据待刷新，当前显示：${at}` : '数据待刷新';
+            } else if (status === 'error') {
+                el.textContent = msg || '数据刷新失败';
+            } else {
+                el.textContent = msg || '暂无统计快照，正在刷新...';
+            }
+        }
+
+        function maybePollMarketSnapshot(status) {
+            if (!['building', 'missing', 'stale'].includes(status || '')) {
+                if (marketSnapshotTimer) {
+                    clearTimeout(marketSnapshotTimer);
+                    marketSnapshotTimer = null;
+                }
+                return;
+            }
+            if (marketSnapshotTimer) return;
+            const poll = async () => {
+                try {
+                    const resp = await fetch(`/api/statistics/snapshot-status?t=${Date.now()}`);
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const data = await resp.json();
+                    updateMarketSnapshotStatus({
+                        snapshot_status: data.status,
+                        snapshot_computed_at: data.computed_at,
+                        snapshot_message: data.message,
+                    });
+                    if (data.status === 'ready') {
+                        marketSnapshotTimer = null;
+                        await loadMarketAnalysis();
+                        return;
+                    }
+                    if (['building', 'missing', 'stale'].includes(data.status)) {
+                        marketSnapshotTimer = setTimeout(poll, 1200);
+                        return;
+                    }
+                } catch (err) {
+                    updateMarketSnapshotStatus({ snapshot_status: 'error', snapshot_message: err.message });
+                }
+                marketSnapshotTimer = null;
+            };
+            marketSnapshotTimer = setTimeout(poll, 1200);
         }
 
         function renderBarChart() {
@@ -593,6 +667,8 @@
         async function loadMarketAnalysis() {
             const resp = await fetch('/api/market-analysis');
             marketData = await resp.json();
+            updateMarketSnapshotStatus(marketData);
+            maybePollMarketSnapshot(marketData.snapshot_status);
             renderBarChart();
             renderDonutChart();
             renderMetricCards();

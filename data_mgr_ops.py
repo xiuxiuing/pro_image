@@ -64,6 +64,7 @@ class DataManagerOpsMixin:
             finally:
                 conn.close()
         self._patch_grid_main(main_sku_id, safe_data)
+        self.invalidate_analysis_snapshot()
 
     def eliminate_product(self, main_sku_id, status):
         if not main_sku_id:
@@ -81,6 +82,7 @@ class DataManagerOpsMixin:
             finally:
                 conn.close()
         self._patch_grid_main(main_sku_id, {'淘汰标记': str(status), '是否淘汰': is_elim})
+        self.invalidate_analysis_snapshot()
         return True
 
     def toggle_handled(self, sku_id, handled=True):
@@ -98,6 +100,7 @@ class DataManagerOpsMixin:
         if self.grid_df is not None and 'skuId' in self.grid_df.columns:
             mask = self.grid_df['skuId'] == str(sku_id)
             self.grid_df.loc[mask, 'is_handled'] = val
+        self.invalidate_analysis_snapshot()
 
     def set_ref(self, sku_id, field, store_id):
         """Set or clear a reference mark. field is 'name' or 'image'. store_id='' to clear."""
@@ -154,6 +157,7 @@ class DataManagerOpsMixin:
             if ignore_str is not None:
                 updates['是否不处理'] = ignore_str
             self._patch_grid_comp(store_id, comp_sku_id, updates)
+            self.invalidate_analysis_snapshot()
         return changed
 
     def mark_as_ignored(self, store_id, comp_sku_id, is_ignored):
@@ -191,6 +195,7 @@ class DataManagerOpsMixin:
             if new_str is not None:
                 updates['是否新增'] = new_str
             self._patch_grid_comp(store_id, comp_sku_id, updates)
+            self.invalidate_analysis_snapshot()
         return changed
 
     def price_match(self, main_sku_id, store_id):
@@ -230,6 +235,7 @@ class DataManagerOpsMixin:
             finally:
                 conn.close()
         self._patch_grid_main(main_sku_id, {'新活动价': new_act, '新售价': new_orig, '跟价店': store_name})
+        self.invalidate_analysis_snapshot()
 
         def fmt(v):
             import pandas as pd
@@ -253,6 +259,7 @@ class DataManagerOpsMixin:
             finally:
                 conn.close()
         self._patch_grid_main(main_sku_id, {'新活动价': '', '新售价': '', '跟价店': ''})
+        self.invalidate_analysis_snapshot()
         return True
 
     def manual_link(self, main_sku_id, store_id, comp_sku_id):
@@ -272,6 +279,7 @@ class DataManagerOpsMixin:
                 conn.close()
         self._reconstruct_from_sqlite()
         self.refresh_workbench_summary_snapshot()
+        self.invalidate_analysis_snapshot()
         return True
 
     def unlink_product(self, main_sku_id, store_id):
@@ -289,6 +297,7 @@ class DataManagerOpsMixin:
                 conn.close()
         self._reconstruct_from_sqlite()
         self.refresh_workbench_summary_snapshot()
+        self.invalidate_analysis_snapshot()
         return True
 
     def _calculate_margins(self):

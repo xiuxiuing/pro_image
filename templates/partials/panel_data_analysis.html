@@ -52,6 +52,18 @@
         font-size: 13px;
         font-weight: 500;
     }
+    .statistics-snapshot-status {
+        margin-top: 4px;
+        color: #64748b;
+        font-size: 12px;
+        font-weight: 600;
+    }
+    .statistics-snapshot-status.is-building {
+        color: #d97706;
+    }
+    .statistics-snapshot-status.is-error {
+        color: #dc2626;
+    }
     .statistics-refresh {
         border: 1px solid #dbe3ef;
         background: #fff;
@@ -955,6 +967,7 @@
         <div class="statistics-title-link" onclick="location.href='/'">
             <h2 class="statistics-title">数据分析</h2>
             <div class="header-slogan statistics-project-slogan" style="text-transform: none;">洞察竞对态势 • 驱动价格决策 <span style="margin-left: 15px; color: var(--text-muted); font-weight: 400; text-transform: none;">(当前项目: <span style="color: var(--primary-color); font-weight: 700;">{{ active_project }}</span>)</span></div>
+            <div class="statistics-snapshot-status" id="statistics-snapshot-status">统计状态读取中...</div>
         </div>
         <div class="statistics-actions">
             <button class="statistics-refresh statistics-primary" id="statistics-enter-workbench" type="button" onclick="openWorkbenchAnalyzeModal()">进入工作台</button>
@@ -1145,6 +1158,8 @@
     let statisticsSearchTerm = "";
     let statisticsMainCategories = [];
     let statisticsSort = { key: "", order: "desc" };
+    let statisticsSnapshotTimer = null;
+    let statisticsHasRendered = false;
     let workbenchProjectId = null;
     let workbenchProgressTimer = null;
     let workbenchAnalyzeScope = "partial";
@@ -1770,6 +1785,7 @@
     }
 
     function renderStatistics(data) {
+        statisticsHasRendered = true;
         statisticsMeta = data || { main_store: "主店", stores: [] };
         statisticsTabs = (data.tabs && data.tabs.length ? data.tabs : [{
             id: "main",
@@ -1796,11 +1812,69 @@
         document.getElementById("statistics-total-sales").textContent = statisticsNumber(totals.sales || 0);
         document.getElementById("statistics-total-amount").textContent = statisticsMoney(totals.sales_amount || 0);
         document.getElementById("statistics-total-active-rate").textContent = statisticsPct(totals.active_rate || 0);
+        updateStatisticsSnapshotStatus(data);
+        maybePollStatisticsSnapshot(data?.snapshot_status);
         renderStatisticsTabs();
         syncStatisticsSubjectHeaders();
         syncWorkbenchButton(window.__workbenchConfig);
-        statisticsPage = 1;
         renderStatisticsTable();
+    }
+
+    function updateStatisticsSnapshotStatus(data) {
+        const el = document.getElementById("statistics-snapshot-status");
+        if (!el) return;
+        const status = data?.snapshot_status || "missing";
+        const at = data?.snapshot_computed_at || "";
+        const msg = data?.snapshot_message || "";
+        el.classList.toggle("is-building", status === "building" || status === "stale" || status === "missing");
+        el.classList.toggle("is-error", status === "error");
+        if (status === "ready") {
+            el.textContent = at ? `统计时间：${at}` : "统计数据已更新";
+        } else if (status === "building") {
+            el.textContent = at ? `数据刷新中... 当前显示：${at}` : "数据刷新中...";
+        } else if (status === "stale") {
+            el.textContent = at ? `数据待刷新，当前显示：${at}` : "数据待刷新";
+        } else if (status === "error") {
+            el.textContent = msg || "数据刷新失败";
+        } else {
+            el.textContent = msg || "暂无统计快照，正在刷新...";
+        }
+    }
+
+    function maybePollStatisticsSnapshot(status) {
+        if (!["building", "missing", "stale"].includes(status || "")) {
+            if (statisticsSnapshotTimer) {
+                clearTimeout(statisticsSnapshotTimer);
+                statisticsSnapshotTimer = null;
+            }
+            return;
+        }
+        if (statisticsSnapshotTimer) return;
+        const poll = async () => {
+            try {
+                const resp = await fetch(`/api/statistics/snapshot-status?t=${Date.now()}`);
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const data = await resp.json();
+                updateStatisticsSnapshotStatus({
+                    snapshot_status: data.status,
+                    snapshot_computed_at: data.computed_at,
+                    snapshot_message: data.message,
+                });
+                if (data.status === "ready") {
+                    statisticsSnapshotTimer = null;
+                    await loadStatistics(false, { keepExisting: true });
+                    return;
+                }
+                if (["building", "missing", "stale"].includes(data.status)) {
+                    statisticsSnapshotTimer = setTimeout(poll, 1200);
+                    return;
+                }
+            } catch (err) {
+                updateStatisticsSnapshotStatus({ snapshot_status: "error", snapshot_message: err.message });
+            }
+            statisticsSnapshotTimer = null;
+        };
+        statisticsSnapshotTimer = setTimeout(poll, 1200);
     }
 
     function renderStatisticsTable() {
@@ -1903,11 +1977,12 @@
         }).join("");
     }
 
-    async function loadStatistics(refresh = false) {
+    async function loadStatistics(refresh = false, options = {}) {
         const body = document.getElementById("statistics-body");
         const pager = document.getElementById("statistics-pagination");
-        if (body) body.innerHTML = '<tr><td colspan="17" class="statistics-empty">正在加载数据分析...</td></tr>';
-        if (pager) pager.innerHTML = "";
+        const keepExisting = !!options.keepExisting || (refresh && statisticsHasRendered);
+        if (!keepExisting && body) body.innerHTML = '<tr><td colspan="17" class="statistics-empty">正在加载数据分析...</td></tr>';
+        if (!keepExisting && pager) pager.innerHTML = "";
         try {
             const params = new URLSearchParams({
                 paged: "1",

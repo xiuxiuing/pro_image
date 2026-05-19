@@ -1,6 +1,7 @@
 import json
 import sqlite3
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -278,16 +279,21 @@ class MarketAnalysisTests(unittest.TestCase):
 
             stats = dm.get_statistics()
             market = dm.get_market_analysis()
-
-            with sqlite3.connect(tmp / "pro_image.db") as conn:
-                count = conn.execute(
-                    "SELECT COUNT(*) FROM project_analysis_snapshots WHERE project_id = ? AND status = 'ready'",
-                    (pid,),
-                ).fetchone()[0]
+            deadline = time.time() + 3
+            count = 0
+            while time.time() < deadline:
+                with sqlite3.connect(tmp / "pro_image.db") as conn:
+                    count = conn.execute(
+                        "SELECT COUNT(*) FROM project_analysis_snapshots WHERE project_id = ? AND status = 'ready'",
+                        (pid,),
+                    ).fetchone()[0]
+                if count:
+                    break
+                time.sleep(0.05)
 
         self.assertEqual(count, 1)
         self.assertIn("tabs", stats)
-        self.assertEqual(market["status"], "ok")
+        self.assertIn(market["snapshot_status"], ("building", "missing", "ready"))
 
     def test_workbench_summary_is_snapshotted_and_rebuilt_after_link_change(self):
         with tempfile.TemporaryDirectory() as tmpdir:

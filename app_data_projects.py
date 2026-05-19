@@ -111,7 +111,8 @@ def activate_project(pid):
         return jsonify({"status": "error", "message": "该项目正在分析中，请等待完成"}), 400
     if proj.get('status') == 'failed':
         return jsonify({"status": "error", "message": "该项目分析失败，请删除后重新创建"}), 400
-    dm.activate_project(pid)
+    dm.activate_project(pid, skip_load=True)
+    dm.ensure_analysis_snapshot_async()
     return jsonify({"status": "success"})
 
 @projects_bp.route('/api/projects/<int:pid>/preflight', methods=['POST'])
@@ -236,6 +237,7 @@ def analyze_project(pid):
             links_df = dm.parse_links_from_output(pid, output_file)
             dm.replace_project_links(pid, links_df)
         dm.update_project_status(pid, 'ready')
+        dm.ensure_analysis_snapshot_async(force=True)
         return jsonify({"status": "success", "project_id": pid, "ready": True})
 
     use_ai = request.form.get('use_ai') == 'on'
@@ -372,7 +374,8 @@ def analyze_project(pid):
                 dm.replace_project_links(pid, links_df)
             dm.update_project_status(pid, 'ready')
             try:
-                dm.activate_project(pid)
+                dm.activate_project(pid, skip_load=True)
+                dm.ensure_analysis_snapshot_async(force=True)
             except Exception:
                 traceback.print_exc()
         except BaseException:

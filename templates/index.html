@@ -589,12 +589,12 @@
 
         /* 竞店底栏：轻量图标工具条（主店底栏不变） */
         .comp-card .card-actions {
-            justify-content: space-between;
+            justify-content: space-around;
             align-items: center;
             width: 100%;
             box-sizing: border-box;
-            padding: 9px 12px;
-            gap: 8px;
+            padding: 10px 18px;
+            gap: 12px;
             flex-wrap: nowrap;
             background: rgba(255, 255, 255, 0.96);
             border-top: 1px solid #edf2f7;
@@ -603,12 +603,14 @@
         .comp-card .card-actions-group {
             display: flex;
             align-items: center;
-            gap: 8px;
+            justify-content: space-around;
+            gap: 12px;
             min-width: 0;
+            width: 100%;
         }
 
         .comp-card .card-actions-group.right {
-            margin-left: auto;
+            margin-left: 0;
         }
 
         .action-btn {
@@ -1947,6 +1949,7 @@
                 renderGrid(false);
                 renderPagination(totalItems, totalPages);
                 renderFilterPopup();
+                window.__workbenchLoaded = true;
             } catch (e) {
                 console.error("Failed to load data:", e);
                 if (loadingMsg) {
@@ -3755,6 +3758,9 @@
                 document.querySelectorAll('.app-panel').forEach((p) => {
                     p.classList.toggle('is-active', p.id === wantId);
                 });
+                if (name === 'projects' && !window.__workbenchLoaded) {
+                    loadData(true);
+                }
             }
             window.showPanel = showPanel;
         }
@@ -3762,7 +3768,6 @@
         window.addEventListener('DOMContentLoaded', () => {
             initPanelSwitcher();
             setupCopyFieldDelegation();
-            loadData();
             initImagePreview();
 
             const globalSearch = document.getElementById('globalSearch');

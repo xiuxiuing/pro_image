@@ -157,6 +157,7 @@ class PyArmorSplitStructureTests(unittest.TestCase):
             "/api/config",
             "/api/grid_data",
             "/api/statistics",
+            "/api/statistics/snapshot-status",
             "/api/market-analysis",
             "/api/statistics/products",
             "/api/statistics/export",

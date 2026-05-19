@@ -187,6 +187,7 @@ class DataManagerImportMixin:
         if self.active_project_id == project_id:
             self._reconstruct_from_sqlite()
             self.refresh_workbench_summary_snapshot()
+            self.invalidate_analysis_snapshot(project_id)
 
     def import_project_links_from_output(self, output_file, categories=None):
         """Replace product links from an output file, optionally limited to main-store category names."""

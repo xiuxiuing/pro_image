@@ -145,6 +145,10 @@ def get_statistics():
         ))
     return jsonify(dm.get_statistics(refresh=refresh))
 
+@grid_bp.route('/api/statistics/snapshot-status')
+def get_statistics_snapshot_status():
+    return jsonify({"status": "ok", **dm.get_analysis_snapshot_status()})
+
 @grid_bp.route('/api/market-analysis')
 def get_market_analysis():
     return jsonify(dm.get_market_analysis(refresh=request.args.get("refresh", "0") == "1"))
@@ -159,7 +163,7 @@ def get_statistics_products():
 
 @grid_bp.route('/api/statistics/export')
 def export_statistics():
-    data = dm.get_statistics()
+    data = dm.get_statistics(sync_missing=True)
 
     def whole(value):
         try:
