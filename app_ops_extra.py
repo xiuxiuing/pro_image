@@ -7,9 +7,17 @@ import traceback
 import json
 import platform
 import datetime
-import glob
 from flask import Blueprint, request, jsonify
-from packaging_core import BUSINESS_SOURCE_FILES, CORE_NUITKA_MODULES, REQUIRED_MODEL_FILES, RESOURCE_DIRS
+from packaging_core import (
+    BUSINESS_SOURCE_FILES,
+    CORE_NUITKA_MODULES,
+    REQUIRED_MODEL_FILES,
+    RESOURCE_DIRS,
+    cleanup_packaging_intermediates,
+    compiled_module_glob,
+    nuitka_abi_markers,
+    purge_stale_nuitka_modules,
+)
 
 # These will be initialized by app_ops.py or app.py
 ops_context = {}
@@ -24,14 +32,6 @@ def _copytree_fresh(src, dst):
     if os.path.exists(dst):
         shutil.rmtree(dst)
     shutil.copytree(src, dst)
-
-def _compiled_module_glob(root, module, target):
-    suffixes = (".pyd",) if target == "windows" else (".so",)
-    patterns = [os.path.join(root, f"{module}*{suffix}") for suffix in suffixes]
-    matches = []
-    for pat in patterns:
-        matches.extend(glob.glob(pat))
-    return sorted(matches)
 
 def _missing_model_resources(root):
     missing = []
@@ -74,9 +74,11 @@ def _prepare_nuitka_build_src(root, target):
     _copytree_fresh(os.path.join(root, "models"), os.path.join(build_src, "models"))
     modules_dir = os.path.join(root, "nuitka_modules")
     for mod in CORE_NUITKA_MODULES:
-        matches = _compiled_module_glob(modules_dir, mod, target)
+        matches = compiled_module_glob(modules_dir, mod, target)
         if not matches:
-            raise RuntimeError(f"缺少核心编译产物：{mod}")
+            raise RuntimeError(
+                f"缺少与当前 Python 匹配的核心编译产物：{mod}（需要包含 {', '.join(nuitka_abi_markers())}）"
+            )
         shutil.copy2(matches[-1], build_src)
     return build_src
 
@@ -100,6 +102,10 @@ def _verify_nuitka_artifact(target, artifact):
             full = os.path.join(dirpath, fn)
             artifact_paths.add(os.path.relpath(full, artifact).replace("\\", "/"))
             if stem in CORE_NUITKA_MODULES and fn.endswith((".pyd", ".so")):
+                if not any(marker in fn for marker in nuitka_abi_markers()):
+                    raise RuntimeError(
+                        f"产物中的核心模块 ABI 不匹配当前 Python：{fn}（需要 {', '.join(nuitka_abi_markers())}）"
+                    )
                 found[stem] = full
             rel = os.path.relpath(full, artifact).replace("\\", "/")
             if rel in own_core_py:
@@ -214,6 +220,14 @@ def api_ops_package_build():
 
             modules_dir = os.path.join(ops_context["resource_root"], "nuitka_modules")
             os.makedirs(modules_dir, exist_ok=True)
+            removed = purge_stale_nuitka_modules(modules_dir)
+            if removed:
+                ops_context["update_step"](
+                    task_id,
+                    1,
+                    "running",
+                    f"已清理 {removed} 个旧版本核心模块（ABI 与当前 Python 不一致）",
+                )
             for mod in CORE_NUITKA_MODULES:
                 src = f"{mod}.py"
                 if not os.path.isfile(os.path.join(ops_context["resource_root"], src)):
@@ -245,7 +259,11 @@ def api_ops_package_build():
             zip_path = os.path.join(task_dir, zip_name)
             ops_context["update_step"](task_id, 5, "running", "压缩产物")
             ops_context["zip_path"](artifact, zip_path)
-            ops_context["update_step"](task_id, 5, "done", "完成")
+            cleaned = cleanup_packaging_intermediates(
+                ops_context["resource_root"], spec, artifact_path=artifact
+            )
+            cleanup_note = "、".join(cleaned) if cleaned else "无额外临时目录"
+            ops_context["update_step"](task_id, 5, "done", f"完成；已清理 {cleanup_note}")
             ops_context["set_task"](
                 task_id,
                 status="done",

@@ -933,10 +933,11 @@
     .workbench-message.error { color: #dc2626; }
     .quality-report-card {
         display: none;
+        position: relative;
         margin: 0 0 14px;
         border: 1px solid #dbe3ef;
         border-radius: 8px;
-        padding: 10px 12px;
+        padding: 10px 36px 10px 12px;
         background: #f8fafc;
         color: #334155;
         font-size: 13px;
@@ -945,6 +946,22 @@
     }
     .quality-report-card.open { display: block; }
     .quality-report-card.warn { border-color: #fbbf24; background: #fffbeb; color: #92400e; }
+    .quality-report-close {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        width: 24px;
+        height: 24px;
+        border: none;
+        border-radius: 6px;
+        background: transparent;
+        color: inherit;
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+        opacity: 0.65;
+    }
+    .quality-report-close:hover { opacity: 1; background: rgba(15, 23, 42, 0.06); }
     @media (max-width: 720px) {
         .statistics-panel { padding: 16px; }
         .statistics-head {
@@ -978,7 +995,10 @@
         </div>
     </div>
 
-    <div class="quality-report-card" id="quality-report-card"></div>
+    <div class="quality-report-card" id="quality-report-card">
+        <button class="quality-report-close" id="quality-report-close" type="button" aria-label="关闭" title="关闭" onclick="dismissQualityReport()">&times;</button>
+        <div id="quality-report-body"></div>
+    </div>
 
     <div class="statistics-toolbar">
         <div class="statistics-filter-stack">
@@ -1629,6 +1649,37 @@
         }
     }
 
+    function qualityReportSeenKey(pid) {
+        return `proimage_quality_report_seen_${pid}`;
+    }
+
+    function qualityReportPendingKey(pid) {
+        return `proimage_quality_report_pending_${pid}`;
+    }
+
+    function markQualityReportPending(pid) {
+        if (!pid || localStorage.getItem(qualityReportSeenKey(pid))) return;
+        sessionStorage.setItem(qualityReportPendingKey(pid), "1");
+    }
+
+    function hideQualityReportCard() {
+        const card = document.getElementById("quality-report-card");
+        const body = document.getElementById("quality-report-body");
+        if (!card) return;
+        card.classList.remove("open", "warn");
+        if (body) body.textContent = "";
+    }
+
+    function dismissQualityReport() {
+        const cfg = window.__workbenchConfig || {};
+        const pid = cfg.project_id;
+        if (pid) {
+            sessionStorage.removeItem(qualityReportPendingKey(pid));
+            localStorage.setItem(qualityReportSeenKey(pid), "1");
+        }
+        hideQualityReportCard();
+    }
+
     async function finishWorkbenchAnalyze() {
         if (workbenchProgressTimer) {
             clearInterval(workbenchProgressTimer);
@@ -1639,6 +1690,8 @@
         currentPage = 1;
         window.__workbenchConfig = null;
         await getWorkbenchConfig(true).catch(() => {});
+        const cfg = window.__workbenchConfig || {};
+        markQualityReportPending(cfg.project_id);
         await loadStatistics().catch(() => {});
         await loadQualityReport().catch(() => {});
         await loadData(true);
@@ -1649,13 +1702,21 @@
 
     async function loadQualityReport() {
         const card = document.getElementById("quality-report-card");
-        if (!card) return;
+        const body = document.getElementById("quality-report-body");
+        if (!card || !body) return;
         const cfg = await getWorkbenchConfig(true);
-        if (!cfg || !cfg.project_id) return;
-        const resp = await fetch(`/api/projects/${cfg.project_id}/quality-report?t=${Date.now()}`);
+        if (!cfg || !cfg.project_id) {
+            hideQualityReportCard();
+            return;
+        }
+        const pid = cfg.project_id;
+        if (localStorage.getItem(qualityReportSeenKey(pid)) || !sessionStorage.getItem(qualityReportPendingKey(pid))) {
+            hideQualityReportCard();
+            return;
+        }
+        const resp = await fetch(`/api/projects/${pid}/quality-report?t=${Date.now()}`);
         if (!resp.ok) {
-            card.classList.remove("open", "warn");
-            card.textContent = "";
+            hideQualityReportCard();
             return;
         }
         const data = await resp.json();
@@ -1670,7 +1731,7 @@
             `规则拦截 ${summary.rule_rejected || 0}`,
         ];
         if (warnings.length) bits.push(`风险 ${warnings.length} 项：${warnings.slice(0, 2).join("；")}`);
-        card.textContent = bits.join(" · ");
+        body.textContent = bits.join(" · ");
         card.classList.toggle("warn", warnings.length > 0);
         card.classList.add("open");
     }
@@ -2054,5 +2115,5 @@
     });
 
     window.addEventListener("DOMContentLoaded", loadStatistics);
-    window.addEventListener("DOMContentLoaded", () => loadQualityReport().catch(() => {}));
+    window.dismissQualityReport = dismissQualityReport;
 </script>

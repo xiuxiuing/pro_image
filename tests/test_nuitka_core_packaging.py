@@ -3,8 +3,18 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app_ops_extra import _compiled_module_glob, _missing_model_resources, _verify_nuitka_artifact
-from packaging_core import BUSINESS_SOURCE_FILES, CORE_NUITKA_MODULES, REQUIRED_MODEL_FILES, RESOURCE_DIRS
+from app_ops_extra import _missing_model_resources, _verify_nuitka_artifact
+from packaging_core import (
+    BUSINESS_SOURCE_FILES,
+    CORE_NUITKA_MODULES,
+    REQUIRED_MODEL_FILES,
+    RESOURCE_DIRS,
+    cleanup_nuitka_module_intermediates,
+    cleanup_packaging_intermediates,
+    compiled_module_glob,
+    purge_stale_nuitka_modules,
+    select_compiled_module,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -63,12 +73,62 @@ class NuitkaCorePackagingTests(unittest.TestCase):
 
             self.assertEqual(
                 [str(root / "main_030822.cp312-win_amd64.pyd")],
-                _compiled_module_glob(str(root), "main_030822", "windows"),
+                compiled_module_glob(str(root), "main_030822", "windows"),
             )
             self.assertEqual(
                 [str(root / "main_030822.cpython-312-darwin.so")],
-                _compiled_module_glob(str(root), "main_030822", "macos"),
+                compiled_module_glob(str(root), "main_030822", "macos"),
             )
+
+    def test_compiled_module_glob_prefers_current_abi_when_multiple_exist(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "utils.cp312-win_amd64.pyd").write_text("")
+            (root / "utils.cp314-win_amd64.pyd").write_text("")
+
+            self.assertEqual(
+                [str(root / "utils.cp312-win_amd64.pyd")],
+                compiled_module_glob(str(root), "utils", "windows"),
+            )
+            removed = purge_stale_nuitka_modules(str(root))
+            self.assertEqual(1, removed)
+            self.assertFalse((root / "utils.cp314-win_amd64.pyd").exists())
+            self.assertTrue((root / "utils.cp312-win_amd64.pyd").exists())
+
+    def test_cleanup_packaging_intermediates_removes_workspace(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "_build_src" / "app.py").parent.mkdir(parents=True)
+            (root / "_build_src" / "app.py").write_text("print('x')", encoding="utf-8")
+            (root / "build" / "ProImage_nuitka_Windows").mkdir(parents=True)
+            (root / "build" / "ProImage_nuitka_Windows" / "warn.txt").write_text("", encoding="utf-8")
+            modules = root / "nuitka_modules"
+            modules.mkdir()
+            (modules / "utils.build").mkdir()
+            (modules / "utils.pyi").write_text("", encoding="utf-8")
+            (modules / "utils.cp312-win_amd64.pyd").write_text("", encoding="utf-8")
+            artifact = root / "dist" / "ProImage_AI"
+            artifact.mkdir(parents=True)
+            (artifact / "ProImage_AI.exe").write_text("", encoding="utf-8")
+
+            summary = cleanup_packaging_intermediates(
+                str(root), "ProImage_nuitka_Windows.spec", artifact_path=str(artifact)
+            )
+            self.assertFalse((root / "_build_src").exists())
+            self.assertFalse((root / "build").exists())
+            self.assertFalse(modules.exists())
+            self.assertFalse(artifact.exists())
+            joined = "".join(summary)
+            self.assertIn("_build_src", joined)
+            self.assertIn("nuitka_modules", joined)
+            self.assertIn("ProImage_AI", joined)
+
+    def test_select_compiled_module_returns_none_for_wrong_abi_only(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            wrong = root / "utils.cp314-win_amd64.pyd"
+            wrong.write_text("")
+            self.assertIsNone(select_compiled_module([str(wrong)], "windows"))
 
     def test_model_resource_requirements_are_checked(self):
         with tempfile.TemporaryDirectory() as tmpdir:
