@@ -14,9 +14,13 @@ from packaging_core import (
     REQUIRED_MODEL_FILES,
     RESOURCE_DIRS,
     cleanup_packaging_intermediates,
+    cleanup_pre_zip_workspace,
     compiled_module_glob,
+    ensure_build_dependencies,
     nuitka_abi_markers,
     purge_stale_nuitka_modules,
+    require_disk_space_for_zip,
+    resolve_package_zip_dir,
 )
 
 # These will be initialized by app_ops.py or app.py
@@ -210,6 +214,11 @@ def api_ops_package_build():
                 artifact = os.path.join(ops_context["resource_root"], "dist", "ProImage_AI")
                 zip_name = f"ProImage_Windows_{time.strftime('%Y%m%d_%H%M%S')}.zip"
 
+            installed = ensure_build_dependencies(ops_context["resource_root"])
+            if installed:
+                ops_context["update_step"](
+                    task_id, 0, "running", f"已自动安装打包依赖：{', '.join(installed)}"
+                )
             ops_context["run_command"](task_id, 0, [sys.executable, "-m", "nuitka", "--version"], ops_context["resource_root"])
             ops_context["run_command"](task_id, 0, [sys.executable, "-m", "PyInstaller", "--version"], ops_context["resource_root"])
             if _missing_model_resources(ops_context["resource_root"]):
@@ -255,20 +264,27 @@ def api_ops_package_build():
             verify_msg = _verify_nuitka_artifact(target, artifact)
             ops_context["update_step"](task_id, 4, "done", verify_msg)
             
+            pre_cleaned = cleanup_pre_zip_workspace(ops_context["resource_root"])
+            pre_note = "、".join(pre_cleaned) if pre_cleaned else "无"
+            ops_context["update_step"](task_id, 5, "running", f"压缩前已释放 {pre_note}")
+
             task_dir = ops_context["task_dir"](task_id)
-            zip_path = os.path.join(task_dir, zip_name)
+            zip_dir = resolve_package_zip_dir(task_dir)
+            os.makedirs(zip_dir, exist_ok=True)
+            zip_path = os.path.join(zip_dir, zip_name)
+            require_disk_space_for_zip(artifact, zip_path)
             ops_context["update_step"](task_id, 5, "running", "压缩产物")
             ops_context["zip_path"](artifact, zip_path)
             cleaned = cleanup_packaging_intermediates(
                 ops_context["resource_root"], spec, artifact_path=artifact
             )
             cleanup_note = "、".join(cleaned) if cleaned else "无额外临时目录"
-            ops_context["update_step"](task_id, 5, "done", f"完成；已清理 {cleanup_note}")
+            ops_context["update_step"](task_id, 5, "done", f"完成；ZIP 位于 {zip_path}；已清理 {cleanup_note}")
             ops_context["set_task"](
                 task_id,
                 status="done",
                 ended_at=ops_context["now"](),
-                message="打包完成",
+                message=f"打包完成（{zip_path}）",
                 result_path=zip_path,
                 result_kind="package_zip",
                 download_name=zip_name,

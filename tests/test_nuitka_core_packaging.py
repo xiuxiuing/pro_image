@@ -6,13 +6,18 @@ from pathlib import Path
 from app_ops_extra import _missing_model_resources, _verify_nuitka_artifact
 from packaging_core import (
     BUSINESS_SOURCE_FILES,
+    BUILD_DEPENDENCY_MODULES,
     CORE_NUITKA_MODULES,
     REQUIRED_MODEL_FILES,
     RESOURCE_DIRS,
     cleanup_nuitka_module_intermediates,
     cleanup_packaging_intermediates,
     compiled_module_glob,
+    disk_free_bytes,
+    missing_build_modules,
     purge_stale_nuitka_modules,
+    requirements_build_path,
+    require_disk_space_for_zip,
     select_compiled_module,
 )
 
@@ -59,6 +64,24 @@ class NuitkaCorePackagingTests(unittest.TestCase):
         self.assertIn("Nuitka 编译核心算法模块", text)
         self.assertIn("ProImage_nuitka_*", text)
         self.assertNotIn("PyArmor gen -O dist/obfuscated", text)
+
+    def test_requirements_build_lists_nuitka_and_pyinstaller(self):
+        req = (ROOT / "requirements-build.txt").read_text(encoding="utf-8")
+        self.assertIn("nuitka", req)
+        self.assertIn("pyinstaller", req)
+        self.assertTrue((ROOT / "requirements-build.txt").is_file())
+
+    def test_disk_free_bytes_accepts_not_yet_created_zip_path(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            zip_path = str(Path(tmpdir) / "out" / "package.zip")
+            self.assertGreater(disk_free_bytes(zip_path), 0)
+
+    def test_missing_build_modules_reports_uninstalled_only(self):
+        missing = missing_build_modules()
+        for import_name, _pip_name in BUILD_DEPENDENCY_MODULES:
+            if import_name in missing:
+                with self.assertRaises(ImportError):
+                    __import__(import_name)
 
     def test_default_rule_template_resource_is_packaged_data(self):
         self.assertTrue(
