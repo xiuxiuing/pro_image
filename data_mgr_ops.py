@@ -358,13 +358,14 @@ class DataManagerOpsMixin:
             conn = self._get_conn()
             try:
                 with conn:
-                    analysis_started = time.strftime('%Y-%m-%d %H:%M:%S') if status in ('analyzing', 'creating') else None
+                    now = time.strftime('%Y-%m-%d %H:%M:%S')
+                    analysis_started = now if status in ('analyzing', 'creating') else None
                     rtid = rule_template_id
                     if rtid is None:
                         rtid = self._default_rule_template_id(conn)
                     cur = conn.execute(
-                        "INSERT INTO projects (name, status, analysis_started_at, match_config, rule_template_id) VALUES (?, ?, ?, ?, ?)",
-                        (name, status, analysis_started, match_config_json or "", rtid),
+                        "INSERT INTO projects (name, created_at, status, analysis_started_at, match_config, rule_template_id) VALUES (?, ?, ?, ?, ?, ?)",
+                        (name, now, status, analysis_started, match_config_json or "", rtid),
                     )
                     pid = cur.lastrowid
                     

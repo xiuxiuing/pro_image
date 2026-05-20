@@ -1802,6 +1802,9 @@
                                 <span>价格</span><span>原价 <b id="modalMainStoreOriginalPrice"></b> ｜ 活动价 <b id="modalMainStoreActivityPrice"></b></span>
                             </div>
                             <div class="modal-main-store-summary__meta">
+                                <span>销量</span><span id="modalMainStoreSales"></span>
+                            </div>
+                            <div class="modal-main-store-summary__meta">
                                 <span>SKU</span><span id="modalMainStoreSku"></span>
                             </div>
                         </div>
@@ -3269,6 +3272,14 @@
             if (el) el.focus({ preventScroll: true });
         }
 
+        function formatModalSales(product) {
+            const raw = product == null
+                ? ''
+                : (typeof product === 'object' ? (product['销售'] ?? product['销量'] ?? '') : product);
+            const text = String(raw ?? '').trim();
+            return text === '' ? '—' : text;
+        }
+
         function updateModalMainStoreSummary(mainSkuId) {
             const box = document.getElementById('modalMainStoreSummary');
             const nameEl = document.getElementById('modalMainStoreName');
@@ -3277,6 +3288,7 @@
             const imgEl = document.getElementById('modalMainStoreImage');
             const originalPriceEl = document.getElementById('modalMainStoreOriginalPrice');
             const activityPriceEl = document.getElementById('modalMainStoreActivityPrice');
+            const salesEl = document.getElementById('modalMainStoreSales');
             if (!box || !nameEl || !specEl || !skuEl || !imgEl) return;
             box.hidden = false;
             const titleEl = box.querySelector('.modal-main-store-summary__title');
@@ -3292,6 +3304,7 @@
                 skuEl.innerHTML = copyableTextHtml(ctx.sku || '—');
                 if (originalPriceEl) originalPriceEl.innerHTML = copyableTextHtml(ctx.originalPrice || '—');
                 if (activityPriceEl) activityPriceEl.innerHTML = copyableTextHtml(ctx.activityPrice || '—');
+                if (salesEl) salesEl.innerHTML = copyableTextHtml(formatModalSales(ctx.sales));
                 imgEl.src = getImageSrc(ctx.image || '');
                 imgEl.onerror = () => { imgEl.src = PLACEHOLDER_IMG; };
                 return;
@@ -3307,6 +3320,7 @@
             skuEl.innerHTML = copyableTextHtml(row ? String(row['skuId'] != null && row['skuId'] !== '' ? row['skuId'] : '—') : String(mainSkuId));
             if (originalPriceEl) originalPriceEl.innerHTML = copyableTextHtml(row ? (row['原价'] || '—') : '—');
             if (activityPriceEl) activityPriceEl.innerHTML = copyableTextHtml(row ? (row['活动价'] || '—') : '—');
+            if (salesEl) salesEl.innerHTML = copyableTextHtml(row ? formatModalSales(row) : '—');
             imgEl.src = row ? getImageSrc(row['主图链接'] || row['图片']) : PLACEHOLDER_IMG;
             imgEl.onerror = () => { imgEl.src = PLACEHOLDER_IMG; };
         }
@@ -3317,7 +3331,7 @@
             const row = (gridData || []).find(r => String(r[`${sid}skuId`] || '').trim() === sku);
             const storeName = (storeSources.find(s => String(s.id) === sid) || {}).name || '竞店';
             if (!row) {
-                return { storeId: sid, storeName, sku, name: '—', spec: '—', image: '', originalPrice: '—', activityPrice: '—' };
+                return { storeId: sid, storeName, sku, name: '—', spec: '—', image: '', originalPrice: '—', activityPrice: '—', sales: '—' };
             }
             return {
                 storeId: sid,
@@ -3328,6 +3342,7 @@
                 image: row[`${sid}主图链接`] || row[`${sid}图片`] || '',
                 originalPrice: row[`${sid}原价`] || '—',
                 activityPrice: row[`${sid}活动价`] || '—',
+                sales: formatModalSales(row[`${sid}销售`]),
             };
         }
 
@@ -3386,7 +3401,7 @@
                     <div style="flex:1">
                         <div style="font-weight:600">${copyableTextHtml(p['商品名称'] || '-')}${linkedBadge}</div>
                         <div style="font-size:12px; color:#6b7280; margin-top:2px;">规格: ${p['规格名称'] || '-'}</div>
-                        <div style="font-size:12px; color:#6b7280; margin-top:2px;">原价: ${originalPrice} ｜ 活动价: ${activityPrice} ｜ 采购价: ${purchasePrice} ｜ 库存: ${stock}</div>
+                        <div style="font-size:12px; color:#6b7280; margin-top:2px;">原价: ${originalPrice} ｜ 活动价: ${activityPrice} ｜ 销量: ${formatModalSales(p)} ｜ 采购价: ${purchasePrice} ｜ 库存: ${stock}</div>
                         <div style="font-size:12px; color:#94a3b8">SKU: ${p['skuId'] || '-'}</div>
                     </div>
                     <div style="text-align:right">
@@ -3421,7 +3436,7 @@
              <div style="flex:1">
                  <div style="font-weight:600">${copyableTextHtml(p['商品名称'] || '-')}</div>
                  <div style="font-size:12px; color:#6b7280; margin-top:2px;">规格: ${p['规格名称'] || p['规格名'] || p['规格'] || '-'}</div>
-                 <div style="font-size:12px; color:#6b7280; margin-top:2px;">原价: ${originalPrice} ｜ 活动价: ${activityPrice}</div>
+                 <div style="font-size:12px; color:#6b7280; margin-top:2px;">原价: ${originalPrice} ｜ 活动价: ${activityPrice} ｜ 销量: ${formatModalSales(p)}</div>
                  <div style="font-size:12px; color:#94a3b8">SKU: ${p['skuId'] || p['skuid'] || p['SKUID'] || '-'}</div>
              </div>
              <div style="text-align:right">

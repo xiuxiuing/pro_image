@@ -138,6 +138,13 @@ def _init_progress(pid, use_ai, main_name, comp_names):
     with _progress_lock: _analysis_progress[pid] = prog
     return prog
 
+def _init_import_progress(pid, labels):
+    steps = [{"label": str(lbl), "status": "pending", "detail": ""} for lbl in labels]
+    prog = {"started_at": time.time(), "steps": steps}
+    with _progress_lock:
+        _analysis_progress[pid] = prog
+    return prog
+
 def _update_step(pid, step_idx, status, detail=""):
     with _progress_lock:
         prog = _analysis_progress.get(pid)
@@ -216,7 +223,7 @@ def get_license_details():
 import app_ops, app_data
 app_ops.init_ops(app, dm, resource_root, data_root, check_license, CURRENT_HWID, extract_info_ai2, main_030822, _validate_upload, _safe_upload_filename)
 app.register_blueprint(app_ops.ops_bp)
-app_data.init_data(dm, _init_progress, _update_step, _schedule_clear_progress, get_analysis_progress_data, _validate_upload, _safe_upload_filename, _template, _static, data_root, DEFAULT_RULE_CATEGORIES_XLSX, CATEGORY_L1_BUCKET_TAGS_JSON)
+app_data.init_data(dm, _init_progress, _init_import_progress, _update_step, _schedule_clear_progress, get_analysis_progress_data, _validate_upload, _safe_upload_filename, _template, _static, data_root, DEFAULT_RULE_CATEGORIES_XLSX, CATEGORY_L1_BUCKET_TAGS_JSON)
 app.register_blueprint(app_data.data_bp)
 
 @app.errorhandler(413)

@@ -14,10 +14,11 @@ _active_analysis_lock = threading.Lock()
 
 
 def init_projects(context):
-    global dm, _init_progress, _update_step, _schedule_clear_progress
+    global dm, _init_progress, _init_import_progress, _update_step, _schedule_clear_progress
     global _get_analysis_progress_data, _validate_upload, _safe_upload_filename, data_root
     dm = context["dm"]
     _init_progress = context["init_progress"]
+    _init_import_progress = context["init_import_progress"]
     _update_step = context["update_step"]
     _schedule_clear_progress = context["schedule_clear_progress"]
     _get_analysis_progress_data = context["get_analysis_progress_data"]
@@ -239,16 +240,59 @@ def analyze_project(pid):
             return jsonify({"status": "error", "message": err}), 400
         if partial_categories:
             output_file = os.path.join(dirs["outputs"], f"partial_output_{pid}_{int(time.time())}.xlsx")
-            result_file.save(output_file)
-            links_df = dm.parse_links_from_output(pid, output_file)
-            dm.replace_project_links(pid, links_df, categories=partial_categories)
         else:
             output_file = os.path.join(dirs["outputs"], f"output_{pid}.xlsx")
-            result_file.save(output_file)
-            links_df = dm.parse_links_from_output(pid, output_file)
-            dm.replace_project_links(pid, links_df)
-        dm.update_project_status(pid, 'ready')
-        return jsonify({"status": "success", "project_id": pid, "ready": True})
+        result_file.save(output_file)
+
+        with _active_analysis_lock:
+            if pid in _active_analysis_pids:
+                return jsonify({"status": "error", "message": "该项目正在分析中，请等待完成"}), 400
+            _active_analysis_pids.add(pid)
+
+        try:
+            with dm._db_lock:
+                with dm._get_conn() as conn:
+                    conn.execute(
+                        "UPDATE projects SET status = 'analyzing', analysis_started_at = ? WHERE id = ?",
+                        (time.strftime('%Y-%m-%d %H:%M:%S'), pid),
+                    )
+        except Exception:
+            with _active_analysis_lock:
+                _active_analysis_pids.discard(pid)
+            raise
+
+        import_labels = ["保存关联文件", "解析关联结果", "写入关联数据", "完成"]
+        partial_cats = list(partial_categories)
+
+        def _run_manual_import_bg():
+            try:
+                _init_import_progress(pid, import_labels)
+                _update_step(pid, 0, "done")
+                _update_step(pid, 1, "running")
+                links_df = dm.parse_links_from_output(pid, output_file)
+                _update_step(pid, 1, "done")
+                _update_step(pid, 2, "running")
+                if partial_cats:
+                    dm.replace_project_links(pid, links_df, categories=partial_cats)
+                else:
+                    dm.replace_project_links(pid, links_df)
+                _update_step(pid, 2, "done")
+                _update_step(pid, 3, "running")
+                dm.update_project_status(pid, 'ready')
+                _update_step(pid, 3, "done")
+            except Exception:
+                traceback.print_exc()
+                try:
+                    dm.update_project_status(pid, 'failed')
+                except Exception:
+                    pass
+            finally:
+                with _active_analysis_lock:
+                    _active_analysis_pids.discard(pid)
+                _schedule_clear_progress(pid)
+
+        threading.Thread(target=_run_manual_import_bg, daemon=True).start()
+        return jsonify({"status": "success", "project_id": pid, "ready": False})
 
     use_ai = request.form.get('use_ai') == 'on'
     api_key = request.form.get('api_key')

@@ -1207,6 +1207,7 @@
     let workbenchProjectId = null;
     let workbenchProgressTimer = null;
     let workbenchAnalyzeScope = "partial";
+    let workbenchProgressKind = "analyze";
 
     function syncWorkbenchButton(config) {
         const btn = document.getElementById("statistics-enter-workbench");
@@ -1568,6 +1569,7 @@
     }
 
     function resetWorkbenchAnalyzeForm() {
+        workbenchProgressKind = "analyze";
         const form = document.getElementById("workbench-analyze-form");
         if (form) form.reset();
         document.getElementById("workbench-mode-input").value = "auto";
@@ -1624,6 +1626,24 @@
         }
     }
 
+    const WORKBENCH_IMPORT_PROGRESS_STEPS = [
+        { label: "上传关联文件", status: "running", detail: "" },
+        { label: "保存关联文件", status: "pending", detail: "" },
+        { label: "解析关联结果", status: "pending", detail: "" },
+        { label: "写入关联数据", status: "pending", detail: "" },
+    ];
+
+    function showWorkbenchImportProgressUploading() {
+        workbenchProgressKind = "import";
+        const total = WORKBENCH_IMPORT_PROGRESS_STEPS.length;
+        renderWorkbenchProgress({
+            pct: 8,
+            done_count: 0,
+            total_steps: total,
+            steps: WORKBENCH_IMPORT_PROGRESS_STEPS,
+        });
+    }
+
     function renderWorkbenchProgress(data) {
         const progress = document.getElementById("workbench-progress");
         const fill = document.getElementById("workbench-progress-fill");
@@ -1631,7 +1651,8 @@
         const list = document.getElementById("workbench-step-list");
         progress.classList.add("open");
         fill.style.width = `${data.pct || 0}%`;
-        summary.textContent = `分析进度 ${data.done_count || 0}/${data.total_steps || 0} (${data.pct || 0}%)`;
+        const kindLabel = workbenchProgressKind === "import" ? "导入进度" : "分析进度";
+        summary.textContent = `${kindLabel} ${data.done_count || 0}/${data.total_steps || 0} (${data.pct || 0}%)`;
         list.innerHTML = (data.steps || []).map((step) => {
             const state = step.status === "done" ? "完成" : step.status === "running" ? "进行中" : "等待";
             return `<li><span>${step.label || "-"}</span><strong>${state}${step.detail ? " · " + step.detail : ""}</strong></li>`;
@@ -1734,7 +1755,7 @@
             clearInterval(workbenchProgressTimer);
             workbenchProgressTimer = null;
         }
-        setWorkbenchMessage("分析完成，正在进入工作台...");
+        setWorkbenchMessage(workbenchProgressKind === "import" ? "导入完成，正在进入工作台..." : "分析完成，正在进入工作台...");
         storeSources = [];
         currentPage = 1;
         window.__workbenchConfig = null;
@@ -1802,7 +1823,12 @@
             } else if (status === "failed") {
                 if (workbenchProgressTimer) clearInterval(workbenchProgressTimer);
                 workbenchProgressTimer = null;
-                setWorkbenchMessage("分析失败，请检查文件或参数后重试", true);
+                setWorkbenchMessage(
+                    workbenchProgressKind === "import"
+                        ? "导入失败，请检查关联文件后重试"
+                        : "分析失败，请检查文件或参数后重试",
+                    true,
+                );
                 document.getElementById("workbench-submit").disabled = false;
             }
         } catch (err) {
@@ -2121,8 +2147,16 @@
         event.preventDefault();
         const submit = document.getElementById("workbench-submit");
         submit.disabled = true;
-        setWorkbenchMessage("已提交，正在处理...");
         document.getElementById("workbench-match-config-json").value = buildWorkbenchMatchConfigJson();
+        const modeInput = document.getElementById("workbench-mode-input");
+        const isManualImport = (modeInput?.value || "auto") === "manual";
+        workbenchProgressKind = isManualImport ? "import" : "analyze";
+        if (isManualImport) {
+            showWorkbenchImportProgressUploading();
+            setWorkbenchMessage("");
+        } else {
+            setWorkbenchMessage("已提交，正在处理...");
+        }
 
         try {
             const pid = await ensureWorkbenchProjectId();
@@ -2155,9 +2189,10 @@
             } else {
                 document.getElementById("workbench-progress").classList.add("open");
                 await pollWorkbenchProgress(pid);
-                workbenchProgressTimer = setInterval(() => pollWorkbenchProgress(pid), 2000);
+                workbenchProgressTimer = setInterval(() => pollWorkbenchProgress(pid), 1500);
             }
         } catch (err) {
+            document.getElementById("workbench-progress")?.classList.remove("open");
             setWorkbenchMessage(err.message || "提交失败", true);
             submit.disabled = false;
         }

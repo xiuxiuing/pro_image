@@ -346,7 +346,11 @@ class DataManagerBase:
                     # Initialize default project if none exist
                     cursor = conn.execute("SELECT COUNT(*) FROM projects")
                     if cursor.fetchone()[0] == 0:
-                        conn.execute("INSERT INTO projects (id, name, is_active) VALUES (1, '默认项目', 1)")
+                        _proj_now = __import__("time").strftime("%Y-%m-%d %H:%M:%S")
+                        conn.execute(
+                            "INSERT INTO projects (id, name, created_at, is_active) VALUES (1, '默认项目', ?, 1)",
+                            (_proj_now,),
+                        )
                         print("Created default project.")
 
                     # Startup recovery: fix orphaned in-progress status from crashed runs.
