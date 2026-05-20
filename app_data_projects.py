@@ -73,7 +73,7 @@ def handle_projects():
             name,
             {"path": main_path, "store_name": main_store_name},
             comp_infos,
-            status='ready',
+            status='creating',
             match_config_json="",
             rule_template_id=None,
         )
@@ -89,10 +89,20 @@ def handle_projects():
                             (f"project_{temp_pid}", f"project_{pid}", pid))
 
         dm._ensure_project_dirs(pid)
-        dm.import_project_sources(pid)
-        return jsonify({"status": "success", "project_id": pid})
 
-    return jsonify(dm.list_projects())
+        def _import_sources_bg(project_id):
+            try:
+                dm.import_project_sources(project_id)
+                dm.update_project_status(project_id, 'ready')
+            except BaseException:
+                traceback.print_exc()
+                try:
+                    dm.update_project_status(project_id, 'failed')
+                except Exception:
+                    pass
+
+        threading.Thread(target=_import_sources_bg, args=(pid,), daemon=True).start()
+        return jsonify({"status": "success", "project_id": pid, "ready": False})
 
     return jsonify(dm.list_projects())
 
@@ -109,10 +119,11 @@ def activate_project(pid):
         return jsonify({"status": "error", "message": "项目不存在"}), 404
     if proj.get('status') == 'analyzing':
         return jsonify({"status": "error", "message": "该项目正在分析中，请等待完成"}), 400
+    if proj.get('status') == 'creating':
+        return jsonify({"status": "error", "message": "该项目正在创建中，请等待完成"}), 400
     if proj.get('status') == 'failed':
         return jsonify({"status": "error", "message": "该项目分析失败，请删除后重新创建"}), 400
     dm.activate_project(pid, skip_load=True)
-    dm.ensure_analysis_snapshot_async()
     return jsonify({"status": "success"})
 
 @projects_bp.route('/api/projects/<int:pid>/preflight', methods=['POST'])
@@ -237,7 +248,6 @@ def analyze_project(pid):
             links_df = dm.parse_links_from_output(pid, output_file)
             dm.replace_project_links(pid, links_df)
         dm.update_project_status(pid, 'ready')
-        dm.ensure_analysis_snapshot_async(force=True)
         return jsonify({"status": "success", "project_id": pid, "ready": True})
 
     use_ai = request.form.get('use_ai') == 'on'
@@ -375,7 +385,6 @@ def analyze_project(pid):
             dm.update_project_status(pid, 'ready')
             try:
                 dm.activate_project(pid, skip_load=True)
-                dm.ensure_analysis_snapshot_async(force=True)
             except Exception:
                 traceback.print_exc()
         except BaseException:

@@ -54,12 +54,39 @@ class DataManagerImportMixin:
 
     def import_project_sources(self, project_id):
         """Import only the uploaded main/competitor source files for a project."""
-        self.activate_project(project_id, skip_load=True)
-        self._import_to_sqlite(import_links=False)
-        self.grid_df = None
-        self.main_df = None
-        self.store_dfs = {}
-        self.rebuild_analysis_snapshot()
+        with self._db_lock:
+            conn = self._get_conn()
+            try:
+                rows = conn.execute(
+                    "SELECT type, local_path FROM project_files WHERE project_id = ? ORDER BY id ASC",
+                    (project_id,),
+                ).fetchall()
+            finally:
+                conn.close()
+
+        target_file = ""
+        source_files = []
+        for f_type, local_path in rows:
+            if f_type == "main":
+                target_file = local_path
+            elif f_type == "comp":
+                source_files.append(local_path)
+
+        dirs = self._ensure_project_dirs(project_id)
+        output_file = os.path.join(dirs["outputs"], f"output_{project_id}.xlsx")
+        self._import_to_sqlite(
+            import_links=False,
+            project_id=project_id,
+            target_file=target_file,
+            source_files=source_files,
+            output_file=output_file,
+        )
+
+        self.invalidate_analysis_snapshot(project_id)
+        if self.active_project_id == project_id:
+            self.grid_df = None
+            self.main_df = None
+            self.store_dfs = {}
 
     def parse_links_from_output(self, project_id, output_file):
         """Parse an analysis/output workbook into standard product_links rows."""
@@ -312,19 +339,22 @@ class DataManagerImportMixin:
 
         return prefix_to_store_map
 
-    def _import_to_sqlite(self, import_links=False):
+    def _import_to_sqlite(self, import_links=False, project_id=None, target_file=None, source_files=None, output_file=None):
         """
         Transactional import: prepare all data in memory first, then write in a
         single atomic transaction. If any step fails, nothing is changed in DB.
         """
-        pid = self.active_project_id
-        import_output_links = bool(import_links and os.path.exists(self.output_file))
+        pid = project_id or self.active_project_id
+        target_file = self.target_file if target_file is None else target_file
+        source_files = list(source_files if source_files is not None else self.source_files)
+        output_file = self.output_file if output_file is None else output_file
+        import_output_links = bool(import_links and output_file and os.path.exists(output_file))
 
         # ── Phase 1: Prepare main store data (memory only) ──
         main_df = None
-        if os.path.exists(self.target_file):
-            print(f"Importing Main Store: {self.target_file}")
-            main_data = utils.excel_to_list_dict(self.target_file)
+        if target_file and os.path.exists(target_file):
+            print(f"Importing Main Store: {target_file}")
+            main_data = utils.excel_to_list_dict(target_file)
             main_df = pd.DataFrame(main_data)
             main_df = self._apply_mappings(main_df, FIELD_MAPPINGS)
             main_df = self._normalize_dataframe_text(main_df)
@@ -350,7 +380,7 @@ class DataManagerImportMixin:
 
         # ── Phase 2: Prepare competitor store data (memory only) ──
         comp_dfs = []
-        for i, path in enumerate(self.source_files):
+        for i, path in enumerate(source_files):
             if os.path.exists(path):
                 print(f"Importing Competitor Store [{i}]: {path}")
                 comp_data = utils.excel_to_list_dict(path)
@@ -382,7 +412,7 @@ class DataManagerImportMixin:
         # analysis writes product_links via replace_project_links().
         links_df = None
         if import_output_links:
-            links_df = self.parse_links_from_output(pid, self.output_file)
+            links_df = self.parse_links_from_output(pid, output_file)
 
         # ── Phase 4: Atomic DB write — single transaction ──
         with self._db_lock:
@@ -396,7 +426,8 @@ class DataManagerImportMixin:
 
                     if main_df is not None:
                         main_df.to_sql('main_products', conn, index=False, if_exists='append')
-                        self.main_df = main_df
+                        if self.active_project_id == pid:
+                            self.main_df = main_df
                     for cdf in comp_dfs:
                         cdf.to_sql('comp_products', conn, index=False, if_exists='append')
                     if links_df is not None and not links_df.empty:

@@ -358,7 +358,7 @@ class DataManagerOpsMixin:
             conn = self._get_conn()
             try:
                 with conn:
-                    analysis_started = time.strftime('%Y-%m-%d %H:%M:%S') if status == 'analyzing' else None
+                    analysis_started = time.strftime('%Y-%m-%d %H:%M:%S') if status in ('analyzing', 'creating') else None
                     rtid = rule_template_id
                     if rtid is None:
                         rtid = self._default_rule_template_id(conn)
@@ -420,6 +420,7 @@ class DataManagerOpsMixin:
                     conn.execute("DELETE FROM product_links WHERE project_id = ?", (project_id,))
                     conn.execute("DELETE FROM comp_products WHERE project_id = ?", (project_id,))
                     conn.execute("DELETE FROM project_files WHERE project_id = ?", (project_id,))
+                    conn.execute("DELETE FROM project_analysis_snapshots WHERE project_id = ?", (project_id,))
                     conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
             finally:
                 conn.close()

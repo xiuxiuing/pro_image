@@ -843,6 +843,29 @@
         font-weight: 700;
         flex-wrap: wrap;
     }
+    .workbench-category-search {
+        border: 1px solid #dbe3ef;
+        background: #fff;
+        border-radius: 6px;
+        padding: 6px 12px;
+        font-size: 13px;
+        color: #1f2937;
+        width: 180px;
+        outline: none;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        margin-left: auto;
+    }
+    .workbench-category-search:focus {
+        border-color: #6366f1;
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+    }
+    @media (max-width: 480px) {
+        .workbench-category-search {
+            width: 100%;
+            margin-left: 0;
+            margin-top: 6px;
+        }
+    }
     .workbench-category-list {
         max-height: 170px;
         overflow-y: auto;
@@ -1098,6 +1121,7 @@
                     <button class="workbench-secondary" type="button" onclick="setWorkbenchCategoryChecks(true)">全选</button>
                     <button class="workbench-secondary" type="button" onclick="setWorkbenchCategoryChecks(false)">清空</button>
                     <span id="workbench-category-summary"></span>
+                    <input class="workbench-category-search" id="workbench-category-search" type="search" placeholder="搜索三级类目..." oninput="filterWorkbenchCategories()">
                 </div>
                 <div class="workbench-category-list" id="workbench-category-list"></div>
             </div>
@@ -1485,6 +1509,10 @@
     }
 
     function renderWorkbenchCategoryChoices() {
+        const searchInput = document.getElementById("workbench-category-search");
+        if (searchInput) {
+            searchInput.value = "";
+        }
         const list = document.getElementById("workbench-category-list");
         if (!list) return;
         const mainTab = statisticsTabs.find((tab) => tab.source_type === "main") || { items: statisticsAllItems };
@@ -1497,7 +1525,7 @@
             return;
         }
         list.innerHTML = categories.map((cat) => `
-            <label class="workbench-category-item">
+            <label class="workbench-category-item" data-category="${statisticsEscapeHtml(cat)}">
                 <input type="checkbox" class="workbench-category-check" value="${statisticsEscapeHtml(cat)}" checked onchange="updateWorkbenchCategorySummary()">
                 <span>${statisticsEscapeHtml(cat)}</span>
             </label>
@@ -1506,8 +1534,11 @@
     }
 
     function setWorkbenchCategoryChecks(checked) {
-        document.querySelectorAll(".workbench-category-check").forEach((el) => {
-            el.checked = checked;
+        document.querySelectorAll(".workbench-category-item").forEach((item) => {
+            if (item.style.display !== "none") {
+                const el = item.querySelector(".workbench-category-check");
+                if (el) el.checked = checked;
+            }
         });
         updateWorkbenchCategorySummary();
     }
@@ -1521,6 +1552,19 @@
         const selected = getSelectedWorkbenchCategories().length;
         const summary = document.getElementById("workbench-category-summary");
         if (summary) summary.textContent = total ? `已选 ${selected}/${total} 个三级类目` : "暂无可选三级类目";
+    }
+
+    function filterWorkbenchCategories() {
+        const query = document.getElementById("workbench-category-search").value.trim().toLowerCase();
+        const items = document.querySelectorAll(".workbench-category-item");
+        items.forEach((item) => {
+            const cat = item.getAttribute("data-category") || "";
+            if (cat.toLowerCase().includes(query)) {
+                item.style.display = "";
+            } else {
+                item.style.display = "none";
+            }
+        });
     }
 
     function resetWorkbenchAnalyzeForm() {
@@ -1540,6 +1584,11 @@
         setWorkbenchMode("auto");
         toggleWorkbenchAiFields();
         setWorkbenchMessage("");
+        const searchInput = document.getElementById("workbench-category-search");
+        if (searchInput) {
+            searchInput.value = "";
+            filterWorkbenchCategories();
+        }
     }
 
     async function openReanalyzeModal(options = {}) {
@@ -1887,23 +1936,23 @@
         const status = data?.snapshot_status || "missing";
         const at = data?.snapshot_computed_at || "";
         const msg = data?.snapshot_message || "";
-        el.classList.toggle("is-building", status === "building" || status === "stale" || status === "missing");
+        el.classList.toggle("is-building", status === "building" || status === "missing");
         el.classList.toggle("is-error", status === "error");
         if (status === "ready") {
             el.textContent = at ? `统计时间：${at}` : "统计数据已更新";
         } else if (status === "building") {
-            el.textContent = at ? `数据刷新中... 当前显示：${at}` : "数据刷新中...";
+            el.textContent = at ? `数据刷新中... 当前显示：${at}` : "首次生成统计中...";
         } else if (status === "stale") {
-            el.textContent = at ? `数据待刷新，当前显示：${at}` : "数据待刷新";
+            el.textContent = at ? `当前展示旧数据，统计时间：${at}` : "当前展示旧数据";
         } else if (status === "error") {
             el.textContent = msg || "数据刷新失败";
         } else {
-            el.textContent = msg || "暂无统计快照，正在刷新...";
+            el.textContent = msg || "暂无统计快照";
         }
     }
 
     function maybePollStatisticsSnapshot(status) {
-        if (!["building", "missing", "stale"].includes(status || "")) {
+        if (!["building", "missing"].includes(status || "")) {
             if (statisticsSnapshotTimer) {
                 clearTimeout(statisticsSnapshotTimer);
                 statisticsSnapshotTimer = null;
@@ -1926,7 +1975,7 @@
                     await loadStatistics(false, { keepExisting: true });
                     return;
                 }
-                if (["building", "missing", "stale"].includes(data.status)) {
+                if (["building", "missing"].includes(data.status)) {
                     statisticsSnapshotTimer = setTimeout(poll, 1200);
                     return;
                 }
@@ -2114,6 +2163,6 @@
         }
     });
 
-    window.addEventListener("DOMContentLoaded", loadStatistics);
+    window.addEventListener("DOMContentLoaded", () => loadStatistics(false));
     window.dismissQualityReport = dismissQualityReport;
 </script>

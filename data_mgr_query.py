@@ -222,14 +222,46 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
             self._analysis_snapshot_building = set()
         if not hasattr(self, "_analysis_snapshot_build_lock"):
             self._analysis_snapshot_build_lock = threading.Lock()
-        return self._analysis_snapshot_building, self._analysis_snapshot_build_lock
+        if not hasattr(self, "_analysis_snapshot_build_reason"):
+            self._analysis_snapshot_build_reason = {}
+        return self._analysis_snapshot_building, self._analysis_snapshot_build_lock, self._analysis_snapshot_build_reason
 
-    def _read_analysis_snapshot(self, ready_only=True):
+    def _read_analysis_snapshot(self, ready_only=True, include_data=True):
         if not self.active_project_id:
             return None
         with self._db_lock:
             conn = self._get_conn()
             try:
+                if not include_data:
+                    if ready_only:
+                        row = conn.execute(
+                            """
+                            SELECT computed_at, version, status, error_message
+                            FROM project_analysis_snapshots
+                            WHERE project_id = ? AND version = ? AND status = 'ready'
+                            """,
+                            (self.active_project_id, self.ANALYSIS_SNAPSHOT_VERSION),
+                        ).fetchone()
+                    else:
+                        row = conn.execute(
+                            """
+                            SELECT computed_at, version, status, error_message
+                            FROM project_analysis_snapshots
+                            WHERE project_id = ?
+                            """,
+                            (self.active_project_id,),
+                        ).fetchone()
+                    if not row:
+                        return None
+                    return {
+                        "statistics": {},
+                        "market_analysis": {},
+                        "workbench_summary": {},
+                        "computed_at": row[0] or "",
+                        "version": row[1] or "",
+                        "status": row[2] or "",
+                        "error_message": row[3] or "",
+                    }
                 if ready_only:
                     row = conn.execute(
                         """
@@ -263,7 +295,15 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
                 "error_message": row[6] or "",
             }
         except Exception:
-            return None
+            return {
+                "statistics": self._snapshot_empty_statistics(),
+                "market_analysis": self._snapshot_empty_market_analysis(),
+                "workbench_summary": self._snapshot_empty_workbench_summary(),
+                "computed_at": row[3] or "",
+                "version": row[4] or "",
+                "status": "error",
+                "error_message": "统计快照解析失败，请点击刷新重建",
+            }
 
     def invalidate_analysis_snapshot(self, project_id=None):
         pid = project_id or self.active_project_id
@@ -290,12 +330,14 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
         if not pid:
             return {"status": "missing", "computed_at": "", "version": self.ANALYSIS_SNAPSHOT_VERSION, "message": "No active project"}
 
-        building, build_lock = self._snapshot_build_state()
+        building, build_lock, build_reason = self._snapshot_build_state()
         is_building = False
+        reason = ""
         with build_lock:
             is_building = pid in building
+            reason = build_reason.get(pid, "")
 
-        snapshot = snapshot if snapshot is not None else self._read_analysis_snapshot(ready_only=False)
+        snapshot = snapshot if snapshot is not None else self._read_analysis_snapshot(ready_only=False, include_data=False)
         if not snapshot:
             return {
                 "status": "building" if is_building else "missing",
@@ -307,7 +349,7 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
         status = snapshot.get("status") or "missing"
         if snapshot.get("version") != self.ANALYSIS_SNAPSHOT_VERSION and status == "ready":
             status = "stale"
-        if is_building:
+        if is_building and (not snapshot.get("computed_at") or reason == "refresh"):
             status = "building"
         messages = {
             "ready": "统计数据已更新",
@@ -323,7 +365,7 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
         }
 
     def get_analysis_snapshot_status(self):
-        snapshot = self._read_analysis_snapshot(ready_only=False)
+        snapshot = self._read_analysis_snapshot(ready_only=False, include_data=False)
         return self._snapshot_meta(snapshot)
 
     def _attach_snapshot_meta(self, data, snapshot=None):
@@ -342,14 +384,15 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
         if not pid:
             return False
         if not force:
-            ready = self._read_analysis_snapshot(ready_only=True)
+            ready = self._read_analysis_snapshot(ready_only=True, include_data=False)
             if ready:
                 return False
-        building, build_lock = self._snapshot_build_state()
+        building, build_lock, build_reason = self._snapshot_build_state()
         with build_lock:
             if pid in building:
                 return False
             building.add(pid)
+            build_reason[pid] = "refresh" if force else "initial"
 
         def _run():
             try:
@@ -362,6 +405,7 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
             finally:
                 with build_lock:
                     building.discard(pid)
+                    build_reason.pop(pid, None)
 
         threading.Thread(target=_run, daemon=True).start()
         return True
@@ -430,9 +474,12 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
             return self._attach_snapshot_meta(self._snapshot_empty_statistics())
         if refresh:
             self.ensure_analysis_snapshot_async(force=True)
-            snapshot = self._read_analysis_snapshot(ready_only=False)
-            data = snapshot["statistics"] if snapshot else self._snapshot_empty_statistics()
-            return self._attach_snapshot_meta(data, snapshot)
+            snapshot = self._read_analysis_snapshot(ready_only=False, include_data=False)
+            if snapshot and snapshot.get("status") in ("ready", "stale"):
+                stale_snapshot = self._read_analysis_snapshot(ready_only=False)
+                if stale_snapshot and stale_snapshot.get("statistics"):
+                    return self._attach_snapshot_meta(stale_snapshot["statistics"], stale_snapshot)
+            return self._attach_snapshot_meta(self._snapshot_empty_statistics(), snapshot)
         snapshot = self._read_analysis_snapshot(ready_only=True)
         if snapshot:
             return self._attach_snapshot_meta(snapshot["statistics"], snapshot)
@@ -440,19 +487,27 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
             snapshot_data = self.rebuild_analysis_snapshot()
             snapshot = self._read_analysis_snapshot(ready_only=True)
             return self._attach_snapshot_meta(snapshot_data["statistics"], snapshot)
-        snapshot = self._read_analysis_snapshot(ready_only=False)
-        self.ensure_analysis_snapshot_async()
-        data = snapshot["statistics"] if snapshot else self._snapshot_empty_statistics()
-        return self._attach_snapshot_meta(data, snapshot)
+        snapshot = self._read_analysis_snapshot(ready_only=False, include_data=False)
+        if snapshot and snapshot.get("status") in ("ready", "stale"):
+            stale_snapshot = self._read_analysis_snapshot(ready_only=False)
+            if stale_snapshot and stale_snapshot.get("statistics"):
+                return self._attach_snapshot_meta(stale_snapshot["statistics"], stale_snapshot)
+        if not snapshot:
+            self.ensure_analysis_snapshot_async()
+            snapshot = self._read_analysis_snapshot(ready_only=False, include_data=False)
+        return self._attach_snapshot_meta(self._snapshot_empty_statistics(), snapshot)
 
     def get_market_analysis(self, refresh=False, sync_missing=False):
         if not self.active_project_id:
             return self._attach_snapshot_meta(self._snapshot_empty_market_analysis())
         if refresh:
             self.ensure_analysis_snapshot_async(force=True)
-            snapshot = self._read_analysis_snapshot(ready_only=False)
-            data = snapshot["market_analysis"] if snapshot else self._snapshot_empty_market_analysis()
-            return self._attach_snapshot_meta(data, snapshot)
+            snapshot = self._read_analysis_snapshot(ready_only=False, include_data=False)
+            if snapshot and snapshot.get("status") in ("ready", "stale"):
+                stale_snapshot = self._read_analysis_snapshot(ready_only=False)
+                if stale_snapshot and stale_snapshot.get("market_analysis"):
+                    return self._attach_snapshot_meta(stale_snapshot["market_analysis"], stale_snapshot)
+            return self._attach_snapshot_meta(self._snapshot_empty_market_analysis(), snapshot)
         snapshot = self._read_analysis_snapshot(ready_only=True)
         if snapshot:
             return self._attach_snapshot_meta(snapshot["market_analysis"], snapshot)
@@ -460,10 +515,15 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
             snapshot_data = self.rebuild_analysis_snapshot()
             snapshot = self._read_analysis_snapshot(ready_only=True)
             return self._attach_snapshot_meta(snapshot_data["market_analysis"], snapshot)
-        snapshot = self._read_analysis_snapshot(ready_only=False)
-        self.ensure_analysis_snapshot_async()
-        data = snapshot["market_analysis"] if snapshot else self._snapshot_empty_market_analysis()
-        return self._attach_snapshot_meta(data, snapshot)
+        snapshot = self._read_analysis_snapshot(ready_only=False, include_data=False)
+        if snapshot and snapshot.get("status") in ("ready", "stale"):
+            stale_snapshot = self._read_analysis_snapshot(ready_only=False)
+            if stale_snapshot and stale_snapshot.get("market_analysis"):
+                return self._attach_snapshot_meta(stale_snapshot["market_analysis"], stale_snapshot)
+        if not snapshot:
+            self.ensure_analysis_snapshot_async()
+            snapshot = self._read_analysis_snapshot(ready_only=False, include_data=False)
+        return self._attach_snapshot_meta(self._snapshot_empty_market_analysis(), snapshot)
 
     def get_workbench_summary(self, refresh=False):
         if not self.active_project_id:
@@ -471,7 +531,8 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
         snapshot = None if refresh else self._read_analysis_snapshot(ready_only=False)
         if snapshot:
             return snapshot.get("workbench_summary") or self._snapshot_empty_workbench_summary()
-        self.ensure_analysis_snapshot_async()
+        if refresh:
+            self.ensure_analysis_snapshot_async(force=True)
         return self._snapshot_empty_workbench_summary()
 
     def _compute_workbench_summary(self):

@@ -375,6 +375,7 @@
             <div class="market-snapshot-status" id="market-snapshot-status">统计状态读取中...</div>
         </div>
         <div class="top-actions">
+            <button class="btn" type="button" onclick="loadMarketAnalysis(true)">刷新</button>
             <button class="btn" type="button" onclick="openDownloadModal()">下载</button>
             <button class="btn" type="button" onclick="saveDashboardScreenshot()">分享</button>
         </div>
@@ -498,23 +499,23 @@
             const status = data?.snapshot_status || 'missing';
             const at = data?.snapshot_computed_at || '';
             const msg = data?.snapshot_message || '';
-            el.classList.toggle('is-building', ['building', 'stale', 'missing'].includes(status));
+            el.classList.toggle('is-building', ['building', 'missing'].includes(status));
             el.classList.toggle('is-error', status === 'error');
             if (status === 'ready') {
                 el.textContent = at ? `统计时间：${at}` : '统计数据已更新';
             } else if (status === 'building') {
-                el.textContent = at ? `数据刷新中... 当前显示：${at}` : '数据刷新中...';
+                el.textContent = at ? `数据刷新中... 当前显示：${at}` : '首次生成统计中...';
             } else if (status === 'stale') {
-                el.textContent = at ? `数据待刷新，当前显示：${at}` : '数据待刷新';
+                el.textContent = at ? `当前展示旧数据，统计时间：${at}` : '当前展示旧数据';
             } else if (status === 'error') {
                 el.textContent = msg || '数据刷新失败';
             } else {
-                el.textContent = msg || '暂无统计快照，正在刷新...';
+                el.textContent = msg || '暂无统计快照';
             }
         }
 
         function maybePollMarketSnapshot(status) {
-            if (!['building', 'missing', 'stale'].includes(status || '')) {
+            if (!['building', 'missing'].includes(status || '')) {
                 if (marketSnapshotTimer) {
                     clearTimeout(marketSnapshotTimer);
                     marketSnapshotTimer = null;
@@ -537,7 +538,7 @@
                         await loadMarketAnalysis();
                         return;
                     }
-                    if (['building', 'missing', 'stale'].includes(data.status)) {
+                    if (['building', 'missing'].includes(data.status)) {
                         marketSnapshotTimer = setTimeout(poll, 1200);
                         return;
                     }
@@ -664,8 +665,8 @@
             donutChart.setOption(donutOption);
         }
 
-        async function loadMarketAnalysis() {
-            const resp = await fetch('/api/market-analysis');
+        async function loadMarketAnalysis(refresh = false) {
+            const resp = await fetch(refresh ? '/api/market-analysis?refresh=1' : '/api/market-analysis');
             marketData = await resp.json();
             updateMarketSnapshotStatus(marketData);
             maybePollMarketSnapshot(marketData.snapshot_status);

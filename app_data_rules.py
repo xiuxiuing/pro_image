@@ -91,6 +91,28 @@ def _excel_path_to_rows(path: str):
     wb = load_workbook(path, data_only=True)
     return _workbook_to_rows(wb)
 
+def _load_bucket_tags():
+    if not CATEGORY_L1_BUCKET_TAGS_JSON or not os.path.isfile(CATEGORY_L1_BUCKET_TAGS_JSON):
+        return []
+    try:
+        with open(CATEGORY_L1_BUCKET_TAGS_JSON, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return []
+    tags = data.get("tags") if isinstance(data, dict) else []
+    if not isinstance(tags, list):
+        return []
+    out = []
+    for item in tags:
+        if not isinstance(item, dict):
+            continue
+        out.append({
+            "id": str(item.get("id") or "").strip(),
+            "label": str(item.get("label") or item.get("id") or "").strip(),
+            "l1": [str(v).strip() for v in (item.get("l1") or []) if str(v).strip()],
+        })
+    return out
+
 @rules_bp.route("/api/rule-templates", methods=["GET", "POST"])
 def api_rule_templates():
     if request.method == "GET":
@@ -156,3 +178,35 @@ def api_rule_category_template():
         download_name="类目配置模板.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
+@rules_bp.route("/api/rule-categories/parse", methods=["POST"])
+def api_rule_categories_parse():
+    file = request.files.get("file")
+    if not file or not file.filename:
+        return jsonify({"status": "error", "message": "请先上传类目文件"}), 400
+    err = _validate_upload(file, "类目文件")
+    if err:
+        return jsonify({"status": "error", "message": err}), 400
+    try:
+        rows = _excel_file_to_rows(file)
+        tree = _build_category_tree(rows)
+    except Exception as exc:
+        return jsonify({"status": "error", "message": f"类目文件解析失败：{exc}"}), 400
+    if not tree["items"]:
+        return jsonify({"status": "error", "message": "未解析到有效的三级类目，请检查表头是否包含一级/二级/三级类目字段"}), 400
+    return jsonify({"status": "ok", "tree": tree})
+
+@rules_bp.route("/api/rule-categories/default")
+def api_rule_categories_default():
+    if not DEFAULT_RULE_CATEGORIES_XLSX or not os.path.isfile(DEFAULT_RULE_CATEGORIES_XLSX):
+        return jsonify({"status": "error", "message": "默认类目模板不存在"}), 404
+    try:
+        rows = _excel_path_to_rows(DEFAULT_RULE_CATEGORIES_XLSX)
+        tree = _build_category_tree(rows)
+    except Exception as exc:
+        return jsonify({"status": "error", "message": f"默认类目解析失败：{exc}"}), 500
+    return jsonify({"status": "ok", "tree": tree})
+
+@rules_bp.route("/api/rule-categories/bucket-tags")
+def api_rule_categories_bucket_tags():
+    return jsonify({"status": "ok", "tags": _load_bucket_tags()})

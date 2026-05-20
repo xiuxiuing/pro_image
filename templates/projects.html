@@ -1006,7 +1006,7 @@
         }
 
         function updateWarningBanner(projects) {
-            _hasAnalyzing = projects.some(p => p.status === 'analyzing');
+            _hasAnalyzing = projects.some(p => ['analyzing', 'creating'].includes(p.status));
             document.getElementById('warning-banner').style.display = _hasAnalyzing ? 'block' : 'none';
         }
 
@@ -1066,12 +1066,12 @@
             _lastProjects.forEach(p => {
                 list.appendChild(renderCard(p));
                 const s = p.status || 'ready';
-                if (_analyzingIds.has(p.id) && s !== 'analyzing') {
+                if (_analyzingIds.has(p.id) && !['analyzing', 'creating'].includes(s)) {
                     _analyzingIds.delete(p.id);
                     notifyAnalysisComplete(p.name, s === 'ready');
-                    showToast(s === 'ready' ? `项目「${p.name}」分析完成` : `项目「${p.name}」分析失败`);
+                    showToast(s === 'ready' ? `项目「${p.name}」已就绪` : `项目「${p.name}」处理失败`);
                 }
-                if (s === 'analyzing') _analyzingIds.add(p.id);
+                if (['analyzing', 'creating'].includes(s)) _analyzingIds.add(p.id);
             });
 
             const addCard = document.createElement('div');
@@ -1089,8 +1089,8 @@
             const card = document.createElement('div');
             const status = p.status || 'ready';
 
-            if (status === 'analyzing') {
-                card.className = 'project-card card-analyzing';
+            if (status === 'analyzing' || status === 'creating') {
+                card.className = status === 'creating' ? 'project-card card-creating' : 'project-card card-analyzing';
                 let elapsedText = '';
                 let isTimeout = false;
                 if (p.analysis_started_at) {
@@ -1099,7 +1099,9 @@
                     isTimeout = mins >= 30;
                     elapsedText = mins < 1 ? '刚刚开始' : `已运行 ${mins} 分钟`;
                 }
-                const statusLabel = isTimeout ? '耗时较长，请保持电脑常亮' : 'AI 分析中...';
+                const statusLabel = status === 'creating'
+                    ? (isTimeout ? '文件较大，仍在入库中...' : '项目创建中...')
+                    : (isTimeout ? '耗时较长，请保持电脑常亮' : 'AI 分析中...');
                 card.innerHTML = `
                     <div class="project-name">${p.name}</div>
                     <div class="project-meta" style="display:flex; flex-direction:column; align-items:center; gap:4px;">
@@ -1108,12 +1110,14 @@
                         ${elapsedText ? `<span style="font-size:11px; color:#94a3b8;">${elapsedText}</span>` : ''}
                     </div>
                     <div class="card-actions">
-                        <button class="btn-card btn-progress" onclick="openProgressModal(${p.id}, '${p.name.replace(/'/g,"\\'")}'); event.stopPropagation();">进度详情</button>
+                        ${status === 'analyzing' ? `<button class="btn-card btn-progress" onclick="openProgressModal(${p.id}, '${p.name.replace(/'/g,"\\'")}'); event.stopPropagation();">进度详情</button>` : `<button class="btn-card btn-progress" disabled style="opacity:.72; cursor:wait;">请稍候</button>`}
                         <button class="btn-card btn-delete" onclick="deleteProject(${p.id}, event, true)">取消</button>
                     </div>
                 `;
                 card.onclick = (e) => {
-                    if (!e.target.closest('button')) openProgressModal(p.id, p.name);
+                    if (e.target.closest('button')) return;
+                    if (status === 'analyzing') openProgressModal(p.id, p.name);
+                    else showToast('项目正在创建中，文件越大入库时间越长');
                 };
             } else if (status === 'failed') {
                 card.className = 'project-card card-failed';
@@ -1152,7 +1156,11 @@
         async function loadProjects() {
             try {
                 const resp = await fetch('/api/projects');
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 const projects = await resp.json();
+                if (!Array.isArray(projects)) {
+                    throw new Error(projects.message || '项目列表返回异常');
+                }
                 renderProjectListCache(projects);
 
                 updateWarningBanner(projects);
@@ -1164,6 +1172,21 @@
                 }
             } catch (err) {
                 console.error('Projects load error:', err);
+                const list = document.getElementById('project-list');
+                if (list) {
+                    list.innerHTML = `
+                        <div class="project-card card-failed" style="min-width:320px;">
+                            <div class="project-name">项目列表加载失败</div>
+                            <div style="flex:1; display:flex; align-items:center; justify-content:center; text-align:center; color:#dc2626; font-size:13px; font-weight:700; padding:0 18px;">
+                                ${escHtml(err.message || '请稍后重试')}
+                            </div>
+                            <div class="card-actions">
+                                <button class="btn-card btn-enter" onclick="loadProjects()">重新加载</button>
+                            </div>
+                        </div>
+                    `;
+                }
+                stopPolling();
             }
         }
 
@@ -1229,7 +1252,7 @@
                 if (res.status === 'success') {
                     _pendingCreates.delete(pendingId);
                     e.target.reset();
-                    showToast('项目创建完成');
+                    showToast(res.ready === false ? '项目已创建，正在后台入库...' : '项目创建完成');
                     await loadProjects();
                     const list = getProjectList();
                     if (list) list.scrollTo({ left: 0, behavior: 'smooth' });

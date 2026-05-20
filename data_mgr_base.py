@@ -349,13 +349,18 @@ class DataManagerBase:
                         conn.execute("INSERT INTO projects (id, name, is_active) VALUES (1, '默认项目', 1)")
                         print("Created default project.")
 
-                    # Startup recovery: fix orphaned 'analyzing' status from crashed runs
-                    for row in conn.execute("SELECT id FROM projects WHERE status = 'analyzing'").fetchall():
+                    # Startup recovery: fix orphaned in-progress status from crashed runs.
+                    for row in conn.execute("SELECT id, status FROM projects WHERE status IN ('analyzing', 'creating')").fetchall():
                         orphan_pid = row[0]
-                        output_path = os.path.join(self.base_dir, "uploads",
-                                                   f"project_{orphan_pid}", "outputs",
-                                                   f"output_{orphan_pid}.xlsx")
-                        new_status = 'ready' if os.path.exists(output_path) else 'failed'
+                        old_status = row[1]
+                        if old_status == "creating":
+                            cnt = conn.execute("SELECT COUNT(*) FROM main_products WHERE project_id = ?", (orphan_pid,)).fetchone()[0]
+                            new_status = 'ready' if cnt > 0 else 'failed'
+                        else:
+                            output_path = os.path.join(self.base_dir, "uploads",
+                                                       f"project_{orphan_pid}", "outputs",
+                                                       f"output_{orphan_pid}.xlsx")
+                            new_status = 'ready' if os.path.exists(output_path) else 'failed'
                         conn.execute("UPDATE projects SET status = ?, analysis_started_at = NULL WHERE id = ?",
                                      (new_status, orphan_pid))
                         print(f"Startup recovery: project {orphan_pid} → {new_status}")
