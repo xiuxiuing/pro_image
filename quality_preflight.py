@@ -228,7 +228,7 @@ def build_quality_report(preflight: Optional[dict] = None, analysis_metrics: Opt
     if download_total and _rate(download_success, download_total) < 0.8:
         warnings.append(f"图片下载成功率偏低：{_rate(download_success, download_total):.0%}")
     if vector_total and _rate(vector_success, vector_total) < 0.8:
-        warnings.append(f"向量生成成功率偏低：{_rate(vector_success, vector_total):.0%}")
+        warnings.append(f"AI生成成功率偏低：{_rate(vector_success, vector_total):.0%}")
 
     return {
         "version": 1,

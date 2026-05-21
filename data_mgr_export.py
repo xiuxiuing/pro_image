@@ -6,6 +6,7 @@ import shutil
 import tempfile
 import pandas as pd
 import utils
+from openpyxl import Workbook
 from data_mgr_base import INTERNAL_EXPORT_KEYS
 
 class DataManagerExportMixin:
@@ -47,6 +48,92 @@ class DataManagerExportMixin:
         if str(row.get("是否不处理", "")).strip() == "是":
             notes.append("不处理")
         return "；".join(notes)
+
+    def _blank_if_missing(self, row, col):
+        val = row.get(col, "")
+        if pd.isna(val):
+            return ""
+        text = str(val).strip()
+        return "" if text.lower() in ("nan", "none") else text
+
+    def _build_platform_price_sheets(self, main_change_df):
+        records = main_change_df.fillna("").to_dict(orient="records") if main_change_df is not None else []
+
+        qnh_rows = []
+        meituan_rows = []
+        eleme_rows = []
+        for row in records:
+            sku = self._blank_if_missing(row, "skuId")
+            name = self._blank_if_missing(row, "商品名称")
+            new_activity_price = self._blank_if_missing(row, "新活动价")
+            new_retail_price = self._blank_if_missing(row, "新售价")
+
+            qnh_rows.append({
+                "*商品规格（SKUID)": sku,
+                "*门店编码": "",
+                "*商品零售价（元）": new_retail_price,
+                "渠道编码": "",
+            })
+            meituan_rows.append({
+                "UPC（条形码）": "",
+                "SKU码/货号": sku,
+                "商品名称": name,
+                "活动价": new_activity_price,
+                "折扣率": "",
+                "每单限购份数": "1",
+                "当日活动库存": "-1",
+            })
+            eleme_rows.append({
+                "商品条形码": "",
+                "自定义ID": sku,
+                "活动价": new_activity_price,
+                "活动总库存": "",
+                "每日活动库存": "",
+                "每人/活动期间限购": "1",
+                "每人/每日限购": "1",
+            })
+        return qnh_rows, meituan_rows, eleme_rows
+
+    def _write_export_new_workbook(self, sheet_data, path):
+        wb = Workbook()
+        if wb.active:
+            wb.remove(wb.active)
+
+        def add_records_sheet(title, records, headers=None):
+            ws = wb.create_sheet(title=title)
+            headers = list(headers or (records[0].keys() if records else []))
+            if headers:
+                ws.append(headers)
+                for item in records:
+                    ws.append([utils.optimize_numeric_value(item.get(h, "")) for h in headers])
+            return ws
+
+        add_records_sheet("新增(竞店)", sheet_data.get("新增(竞店)", []))
+        add_records_sheet("淘汰(主店)", sheet_data.get("淘汰(主店)", []))
+        add_records_sheet(
+            "牵牛花零售价修改",
+            sheet_data.get("牵牛花零售价修改", []),
+            ["*商品规格（SKUID)", "*门店编码", "*商品零售价（元）", "渠道编码"],
+        )
+        add_records_sheet(
+            "美团商家版-活动价修改第二页",
+            sheet_data.get("美团商家版-活动价修改第二页", []),
+            ["UPC（条形码）", "SKU码/货号", "商品名称", "活动价", "折扣率", "每单限购份数", "当日活动库存"],
+        )
+        add_records_sheet(
+            "饿了么商家版-活动价修改",
+            sheet_data.get("饿了么商家版-活动价修改", []),
+            ["商品条形码", "自定义ID", "活动价", "活动总库存", "每日活动库存", "每人/活动期间限购", "每人/每日限购"],
+        )
+
+        for ws in wb.worksheets:
+            for row in ws.iter_rows():
+                for cell in row:
+                    cell.number_format = "@"
+            for col_cells in ws.columns:
+                max_len = max((len(str(c.value or "")) for c in col_cells), default=8)
+                ws.column_dimensions[col_cells[0].column_letter].width = min(max(max_len + 2, 12), 36)
+        wb.save(path)
 
     def save_to_excel(self):
         filename = f"对比分析全量成果_{time.strftime('%Y%m%d_%H%M%S')}.xlsx"
@@ -229,5 +316,13 @@ class DataManagerExportMixin:
 
         dirs = self._get_project_dirs(self.active_project_id)
         path = os.path.join(dirs["outputs"], f"新增竞品数据_{time.strftime('%Y%m%d_%H%M%S')}.xlsx")
-        sheet_data = {"新增(竞店)": final_df.fillna("").to_dict(orient='records'), "淘汰(主店)": elim_df.fillna("").to_dict(orient='records')}
-        utils.write_multisheet_dict_to_excel(sheet_data, path); return path
+        qnh_rows, meituan_rows, eleme_rows = self._build_platform_price_sheets(elim_df)
+        sheet_data = {
+            "新增(竞店)": final_df.fillna("").to_dict(orient='records'),
+            "淘汰(主店)": elim_df.fillna("").to_dict(orient='records'),
+            "牵牛花零售价修改": qnh_rows,
+            "美团商家版-活动价修改第二页": meituan_rows,
+            "饿了么商家版-活动价修改": eleme_rows,
+        }
+        self._write_export_new_workbook(sheet_data, path)
+        return path

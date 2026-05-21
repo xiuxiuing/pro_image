@@ -2114,6 +2114,50 @@
             }
         }
 
+        function syncUnlinkedToggleButton() {
+            const btn = document.getElementById('unlinkedToggleBtn');
+            const txt = document.getElementById('unlinkedBtnText');
+            if (!btn || !txt) return;
+            btn.classList.toggle('active', isUnlinkedMode);
+            txt.textContent = isUnlinkedMode ? '关联数据' : '未关联数据';
+        }
+
+        async function openWorkbenchForCategory(category) {
+            const category3 = String(category || '').trim();
+            if (!category3) return;
+
+            advancedFilters['美团类目三级'] = category3;
+            showNoLinkOnly = false;
+            showUnhandledOnly = false;
+            currentFilterMode = 'all';
+            isUnlinkedMode = false;
+            syncUnlinkedToggleButton();
+
+            try {
+                const configRes = await fetch('/api/config');
+                const config = await configRes.json();
+                if (!config.has_links) {
+                    if (typeof window.openWorkbenchAnalyzeModal === 'function') {
+                        window.openWorkbenchAnalyzeModal();
+                        return;
+                    }
+                    alert('当前项目还没有关联数据，请先进行分析');
+                    return;
+                }
+            } catch (err) {
+                alert(err?.message || '无法校验关联数据');
+                return;
+            }
+
+            const wasLoaded = !!window.__workbenchLoaded;
+            if (window.showPanel) window.showPanel('projects');
+            if (wasLoaded) {
+                filterData(true);
+            } else {
+                renderFilterPopup();
+            }
+        }
+
         function setSort(field, order) {
             if (currentSort.field === field && currentSort.order === order) {
                 currentSort = { field: null, order: null };
@@ -3280,6 +3324,32 @@
             return text === '' ? '—' : text;
         }
 
+        function normalizeSearchText(value) {
+            return String(value ?? '').normalize('NFKC').toLowerCase().trim();
+        }
+
+        function searchTokens(value, limit = 5) {
+            const text = normalizeSearchText(value);
+            if (!text) return [];
+            const tokens = [];
+            const seen = new Set();
+            text.split(/[\s,，;；、]+/).forEach(token => {
+                if (!token || seen.has(token) || tokens.length >= limit) return;
+                seen.add(token);
+                tokens.push(token);
+            });
+            return tokens;
+        }
+
+        function productMatchesSearchTokens(product, tokens, fields) {
+            if (!tokens || tokens.length === 0) return true;
+            const haystack = fields
+                .map(field => normalizeSearchText(product?.[field]))
+                .filter(Boolean)
+                .join(' ');
+            return tokens.every(token => haystack.includes(token));
+        }
+
         function updateModalMainStoreSummary(mainSkuId) {
             const box = document.getElementById('modalMainStoreSummary');
             const nameEl = document.getElementById('modalMainStoreName');
@@ -3371,7 +3441,7 @@
 
         async function renderModalList() {
             const list = document.getElementById('modalList');
-            const term = document.getElementById('modalSearch').value.toLowerCase();
+            const term = document.getElementById('modalSearch').value;
             list.innerHTML = '';
             const countEl = document.getElementById('modalCount');
             if (linkModalMode === "main_pool") {
@@ -3417,11 +3487,13 @@
 
             const products = allStoreProducts[currentLinkAction.storeId];
             if (!products) return;
-            const filtered = products.filter(p => {
-                const name = (p['商品名称'] || "").toLowerCase();
-                const sku = String(p['skuid'] || p['SKUID'] || "").toLowerCase();
-                return name.includes(term) || sku.includes(term);
-            });
+            const tokens = searchTokens(term);
+            const filtered = products.filter(p => productMatchesSearchTokens(p, tokens, [
+                'skuId', 'skuid', 'SKUID',
+                '商品名称',
+                '规格名称', '规格名', '规格',
+                '商品条码', '条码', 'barcode', 'Barcode',
+            ]));
             const showing = Math.min(filtered.length, 50);
             countEl.textContent = filtered.length > 50 ? `共 ${filtered.length} 条，显示前 ${showing} 条` : `共 ${filtered.length} 条`;
             filtered.slice(0, 50).forEach(p => {
@@ -3532,15 +3604,7 @@
 
         function toggleUnlinkedMode() {
             isUnlinkedMode = !isUnlinkedMode;
-            const btn = document.getElementById('unlinkedToggleBtn');
-            const txt = document.getElementById('unlinkedBtnText');
-            if (isUnlinkedMode) {
-                btn.classList.add('active');
-                txt.textContent = '关联数据';
-            } else {
-                btn.classList.remove('active');
-                txt.textContent = '未关联数据';
-            }
+            syncUnlinkedToggleButton();
             filterData(true);
         }
 

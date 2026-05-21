@@ -43,19 +43,27 @@
 
         #bg-video {
             position: absolute;
-            top: 50%;
-            left: 50%;
-            min-width: 100%;
-            min-height: 100%;
-            width: auto;
-            height: auto;
-            transform: translate(-50%, -50%);
+            inset: 0;
+            width: 100%;
+            height: 100%;
             object-fit: cover;
+            object-position: center center;
+            display: none;
+        }
+        #bg-image {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            object-position: center center;
             display: none;
         }
 
         body.video-bg-ready #bg-video { display: block; }
+        body.image-bg-ready #bg-image { display: block; }
         body.perf-static-bg #bg-video { display: none; }
+        body.perf-static-bg #bg-image { display: block; }
 
         .dynamic-bg::after {
             content: '';
@@ -739,6 +747,10 @@
                 grid-template-columns: 1fr;
                 gap: 0;
             }
+            #bg-video,
+            #bg-image {
+                object-position: 38% center;
+            }
             .project-carousel-wrap {
                 width: min(100%, calc(100vw - 28px));
             }
@@ -770,6 +782,7 @@
         <video id="bg-video" autoplay muted loop playsinline preload="none">
             <source data-src="/static/bg.mp4" type="video/mp4">
         </video>
+        <img id="bg-image" src="" alt="" aria-hidden="true" decoding="async">
     </div>
 
     <div id="warning-banner" class="warning-banner">
@@ -865,27 +878,81 @@
     <script>
         function setupProjectPagePerformance() {
             const video = document.getElementById('bg-video');
-            if (!video) return;
+            const bgImage = document.getElementById('bg-image');
+            if (!video || !bgImage) return;
             const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            const imageCandidates = ['/static/bg.gif', '/static/bj.png'];
+            let settled = false;
+            let videoFallbackTimer = null;
 
-            if (reduceMotion) {
-                document.body.classList.add('perf-static-bg');
+            function loadFallbackImage() {
+                if (settled) return;
+                settled = true;
+                if (videoFallbackTimer) {
+                    clearTimeout(videoFallbackTimer);
+                    videoFallbackTimer = null;
+                }
                 video.pause();
                 video.removeAttribute('src');
                 video.querySelectorAll('source').forEach(s => s.removeAttribute('src'));
                 video.load();
+                let idx = 0;
+                const tryNext = () => {
+                    if (idx >= imageCandidates.length) {
+                        document.body.classList.remove('image-bg-ready');
+                        document.body.classList.add('perf-static-bg');
+                        return;
+                    }
+                    const src = imageCandidates[idx++];
+                    bgImage.onload = () => {
+                        document.body.classList.remove('perf-static-bg');
+                        document.body.classList.add('image-bg-ready');
+                        bgImage.onerror = null;
+                    };
+                    bgImage.onerror = () => {
+                        bgImage.onerror = null;
+                        tryNext();
+                    };
+                    bgImage.src = src;
+                };
+                tryNext();
+            }
+
+            if (reduceMotion) {
+                document.body.classList.add('perf-static-bg');
+                loadFallbackImage();
                 return;
             }
+
+            const onVideoReady = () => {
+                if (settled) return;
+                settled = true;
+                if (videoFallbackTimer) {
+                    clearTimeout(videoFallbackTimer);
+                    videoFallbackTimer = null;
+                }
+                document.body.classList.remove('perf-static-bg');
+                document.body.classList.add('video-bg-ready');
+            };
+            const onVideoError = () => {
+                loadFallbackImage();
+            };
+
+            video.addEventListener('canplay', onVideoReady, { once: true });
+            video.addEventListener('playing', onVideoReady, { once: true });
+            video.addEventListener('error', onVideoError, { once: true });
 
             video.querySelectorAll('source[data-src]').forEach(s => {
                 if (!s.getAttribute('src')) s.setAttribute('src', s.dataset.src);
             });
-            document.body.classList.add('video-bg-ready');
+            document.body.classList.add('perf-static-bg');
             video.load();
             video.play().catch(() => {
-                document.body.classList.remove('video-bg-ready');
-                document.body.classList.add('perf-static-bg');
+                loadFallbackImage();
             });
+            videoFallbackTimer = setTimeout(() => {
+                if (!settled) loadFallbackImage();
+            }, 1400);
         }
 
         function openModal() {

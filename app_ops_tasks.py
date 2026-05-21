@@ -568,7 +568,7 @@ def api_ops_output_generate():
 
     task = _ops_create_task(
         "output",
-        ["准备文件"] + [f"向量分析 竞店{i+1}" for i in range(len(comp_inputs))] + ["查询匹配主店"],
+        ["准备文件"] + [f"AI分析 竞店{i+1}" for i in range(len(comp_inputs))] + ["AI匹配主店"],
         "Output 生成排队中",
     )
     task_id = task["task_id"]

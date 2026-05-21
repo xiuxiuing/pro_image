@@ -132,8 +132,8 @@ def _init_progress(pid, use_ai, main_name, comp_names):
     if use_ai:
         steps.append({"label": f"AI提取 {main_name}", "status": "pending", "detail": ""})
         for cn in comp_names: steps.append({"label": f"AI提取 {cn}", "status": "pending", "detail": ""})
-    for cn in comp_names: steps.append({"label": f"向量分析 {cn}", "status": "pending", "detail": ""})
-    steps.append({"label": f"查询匹配 {main_name}", "status": "pending", "detail": ""})
+    for cn in comp_names: steps.append({"label": f"AI分析 {cn}", "status": "pending", "detail": ""})
+    steps.append({"label": f"AI匹配 {main_name}", "status": "pending", "detail": ""})
     prog = {"started_at": time.time(), "steps": steps}
     with _progress_lock: _analysis_progress[pid] = prog
     return prog

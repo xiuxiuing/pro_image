@@ -571,6 +571,20 @@
         border-color: #409eff;
         background: #ecf5ff;
     }
+    .statistics-action-group {
+        display: inline-flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+    }
+    .statistics-action-group .statistics-detail-btn {
+        width: 52px;
+        min-width: 52px;
+        padding: 5px 6px;
+        box-sizing: border-box;
+        white-space: nowrap;
+    }
     .statistics-product-modal-backdrop {
         position: fixed;
         inset: 0;
@@ -1049,7 +1063,7 @@
             <thead>
                 <tr>
                     <th rowspan="2" style="width: 10%;">三级分类</th>
-                    <th colspan="3" class="statistics-sort-head" data-sort-key="sales" onclick="setStatisticsSort('sales')">销售量（单）</th>
+                    <th colspan="3" class="statistics-sort-head" data-sort-key="sales" onclick="setStatisticsSort('sales')">销售量（件）</th>
                     <th colspan="3" class="statistics-sort-head" data-sort-key="sales_amount" onclick="setStatisticsSort('sales_amount')">销售额（元）</th>
                     <th colspan="3" class="statistics-sort-head" data-sort-key="spu" onclick="setStatisticsSort('spu')">SPU数量</th>
                     <th colspan="3" class="statistics-sort-head" data-sort-key="active_rate" onclick="setStatisticsSort('active_rate')">动销效率 (%)</th>
@@ -1100,11 +1114,11 @@
         <div class="workbench-mode-toggle">
             <button class="workbench-mode-btn active" id="workbench-mode-auto" type="button" onclick="setWorkbenchMode('auto')">
                 AI 分析
-                <span>填写 Key、选择规则模板，后台生成关联数据</span>
+                <span>请填写APIKey、规则模板、等关键信息</span>
             </button>
             <button class="workbench-mode-btn" id="workbench-mode-manual" type="button" onclick="setWorkbenchMode('manual')">
                 跳过分析
-                <span>上传已有关联结果文件，直接导入工作台</span>
+                <span>请上传已有关联结果文件</span>
             </button>
         </div>
 
@@ -1129,37 +1143,37 @@
             <div id="workbench-auto-fields">
                 <label class="workbench-ai-toggle">
                     <input type="checkbox" name="use_ai" id="workbench-use-ai" onchange="toggleWorkbenchAiFields()">
-                    <span>AI 智能属性提取<br><small>利用 AI 补齐缺失的品牌、规格等核心属性</small></span>
+                    <span>AI 智能属性提取<br><small>AI主动补齐缺失的品牌、规格等核心属性</small></span>
                 </label>
 
                 <div class="workbench-form-grid">
-                    <div class="workbench-form-group">
+                    <div class="workbench-form-group full">
                         <label class="workbench-form-label">类目规则模板</label>
                         <select name="rule_template_id" id="workbench-rule-template" class="workbench-form-control">
                             <option value="">加载中...</option>
                         </select>
                     </div>
+                    <div class="workbench-form-group" id="workbench-api-key-group" style="display:none;">
+                        <label class="workbench-form-label">API Key</label>
+                        <input type="password" name="api_key" id="workbench-api-key" class="workbench-form-control" placeholder="可填多个 Key，用逗号 / 分号 / 空格分隔">
+                    </div>
                     <div class="workbench-form-group" id="workbench-ai-model-group" style="display:none;">
-                        <label class="workbench-form-label">Gemini 模型名称</label>
+                        <label class="workbench-form-label">模型名称</label>
                         <select name="ai_model_name" class="workbench-form-control">
-                            <option value="" selected>(留空)</option>
+                            <option value="" selected>默认</option>
                             <option value="models/gemini-3.1-flash-lite-preview">models/gemini-3.1-flash-lite-preview</option>
                             <option value="gemini-3.1-flash-lite-preview">gemini-3.1-flash-lite-preview</option>
                             <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
                         </select>
                     </div>
-                    <div class="workbench-form-group full" id="workbench-api-key-group" style="display:none;">
-                        <label class="workbench-form-label">Gemini API Key</label>
-                        <input type="password" name="api_key" id="workbench-api-key" class="workbench-form-control" placeholder="可填多个 Key，用逗号 / 分号 / 空格分隔">
-                    </div>
                     <div class="workbench-form-group" id="workbench-kimi-key-group" style="display:none;">
-                        <label class="workbench-form-label">Kimi 兜底 API Key（可选）</label>
+                        <label class="workbench-form-label">Api Key（备用）</label>
                         <input type="password" name="kimi_api_key" class="workbench-form-control" placeholder="sk-...">
                     </div>
                     <div class="workbench-form-group" id="workbench-kimi-model-group" style="display:none;">
-                        <label class="workbench-form-label">Kimi 模型（可选）</label>
+                        <label class="workbench-form-label">模型名称（备用）</label>
                         <select name="kimi_model_name" class="workbench-form-control">
-                            <option value="" selected>(留空)</option>
+                            <option value="" selected>默认</option>
                             <option value="kimi-k2.5">kimi-k2.5</option>
                             <option value="kimi-k2-turbo-preview">kimi-k2-turbo-preview</option>
                         </select>
@@ -1169,7 +1183,7 @@
 
             <div id="workbench-manual-fields" style="display:none;">
                 <div class="workbench-form-group">
-                    <label class="workbench-form-label">关联结果文件</label>
+                    <label class="workbench-form-label">结果文件</label>
                     <input type="file" name="result_file" id="workbench-result-file" class="workbench-form-control" accept=".xlsx,.xls">
                 </div>
             </div>
@@ -1284,7 +1298,6 @@
 
     function statisticsCell(value, type = "number", diff = false) {
         let text = type === "money" ? statisticsMoney(value) : type === "pct" ? statisticsPct(value) : statisticsNumber(value);
-        if (diff && Number(value || 0) > 0) text = `+${text}`;
         const cls = diff ? statisticsDiffClass(value) : "";
         return `<td class="${cls}">${text}</td>`;
     }
@@ -1796,7 +1809,7 @@
         const vectorRate = Math.round(Number(summary.vector_success_rate || 0) * 100);
         const bits = [
             `本次分析质量：图片 ${summary.download_success || 0}/${summary.download_total || 0} (${downloadRate}%)`,
-            `向量 ${summary.vector_success || 0}/${summary.vector_total || 0} (${vectorRate}%)`,
+            `AI ${summary.vector_success || 0}/${summary.vector_total || 0} (${vectorRate}%)`,
             `匹配 ${summary.matched || 0}`,
             `规则拦截 ${summary.rule_rejected || 0}`,
         ];
@@ -2065,7 +2078,10 @@
             const categoryCell = isMainTab
                 ? `<td class="statistics-category" title="点击展开 ${safeCategory}" onclick="toggleStatisticsRow(this.closest('tr'))"><span class="statistics-category-content"><span class="statistics-expand-triangle" aria-hidden="true"></span><span class="statistics-category-label">${safeCategory}</span></span></td>`
                 : `<td class="statistics-category statistics-category-static" title="点击复制 ${safeCategory}" onclick="copyStatisticsCategory(this.dataset.category)" data-category="${safeCategory}"><span class="statistics-category-content"><span class="statistics-category-label">${safeCategory}</span></span></td>`;
-            const actionCell = `<td class="text-center"><button class="statistics-detail-btn" type="button" data-category="${safeCategory}" onclick="openStatisticsProductModal(this.dataset.category)">详情</button></td>`;
+            const workbenchButton = isMainTab
+                ? `<button class="statistics-detail-btn" type="button" data-category="${safeCategory}" onclick="openWorkbenchForCategory(this.dataset.category)">工作台</button>`
+                : "";
+            const actionCell = `<td class="text-center"><span class="statistics-action-group"><button class="statistics-detail-btn" type="button" data-category="${safeCategory}" onclick="openStatisticsProductModal(this.dataset.category)">详情</button>${workbenchButton}</span></td>`;
             const expandRow = isMainTab ? `
                 <tr class="statistics-expand-row" data-statistics-row="${idx}">
                     <td colspan="17">

@@ -64,7 +64,7 @@ def _select_torch_device():
 device, _device_is_explicit = _select_torch_device()
 if device == "cpu" and (not _device_is_explicit) and torch.backends.mps.is_available():
     print(
-        "Using device: cpu (已跳过 Apple MPS，避免向量分析段错误。要试用 GPU: 设置 PROIMAGE_DEVICE=mps 或 PROIMAGE_USE_MPS=1)",
+        "Using device: cpu (已跳过 Apple MPS，避免AI分析段错误。要试用 GPU: 设置 PROIMAGE_DEVICE=mps 或 PROIMAGE_USE_MPS=1)",
         flush=True,
     )
 else:
@@ -517,23 +517,23 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
         i_path = os.path.join(cache_dir, f"img_{output_name}{idx}.v2.index")
         t_path = os.path.join(cache_dir, f"txt_{output_name}{idx}.index")
 
-        _emit_progress("source_start", idx, f"图片向量 0/{len(data)}")
+        _emit_progress("source_start", idx, f"图片AI 0/{len(data)}")
         img_index_stats = build_index(
             data,
             "img",
             comp_img_dir,
             i_path,
-            progress_cb=lambda done, total, _idx=idx: _emit_progress("source_start", _idx, f"图片向量 {done}/{total}"),
+            progress_cb=lambda done, total, _idx=idx: _emit_progress("source_start", _idx, f"图片AI {done}/{total}"),
         )
         source_metrics["image_index"] = img_index_stats
         if not os.path.exists(t_path):
-            _emit_progress("source_start", idx, f"文本向量 0/{len(data)}")
+            _emit_progress("source_start", idx, f"文本AI 0/{len(data)}")
             text_index_stats = build_index(
                 data,
                 "text",
                 "",
                 t_path,
-                progress_cb=lambda done, total, _idx=idx: _emit_progress("source_start", _idx, f"文本向量 {done}/{total}"),
+                progress_cb=lambda done, total, _idx=idx: _emit_progress("source_start", _idx, f"文本AI {done}/{total}"),
             )
             source_metrics["text_index"] = text_index_stats
         else:
@@ -562,7 +562,7 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
     
     total_q = len(query_data)
     if progress_cb:
-        progress_cb("query_progress", 0, f"生成查询向量 0/{total_q}（开始）")
+        progress_cb("query_progress", 0, f"生成查询AI 0/{total_q}（开始）")
     
     # Inject match_config for get_text() globally within this module.
     # (This keeps call sites simple and avoids changing many function signatures.)
@@ -583,7 +583,7 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
         if not is_final and (now - _last_pb[phase]) < _pb_min_s:
             return
         _last_pb[phase] = now
-        progress_cb("query_progress", 0, f"生成查询向量 {done}/{total}（{phase}）")
+        progress_cb("query_progress", 0, f"生成查询AI {done}/{total}（{phase}）")
 
     query_img_vecs = images_to_embeddings(query_img_paths, batch_size=32, on_batch_progress=_throttled_query_embed_progress)
     query_txt_vecs = texts_to_embeddings(query_texts, batch_size=32, on_batch_progress=_throttled_query_embed_progress)
