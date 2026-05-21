@@ -59,11 +59,10 @@ class NuitkaCorePackagingTests(unittest.TestCase):
             steps,
         )
 
-    def test_ops_tools_copy_mentions_nuitka_and_not_pyarmor(self):
+    def test_ops_tools_copy_mentions_nuitka_package_flow(self):
         text = (ROOT / "templates" / "ops_tools.html").read_text(encoding="utf-8")
         self.assertIn("Nuitka 编译核心算法模块", text)
         self.assertIn("ProImage_nuitka_*", text)
-        self.assertNotIn("PyArmor gen -O dist/obfuscated", text)
 
     def test_requirements_build_lists_nuitka_and_pyinstaller(self):
         req = (ROOT / "requirements-build.txt").read_text(encoding="utf-8")

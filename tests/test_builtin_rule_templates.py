@@ -119,9 +119,9 @@ class BuiltinRuleTemplateTests(unittest.TestCase):
         data = json.loads(path.read_text(encoding="utf-8"))
         self.assertEqual(data["name"], PRODUCTION_RULE_TEMPLATE_NAME)
         self.assertGreater(len(data["config"].get("rule_groups") or []), 0)
-        for spec_name in ("ProImage_Windows.spec", "ProImage_macOS.spec"):
+        for spec_name in ("ProImage_nuitka_Windows.spec", "ProImage_nuitka_macOS.spec"):
             spec = (ROOT / spec_name).read_text(encoding="utf-8")
-            self.assertIn("('data', 'data')", spec)
+            self.assertIn("(os.path.join(_src, 'data'), 'data')", spec)
 
     def test_production_rule_v1_increment_paths_are_merged_and_color_is_disabled(self):
         template_path = ROOT / "data" / "default_rule_templates" / "production_rule_v1.json"

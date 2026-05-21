@@ -104,12 +104,11 @@ class WindowsPackagingRuntimeTests(unittest.TestCase):
         body = [ast.unparse(stmt) for stmt in main_blocks[0].body]
         self.assertIn("_schedule_open_browser(port)", body)
 
-    def test_windows_spec_uses_obfuscated_entry_with_source_fallback(self):
-        text = (ROOT / "ProImage_Windows.spec").read_text(encoding="utf-8")
+    def test_ops_tools_package_build_uses_nuitka_windows_spec(self):
+        text = (ROOT / "app_ops_extra.py").read_text(encoding="utf-8")
 
-        self.assertIn("_obf_app", text)
-        self.assertIn("dist', 'obfuscated'", text)
-        self.assertIn("os.path.join(_root, 'app.py')", text)
+        self.assertIn('"ProImage_nuitka_Windows.spec"', text)
+        self.assertIn('target not in ("macos", "windows")', text)
 
 
 if __name__ == "__main__":

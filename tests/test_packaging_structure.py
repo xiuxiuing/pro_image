@@ -9,16 +9,6 @@ from packaging_core import BUSINESS_SOURCE_FILES, CORE_NUITKA_MODULES
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def pyarmor_files():
-    tree = ast.parse((ROOT / "app_ops.py").read_text(encoding="utf-8"))
-    for node in tree.body:
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name) and target.id == "_OPS_PYARMOR_FILES":
-                    return ast.literal_eval(node.value)
-    raise AssertionError("_OPS_PYARMOR_FILES not found")
-
-
 def route_rules(patterns):
     rules = set()
     for pattern in patterns:
@@ -36,37 +26,7 @@ def route_rules(patterns):
     return rules
 
 
-class PyArmorSplitStructureTests(unittest.TestCase):
-    def test_pyarmor_file_manifest_covers_runtime_modules(self):
-        required = {
-            "app.py",
-            "app_ops.py",
-            "app_ops_extra.py",
-            "app_data.py",
-            "data_mgr.py",
-            "data_mgr_base.py",
-            "data_mgr_import.py",
-            "data_mgr_query.py",
-            "data_mgr_query_unlinked.py",
-            "data_mgr_ops.py",
-            "data_mgr_export.py",
-            "data_mgr_rule_templates.py",
-            "field_registry.py",
-            "quality_preflight.py",
-            "packaging_core.py",
-            "license_utils.py",
-            "main_030822.py",
-            "extract_info_schema.py",
-            "extract_info_rules.py",
-            "extract_info_ai2.py",
-            "product_text_extract.py",
-            "post_match_engine.py",
-            "utils.py",
-            "merge_sku_data.py",
-        }
-
-        self.assertTrue(required.issubset(set(pyarmor_files())))
-
+class PackagingStructureTests(unittest.TestCase):
     def test_tools_package_manifest_covers_current_runtime_modules(self):
         expected_business = {
             "app.py",
@@ -104,21 +64,19 @@ class PyArmorSplitStructureTests(unittest.TestCase):
         self.assertTrue(expected_business.issubset(set(BUSINESS_SOURCE_FILES)))
         self.assertTrue(expected_core.issubset(set(CORE_NUITKA_MODULES)))
 
-    def test_pyinstaller_specs_hiddenimports_cover_split_modules(self):
-        failures = {}
-        for spec_name in ("ProImage_Windows.spec", "ProImage_macOS.spec"):
+    def test_nuitka_specs_collect_business_shell_and_exclude_core_modules(self):
+        for spec_name in ("ProImage_nuitka_Windows.spec", "ProImage_nuitka_macOS.spec"):
             spec = (ROOT / spec_name).read_text(encoding="utf-8")
-            missing = []
-            for rel in pyarmor_files():
+            self.assertIn("from packaging_core import CORE_NUITKA_MODULES", spec)
+            self.assertIn("excludes=list(CORE_NUITKA_MODULES)", spec)
+            self.assertIn("os.path.join(_src, 'data')", spec)
+            self.assertIn("os.path.join(_src, 'models')", spec)
+            for rel in BUSINESS_SOURCE_FILES:
                 module = Path(rel).with_suffix("").name
                 if module == "app":
                     continue
-                if f"'{module}'" not in spec and f'"{module}"' not in spec:
-                    missing.append(module)
-            if missing:
-                failures[spec_name] = missing
-
-        self.assertEqual({}, failures)
+                self.assertNotIn(f"'{module}'", spec)
+                self.assertNotIn(f'"{module}"', spec)
 
     def test_ops_routes_stay_on_the_same_urls_after_split(self):
         expected = {

@@ -54,8 +54,7 @@ def init_ops(app_obj, dm_obj, res_root, dat_root, license_fn, hwid, ai_mod, main
         "create_task": _ops_create_task, "get_task": _ops_get_task, "set_task": _ops_set_task,
         "update_step": _ops_update_step, "fail_task": _ops_fail_task, "now": _ops_now,
         "task_dir": _ops_task_dir, "create_license_file": _ops_create_license_file,
-        "run_command": _ops_run_command, "pyarmor_command": _ops_pyarmor_command,
-        "pyarmor_files": _OPS_PYARMOR_FILES, "verify_pyarmor_output": _ops_verify_pyarmor_output,
+        "run_command": _ops_run_command,
         "zip_path": _ops_zip_path,
         "extract_info_ai2": extract_info_ai2, "main_030822": main_030822,
         "dm": dm,
@@ -346,59 +345,6 @@ def _ops_create_license_file(hwids, expires_days, out_path, uploaded_key=None):
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(f"{data_b64}.{sig_b64}")
     return expires
-
-_OPS_PYARMOR_FILES = [
-    "app.py",
-    "app_ops.py",
-    "app_ops_tasks.py",
-    "app_ops_extra.py",
-    "app_data.py",
-    "app_data_projects.py",
-    "app_data_rules.py",
-    "app_data_grid.py",
-    "data_mgr.py",
-    "data_mgr_base.py",
-    "data_mgr_import.py",
-    "data_mgr_query.py",
-    "data_mgr_query_unlinked.py",
-    "data_mgr_ops.py",
-    "data_mgr_export.py",
-    "data_mgr_rule_templates.py",
-    "field_registry.py",
-    "quality_preflight.py",
-    "packaging_core.py",
-    "license_utils.py",
-    "main_030822.py",
-    "extract_info_ai2.py",
-    "extract_info_schema.py",
-    "extract_info_rules.py",
-    "product_text_extract.py",
-    "post_match_engine.py",
-    "utils.py",
-    "merge_sku_data.py",
-]
-
-def _ops_pyarmor_command():
-    pyarmor = shutil.which("pyarmor")
-    if pyarmor:
-        return [pyarmor]
-    user_bin = os.path.join(os.path.expanduser("~"), "Library", f"Python/{sys.version_info.major}.{sys.version_info.minor}", "bin", "pyarmor")
-    if os.path.isfile(user_bin):
-        return [user_bin]
-    return [sys.executable, "-m", "pyarmor"]
-
-def _ops_verify_pyarmor_output(obf_dir):
-    missing = [name for name in _OPS_PYARMOR_FILES if not os.path.isfile(os.path.join(obf_dir, name))]
-    runtime_dirs = [
-        name for name in os.listdir(obf_dir) if name.startswith("pyarmor_runtime_") and os.path.isdir(os.path.join(obf_dir, name))
-    ] if os.path.isdir(obf_dir) else []
-    if missing or not runtime_dirs:
-        parts = []
-        if missing:
-            parts.append("缺少文件：" + ", ".join(missing))
-        if not runtime_dirs:
-            parts.append("缺少 pyarmor_runtime_* 目录")
-        raise RuntimeError("PyArmor 混淆结果不完整；" + "；".join(parts))
 
 def _ops_run_command(task_id, step_idx, cmd, cwd):
     _ops_update_step(task_id, step_idx, "running", " ".join(cmd))
