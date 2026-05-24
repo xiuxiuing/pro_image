@@ -22,6 +22,7 @@ DEFAULT_RULE_CATEGORIES_XLSX = None
 CATEGORY_L1_BUCKET_TAGS_JSON = None
 
 data_bp = Blueprint('data', __name__)
+_data_blueprints = []
 
 def init_data(dm_obj, init_prog_fn, init_import_prog_fn, update_step_fn, clear_prog_fn, progress_data_fn, validate_fn, safe_name_fn, template_path, static_path, dat_root, default_xlsx, bucket_json):
     global dm, _init_progress, _init_import_progress, _update_step, _schedule_clear_progress, _get_analysis_progress_data, _validate_upload, _safe_upload_filename, _template, _static, data_root, DEFAULT_RULE_CATEGORIES_XLSX, CATEGORY_L1_BUCKET_TAGS_JSON
@@ -43,7 +44,7 @@ def init_data(dm_obj, init_prog_fn, init_import_prog_fn, update_step_fn, clear_p
 _routes_registered = False
 
 def _register_split_blueprints():
-    global _routes_registered
+    global _routes_registered, _data_blueprints
     import app_data_projects
     import app_data_rules
     import app_data_grid
@@ -64,7 +65,18 @@ def _register_split_blueprints():
     app_data_rules.init_rules(ctx)
     app_data_grid.init_grid(ctx)
     if not _routes_registered:
-        data_bp.register_blueprint(app_data_projects.projects_bp)
-        data_bp.register_blueprint(app_data_rules.rules_bp)
-        data_bp.register_blueprint(app_data_grid.grid_bp)
+        child_blueprints = [
+            app_data_projects.projects_bp,
+            app_data_rules.rules_bp,
+            app_data_grid.grid_bp,
+        ]
+        if hasattr(data_bp, "register_blueprint"):
+            for bp in child_blueprints:
+                data_bp.register_blueprint(bp)
+            _data_blueprints = [data_bp]
+        else:
+            _data_blueprints = child_blueprints
         _routes_registered = True
+
+def get_data_blueprints():
+    return list(_data_blueprints or [data_bp])

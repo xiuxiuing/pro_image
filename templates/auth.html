@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ '注册' if mode == 'register' else '登录' }} - 商品分析平台</title>
+    <style>
+        :root {
+            --accent: #FFD500;
+            --text: #0f172a;
+            --muted: #64748b;
+            --line: #e2e8f0;
+            --panel: rgba(255, 255, 255, 0.92);
+            --danger-bg: #fef2f2;
+            --danger: #b91c1c;
+        }
+        * { box-sizing: border-box; }
+        body {
+            min-height: 100vh;
+            margin: 0;
+            font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            color: var(--text);
+            background:
+                linear-gradient(135deg, rgba(255, 213, 0, 0.16), rgba(248, 250, 252, 0.92)),
+                url('/static/bg.gif') center/cover fixed,
+                #f8fafc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 28px;
+        }
+        .auth-shell {
+            width: min(420px, 100%);
+            background: var(--panel);
+            border: 1px solid rgba(255, 255, 255, 0.72);
+            border-radius: 20px;
+            box-shadow: 0 24px 70px rgba(15, 23, 42, 0.13);
+            padding: 32px;
+        }
+        .brand {
+            font-size: 13px;
+            font-weight: 800;
+            letter-spacing: 0.16em;
+            color: #475569;
+            margin-bottom: 12px;
+        }
+        h1 {
+            margin: 0 0 28px;
+            font-size: 30px;
+            line-height: 1.15;
+            letter-spacing: 0;
+        }
+        .field { margin-bottom: 18px; }
+        label {
+            display: block;
+            font-size: 13px;
+            font-weight: 800;
+            color: #334155;
+            margin-bottom: 8px;
+        }
+        input {
+            width: 100%;
+            height: 46px;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 0 14px;
+            font-size: 15px;
+            outline: none;
+            background: #fff;
+        }
+        input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 4px rgba(255, 213, 0, 0.18);
+        }
+        .alert {
+            margin-bottom: 18px;
+            padding: 12px 14px;
+            border-radius: 12px;
+            background: var(--danger-bg);
+            border: 1px solid #fecaca;
+            color: var(--danger);
+            font-size: 13px;
+            font-weight: 700;
+            line-height: 1.5;
+        }
+        .btn-primary {
+            width: 100%;
+            height: 48px;
+            border: 0;
+            border-radius: 12px;
+            background: #0f172a;
+            color: #fff;
+            font-size: 15px;
+            font-weight: 850;
+            cursor: pointer;
+        }
+        .switch {
+            margin-top: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 700;
+        }
+        .switch a {
+            color: #0f172a;
+            text-decoration: none;
+            border-bottom: 2px solid var(--accent);
+        }
+        @media (max-width: 520px) {
+            body { padding: 18px; }
+            .auth-shell { padding: 26px 22px; border-radius: 16px; }
+            h1 { font-size: 26px; }
+        }
+    </style>
+</head>
+<body>
+    {% set is_register = mode == 'register' %}
+    <main class="auth-shell">
+        <div class="brand">商品分析平台</div>
+        <h1>{{ '注册账号' if is_register else '账号登录' }}</h1>
+        {% if error %}
+        <div class="alert">{{ error }}</div>
+        {% endif %}
+        <form method="post" action="{{ url_for('register' if is_register else 'login', next=next_url) }}">
+            <input type="hidden" name="next" value="{{ next_url }}">
+            <div class="field">
+                <label for="phone">手机号</label>
+                <input id="phone" name="phone" type="tel" inputmode="numeric" autocomplete="tel" value="{{ phone or '' }}" required>
+            </div>
+            <div class="field">
+                <label for="password">密码</label>
+                <input id="password" name="password" type="password" autocomplete="{{ 'new-password' if is_register else 'current-password' }}" required>
+            </div>
+            <button class="btn-primary" type="submit">{{ '注册并进入' if is_register else '登录' }}</button>
+        </form>
+        <div class="switch">
+            {% if is_register %}
+            <span>已有密码</span>
+            <a href="{{ url_for('login', next=next_url) }}">去登录</a>
+            {% else %}
+            <span>首次使用</span>
+            <a href="{{ url_for('register', next=next_url) }}">去注册</a>
+            {% endif %}
+        </div>
+    </main>
+</body>
+</html>

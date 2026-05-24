@@ -1,5 +1,6 @@
 import ast
 import glob
+import importlib
 import unittest
 from pathlib import Path
 
@@ -30,6 +31,7 @@ class PackagingStructureTests(unittest.TestCase):
     def test_tools_package_manifest_covers_current_runtime_modules(self):
         expected_business = {
             "app.py",
+            "auth_manager.py",
             "app_ops.py",
             "app_ops_tasks.py",
             "app_ops_extra.py",
@@ -139,6 +141,30 @@ class PackagingStructureTests(unittest.TestCase):
         }
 
         self.assertEqual(expected, route_rules(["app_data.py", "app_data_*.py"]))
+
+    def test_data_blueprints_initialize_on_current_flask(self):
+        import app_data
+
+        app_data = importlib.reload(app_data)
+        noop = lambda *args, **kwargs: None
+        app_data.init_data(
+            object(),
+            noop,
+            noop,
+            noop,
+            noop,
+            lambda _pid: {},
+            noop,
+            lambda filename, fallback: filename or fallback,
+            "",
+            "",
+            "",
+            "",
+            "",
+        )
+
+        names = [bp.name for bp in app_data.get_data_blueprints()]
+        self.assertIn(names, (["data"], ["data_projects", "data_rules", "data_grid"]))
 
 
 if __name__ == "__main__":

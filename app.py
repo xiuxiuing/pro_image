@@ -1,5 +1,6 @@
 import os
 import sys
+import secrets
 
 # macOS：FAISS 与 PyTorch 同时链接不同 OpenMP/BLAS 时易 SIGSEGV；需在 numpy/torch 初始化前收紧线程
 if sys.platform == "darwin":
@@ -12,8 +13,9 @@ if sys.platform == "darwin":
     ):
         os.environ.setdefault(_k, _v)
 
-from flask import Flask, render_template, request, jsonify, send_file
+from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for, g
 from data_mgr import DataManager
+from auth_manager import AuthError, AuthManager, ROLE_MEMBER
 from license_utils import LicenseManager
 import signal
 import faulthandler
@@ -95,13 +97,34 @@ if not _acquire_single_instance_lock(): raise SystemExit(0)
 
 _template = os.path.join(resource_root, 'templates')
 _static = os.path.join(resource_root, 'static')
+
+def _load_secret_key():
+    env_key = os.environ.get("PROIMAGE_SECRET_KEY")
+    if env_key:
+        return env_key
+    key_path = os.path.join(data_root, "session_secret.key")
+    try:
+        if os.path.exists(key_path):
+            with open(key_path, "r") as f:
+                key = f.read().strip()
+                if key:
+                    return key
+        key = secrets.token_hex(32)
+        with open(key_path, "w") as f:
+            f.write(key)
+        return key
+    except Exception:
+        return "pro-image-local-session-secret"
+
 if os.path.isdir(_static):
     app = Flask(__name__, template_folder=_template, static_folder=_static, static_url_path='/static')
 else:
     app = Flask(__name__, template_folder=_template)
 
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB
+app.secret_key = _load_secret_key()
 dm = DataManager(data_root)
+auth = AuthManager(dm.db_path)
 
 class _LazyModule:
     def __init__(self, module_name):
@@ -219,16 +242,165 @@ def get_license_details():
     with open(LICENSE_FILE, "r") as f: content = f.read().strip()
     return LicenseManager.verify_license_detailed(content, CURRENT_HWID)
 
+PUBLIC_ENDPOINTS = {"login", "register", "logout", "activate_license", "get_license_info", "static"}
+
+def _is_api_request():
+    return request.path.startswith("/api/") or request.is_json or request.accept_mimetypes.best == "application/json"
+
+def _safe_next(default="/"):
+    raw = request.values.get("next") or request.args.get("next") or default
+    if not raw.startswith("/") or raw.startswith("//"):
+        return default
+    return raw
+
+def _current_user():
+    if getattr(g, "auth_user", None):
+        return g.auth_user
+    user_id = session.get("user_id")
+    if not user_id:
+        return None
+    user = auth.get_user_by_id(user_id)
+    if not user or not user.get("is_active"):
+        session.pop("user_id", None)
+        return None
+    g.auth_user = user
+    return user
+
+def _auth_payload():
+    if request.is_json:
+        return request.get_json(silent=True) or {}
+    return request.form
+
+def _auth_error_response(exc, template_name=None, **template_ctx):
+    if _is_api_request():
+        return jsonify({"status": "error", "code": exc.code, "message": exc.message}), exc.status_code
+    if template_name:
+        return render_template(template_name, error=exc.message, **template_ctx), exc.status_code
+    return render_template("auth.html", mode="login", error=exc.message, next_url=_safe_next()), exc.status_code
+
+def _set_user_session(user):
+    session.clear()
+    session["user_id"] = user["id"]
+    session["user_phone"] = user["phone"]
+    session["user_role"] = user["role"]
+
+@app.context_processor
+def inject_auth_context():
+    user = _current_user()
+    return {
+        "current_user": user,
+        "can_manage_users": auth.can_manage_users(user) if user else False,
+    }
+
+@app.before_request
+def require_login():
+    g.auth_user = None
+    endpoint = request.endpoint or ""
+    if endpoint in PUBLIC_ENDPOINTS:
+        return None
+    if endpoint == "projects_page":
+        is_valid, _ = check_license()
+        if not is_valid:
+            return None
+    if _current_user():
+        return None
+    if _is_api_request():
+        return jsonify({"status": "error", "message": "请先登录"}), 401
+    next_url = request.full_path if request.query_string else request.path
+    return redirect(url_for("login", next=next_url))
+
 # --- Blueprints ---
 import app_ops, app_data
 app_ops.init_ops(app, dm, resource_root, data_root, check_license, CURRENT_HWID, extract_info_ai2, main_030822, _validate_upload, _safe_upload_filename)
 app.register_blueprint(app_ops.ops_bp)
 app_data.init_data(dm, _init_progress, _init_import_progress, _update_step, _schedule_clear_progress, get_analysis_progress_data, _validate_upload, _safe_upload_filename, _template, _static, data_root, DEFAULT_RULE_CATEGORIES_XLSX, CATEGORY_L1_BUCKET_TAGS_JSON)
-app.register_blueprint(app_data.data_bp)
+for bp in app_data.get_data_blueprints():
+    app.register_blueprint(bp)
 
 @app.errorhandler(413)
 def request_entity_too_large(e):
     return jsonify({"status": "error", "message": "上传文件总大小超过 100MB 限制"}), 413
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    next_url = _safe_next("/")
+    if request.method in ('GET', 'HEAD'):
+        if _current_user():
+            return redirect(next_url)
+        return render_template("auth.html", mode="login", error="", phone="", next_url=next_url)
+    payload = _auth_payload()
+    phone = (payload.get("phone") or "").strip()
+    try:
+        user = auth.authenticate(phone, payload.get("password") or "")
+        _set_user_session(user)
+        if _is_api_request():
+            return jsonify({"status": "ok", "user": user})
+        return redirect(next_url)
+    except AuthError as exc:
+        return _auth_error_response(
+            exc,
+            "auth.html",
+            mode="login",
+            phone=phone,
+            next_url=next_url,
+        )
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    next_url = _safe_next("/")
+    if request.method in ('GET', 'HEAD'):
+        if _current_user():
+            return redirect(next_url)
+        return render_template("auth.html", mode="register", error="", phone="", next_url=next_url)
+    payload = _auth_payload()
+    phone = (payload.get("phone") or "").strip()
+    try:
+        user = auth.register(phone, payload.get("password") or "")
+        _set_user_session(user)
+        if _is_api_request():
+            return jsonify({"status": "ok", "user": user})
+        return redirect(next_url)
+    except AuthError as exc:
+        return _auth_error_response(
+            exc,
+            "auth.html",
+            mode="register",
+            phone=phone,
+            next_url=next_url,
+        )
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+@app.route('/users', methods=['GET', 'POST'])
+def users_page():
+    user = _current_user()
+    if not auth.can_manage_users(user):
+        if _is_api_request():
+            return jsonify({"status": "error", "message": "当前账号无权管理用户"}), 403
+        return render_template("users.html", users=[], role_choices=[], error="当前账号无权管理用户", success="", phone=""), 403
+    error = ""
+    success = ""
+    phone = ""
+    if request.method == 'POST':
+        phone = (request.form.get("phone") or "").strip()
+        role = request.form.get("role") or ROLE_MEMBER
+        try:
+            added = auth.add_allowed_user(user, phone, role)
+            success = f"已开通 {added['phone']}（{added['role_label']}）"
+            phone = ""
+        except AuthError as exc:
+            error = exc.message
+    return render_template(
+        "users.html",
+        users=auth.list_users(),
+        role_choices=auth.role_choices_for_actor(user),
+        error=error,
+        success=success,
+        phone=phone,
+    )
 
 @app.route('/api/license_info')
 def get_license_info():

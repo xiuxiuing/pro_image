@@ -817,7 +817,13 @@
     </div>
 
     <div class="projects-nav">
+        {% if can_manage_users %}
+        <a href="/users" title="用户管理">用户管理</a>
+        {% endif %}
         <a href="/match-rules" title="类目规则模板">类目规则</a>
+        {% if current_user %}
+        <a href="/logout" title="{{ current_user.phone }}">{{ current_user.role_label }} · 退出</a>
+        {% endif %}
     </div>
 
     <div class="container">

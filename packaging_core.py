@@ -31,6 +31,7 @@ CORE_NUITKA_MODULES = (
 
 BUSINESS_SOURCE_FILES = (
     "app.py",
+    "auth_manager.py",
     "app_ops.py",
     "app_ops_extra.py",
     "app_ops_tasks.py",
