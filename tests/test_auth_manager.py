@@ -11,14 +11,18 @@ class AuthManagerTests(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         return AuthManager(str(Path(tmp.name) / "pro_image.db"))
 
-    def test_default_admin_phone_is_seeded_without_password(self):
+    def test_default_admin_phones_are_seeded_without_password(self):
         auth = self.make_manager()
 
-        user = auth.get_user_by_phone(DEFAULT_ADMIN_PHONE)
+        users = [
+            auth.get_user_by_phone(DEFAULT_ADMIN_PHONE),
+            auth.get_user_by_phone("17557283001"),
+        ]
 
-        self.assertIsNotNone(user)
-        self.assertEqual("admin", user["role"])
-        self.assertFalse(user["has_password"])
+        for user in users:
+            self.assertIsNotNone(user)
+            self.assertEqual("admin", user["role"])
+            self.assertFalse(user["has_password"])
 
     def test_only_preapproved_phone_can_register_then_login(self):
         auth = self.make_manager()

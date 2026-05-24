@@ -5,7 +5,8 @@ import time
 from werkzeug.security import check_password_hash, generate_password_hash
 
 
-DEFAULT_ADMIN_PHONE = "13517296019"
+DEFAULT_ADMIN_PHONES = ("13517296019", "17557283001")
+DEFAULT_ADMIN_PHONE = DEFAULT_ADMIN_PHONES[0]
 ROLE_ADMIN = "admin"
 ROLE_MANAGER = "manager"
 ROLE_MEMBER = "member"
@@ -60,22 +61,23 @@ class AuthManager:
             )
             self._ensure_columns(conn)
             now = self._now()
-            conn.execute(
-                """
-                INSERT OR IGNORE INTO auth_users
-                    (phone, role, password_hash, created_at, updated_at, is_active)
-                VALUES (?, ?, '', ?, ?, 1)
-                """,
-                (DEFAULT_ADMIN_PHONE, ROLE_ADMIN, now, now),
-            )
-            conn.execute(
-                """
-                UPDATE auth_users
-                SET role = ?, is_active = 1, updated_at = ?
-                WHERE phone = ? AND role != ?
-                """,
-                (ROLE_ADMIN, now, DEFAULT_ADMIN_PHONE, ROLE_ADMIN),
-            )
+            for phone in DEFAULT_ADMIN_PHONES:
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO auth_users
+                        (phone, role, password_hash, created_at, updated_at, is_active)
+                    VALUES (?, ?, '', ?, ?, 1)
+                    """,
+                    (phone, ROLE_ADMIN, now, now),
+                )
+                conn.execute(
+                    """
+                    UPDATE auth_users
+                    SET role = ?, is_active = 1, updated_at = ?
+                    WHERE phone = ? AND role != ?
+                    """,
+                    (ROLE_ADMIN, now, phone, ROLE_ADMIN),
+                )
 
     def _ensure_columns(self, conn):
         columns = {row[1] for row in conn.execute("PRAGMA table_info(auth_users)").fetchall()}
@@ -243,7 +245,7 @@ class AuthManager:
             ).fetchone()
             if row:
                 existing_role = row["role"] if row["role"] in ROLE_LABELS else ROLE_MEMBER
-                if phone == DEFAULT_ADMIN_PHONE and role != ROLE_ADMIN:
+                if phone in DEFAULT_ADMIN_PHONES and role != ROLE_ADMIN:
                     raise AuthError("permission_denied", "默认 Admin 账号不能调整为其他权限", 403)
                 if self._user_role(actor) != ROLE_ADMIN and existing_role != ROLE_MEMBER:
                     raise AuthError("permission_denied", "当前账号无权调整该用户权限", 403)

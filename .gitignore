@@ -44,3 +44,5 @@ node_modules/
 *.old
 vendor/private_key.pem
 vendor/public_key.pem
+
+gemini_match_engine
