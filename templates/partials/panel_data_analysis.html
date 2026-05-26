@@ -1114,11 +1114,11 @@
         <div class="workbench-mode-toggle">
             <button class="workbench-mode-btn active" id="workbench-mode-auto" type="button" onclick="setWorkbenchMode('auto')">
                 AI 分析
-                <span>请填写APIKey、规则模板、等关键信息</span>
+                <span>请填写API Key等关键信息</span>
             </button>
             <button class="workbench-mode-btn" id="workbench-mode-manual" type="button" onclick="setWorkbenchMode('manual')">
                 跳过分析
-                <span>请上传已有关联结果文件</span>
+                <span>请选择规则模板并上传关联结果文件</span>
             </button>
         </div>
 
@@ -1128,6 +1128,13 @@
             <input type="hidden" name="selected_categories" id="workbench-selected-categories" value="">
             <input type="hidden" name="preflight_confirmed" id="workbench-preflight-confirmed" value="0">
             <input type="hidden" name="column_mappings_json" id="workbench-column-mappings-json" value="{}">
+
+            <div class="workbench-form-group full">
+                <label class="workbench-form-label">类目规则模板</label>
+                <select name="rule_template_id" id="workbench-rule-template" class="workbench-form-control">
+                    <option value="">加载中...</option>
+                </select>
+            </div>
 
             <div class="workbench-form-group full" id="workbench-category-scope">
                 <label class="workbench-form-label">三级类目范围</label>
@@ -1147,36 +1154,54 @@
                 </label>
 
                 <div class="workbench-form-grid">
-                    <div class="workbench-form-group full">
-                        <label class="workbench-form-label">类目规则模板</label>
-                        <select name="rule_template_id" id="workbench-rule-template" class="workbench-form-control">
-                            <option value="">加载中...</option>
+                    <input type="hidden" name="ai_provider" id="workbench-ai-provider" value="">
+                    <input type="hidden" name="fallback_provider" id="workbench-fallback-provider" value="deepseek">
+                    <div class="workbench-form-group" id="workbench-ai-model-group" style="display:none;">
+                        <label class="workbench-form-label">模型名称</label>
+                        <select name="ai_model_name" id="workbench-ai-model" class="workbench-form-control" onchange="syncWorkbenchAiProviderOptions()">
+                            <optgroup label="Gemini">
+                                <option value="gemini-3.5-flash">gemini-3.5-flash</option>
+                                <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview</option>
+                                <option value="gemini-3.1-pro-preview-customtools">gemini-3.1-pro-preview-customtools</option>
+                                <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite</option>
+                                <option value="gemini-3.1-flash-lite-preview">gemini-3.1-flash-lite-preview</option>
+                                <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
+                                <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+                                <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                                <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite</option>
+                                <option value="gemini-2.5-flash-lite-preview-09-2025">gemini-2.5-flash-lite-preview-09-2025</option>
+                            </optgroup>
+                            <optgroup label="DeepSeek">
+                                <option value="deepseek-chat" selected>deepseek-chat</option>
+                                <option value="deepseek-reasoner">deepseek-reasoner</option>
+                                <option value="deepseek-v4-flash">deepseek-v4-flash</option>
+                                <option value="deepseek-v4-pro">deepseek-v4-pro</option>
+                            </optgroup>
                         </select>
                     </div>
-                    <div class="workbench-form-group" id="workbench-api-key-group" style="display:none;">
+                    <div class="workbench-form-group" id="workbench-primary-key-group" style="display:none;">
                         <label class="workbench-form-label">API Key</label>
                         <input type="password" name="api_key" id="workbench-api-key" class="workbench-form-control" placeholder="可填多个 Key，用逗号 / 分号 / 空格分隔">
                     </div>
-                    <div class="workbench-form-group" id="workbench-ai-model-group" style="display:none;">
-                        <label class="workbench-form-label">模型名称</label>
-                        <select name="ai_model_name" class="workbench-form-control">
-                            <option value="" selected>默认</option>
-                            <option value="models/gemini-3.1-flash-lite-preview">models/gemini-3.1-flash-lite-preview</option>
-                            <option value="gemini-3.1-flash-lite-preview">gemini-3.1-flash-lite-preview</option>
-                            <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
-                        </select>
-                    </div>
-                    <div class="workbench-form-group" id="workbench-kimi-key-group" style="display:none;">
-                        <label class="workbench-form-label">Api Key（备用）</label>
-                        <input type="password" name="kimi_api_key" class="workbench-form-control" placeholder="sk-...">
-                    </div>
                     <div class="workbench-form-group" id="workbench-kimi-model-group" style="display:none;">
                         <label class="workbench-form-label">模型名称（备用）</label>
-                        <select name="kimi_model_name" class="workbench-form-control">
+                        <select name="kimi_model_name" id="workbench-fallback-model" class="workbench-form-control" onchange="syncWorkbenchAiProviderOptions()">
                             <option value="" selected>默认</option>
-                            <option value="kimi-k2.5">kimi-k2.5</option>
-                            <option value="kimi-k2-turbo-preview">kimi-k2-turbo-preview</option>
+                            <optgroup label="DeepSeek">
+                                <option value="deepseek-chat">deepseek-chat</option>
+                                <option value="deepseek-reasoner">deepseek-reasoner</option>
+                                <option value="deepseek-v4-flash">deepseek-v4-flash</option>
+                                <option value="deepseek-v4-pro">deepseek-v4-pro</option>
+                            </optgroup>
+                            <optgroup label="Kimi(Moonshot)">
+                                <option value="kimi-k2.5">kimi-k2.5</option>
+                                <option value="kimi-k2-turbo-preview">kimi-k2-turbo-preview</option>
+                            </optgroup>
                         </select>
+                    </div>
+                    <div class="workbench-form-group" id="workbench-fallback-key-group" style="display:none;">
+                        <label class="workbench-form-label">Api Key（备用）</label>
+                        <input type="password" name="kimi_api_key" class="workbench-form-control" placeholder="sk-...">
                     </div>
                 </div>
             </div>
@@ -1454,15 +1479,42 @@
 
     function toggleWorkbenchAiFields() {
         const useAi = document.getElementById("workbench-use-ai").checked;
-        document.getElementById("workbench-api-key-group").style.display = useAi ? "" : "none";
+        document.getElementById("workbench-primary-key-group").style.display = useAi ? "" : "none";
         document.getElementById("workbench-ai-model-group").style.display = useAi ? "" : "none";
-        document.getElementById("workbench-kimi-key-group").style.display = useAi ? "" : "none";
+        document.getElementById("workbench-fallback-key-group").style.display = useAi ? "" : "none";
         document.getElementById("workbench-kimi-model-group").style.display = useAi ? "" : "none";
         document.getElementById("workbench-api-key").required = useAi;
+        syncWorkbenchAiProviderOptions();
+    }
+
+    function inferAiProviderFromModel(modelName, defaultProvider = "gemini") {
+        const value = String(modelName || "").toLowerCase();
+        if (value.startsWith("deepseek")) return "deepseek";
+        if (value.startsWith("kimi")) return "kimi";
+        return defaultProvider;
+    }
+
+    function syncWorkbenchAiProviderOptions() {
+        const model = document.getElementById("workbench-ai-model")?.value || "";
+        const fallbackModel = document.getElementById("workbench-fallback-model")?.value || "";
+        document.getElementById("workbench-ai-provider").value = inferAiProviderFromModel(model, "gemini");
+        document.getElementById("workbench-fallback-provider").value = inferAiProviderFromModel(fallbackModel, "deepseek");
     }
 
     function buildWorkbenchMatchConfigJson() {
         return JSON.stringify({ category_level: 1 });
+    }
+
+    function latestWorkbenchRuleTemplateId(items) {
+        const rows = Array.isArray(items) ? items.filter((item) => item && item.id !== undefined && item.id !== null) : [];
+        if (!rows.length) return "";
+        rows.sort((a, b) => {
+            const bt = Date.parse(String(b.created_at || "").replace(" ", "T")) || 0;
+            const at = Date.parse(String(a.created_at || "").replace(" ", "T")) || 0;
+            if (bt !== at) return bt - at;
+            return Number(b.id || 0) - Number(a.id || 0);
+        });
+        return String(rows[0].id);
     }
 
     async function loadWorkbenchRuleTemplates() {
@@ -1472,6 +1524,7 @@
             const resp = await fetch("/api/rule-templates");
             const data = await resp.json();
             const items = data.items || [];
+            const selectedId = latestWorkbenchRuleTemplateId(items);
             sel.innerHTML = "";
             if (!items.length) {
                 sel.innerHTML = '<option value="">(无规则模板)</option>';
@@ -1479,8 +1532,10 @@
             }
             items.forEach((item) => {
                 const opt = document.createElement("option");
-                opt.value = item.id;
-                opt.textContent = item.name || `#${item.id}`;
+                const id = String(item.id);
+                opt.value = id;
+                opt.textContent = `${item.name || `#${item.id}`}${id === selectedId ? "（最新）" : ""}`;
+                opt.selected = id === selectedId;
                 sel.appendChild(opt);
             });
         } catch (err) {
@@ -1812,6 +1867,7 @@
             `AI ${summary.vector_success || 0}/${summary.vector_total || 0} (${vectorRate}%)`,
             `匹配 ${summary.matched || 0}`,
             `规则拦截 ${summary.rule_rejected || 0}`,
+            `弱排序加分命中 ${summary.weak_ranking_boosted || 0}`,
         ];
         if (warnings.length) bits.push(`风险 ${warnings.length} 项：${warnings.slice(0, 2).join("；")}`);
         body.textContent = bits.join(" · ");
@@ -2191,7 +2247,8 @@
                 throw new Error("请上传关联结果文件");
             }
             if (mode === "auto" && document.getElementById("workbench-use-ai").checked && !document.getElementById("workbench-api-key").value.trim()) {
-                throw new Error("启用 AI 提取时请填写 Gemini API Key");
+                const provider = document.getElementById("workbench-ai-provider")?.value === "deepseek" ? "DeepSeek" : "Gemini";
+                throw new Error(`启用 AI 提取时请填写 ${provider} API Key`);
             }
             await runWorkbenchPreflight(pid, event.target);
             formData = new FormData(event.target);

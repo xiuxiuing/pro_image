@@ -47,6 +47,7 @@ def _register_split_blueprints():
     import app_data_projects
     import app_data_rules
     import app_data_grid
+    import app_data_match_agent
     ctx = {
         "dm": dm,
         "init_progress": _init_progress,
@@ -63,8 +64,10 @@ def _register_split_blueprints():
     app_data_projects.init_projects(ctx)
     app_data_rules.init_rules(ctx)
     app_data_grid.init_grid(ctx)
+    app_data_match_agent.init_match_agent(ctx)
     if not _routes_registered:
         data_bp.register_blueprint(app_data_projects.projects_bp)
         data_bp.register_blueprint(app_data_rules.rules_bp)
         data_bp.register_blueprint(app_data_grid.grid_bp)
+        data_bp.register_blueprint(app_data_match_agent.match_agent_bp)
         _routes_registered = True

@@ -83,6 +83,18 @@ class PostMatchNetEquivalenceTests(unittest.TestCase):
 
         self.assertTrue(pme.should_accept_post_match(main, comp, NET_RULE))
 
+    def test_explain_post_match_matches_boolean_decision(self):
+        main = make_item("饮品", "饮料", "果蔬汁饮料", "500ml")
+        accepted_comp = make_item("饮品", "饮料", "果蔬汁饮料", "550ml")
+        rejected_comp = make_item("饮品", "饮料", "果蔬汁饮料", "700ml")
+
+        accepted = pme.explain_post_match(main, accepted_comp, NET_RULE)
+        rejected = pme.explain_post_match(main, rejected_comp, NET_RULE)
+
+        self.assertEqual(accepted["accepted"], pme.should_accept_post_match(main, accepted_comp, NET_RULE))
+        self.assertEqual(rejected["accepted"], pme.should_accept_post_match(main, rejected_comp, NET_RULE))
+        self.assertTrue(any(m["key"] == "net" and not m["passed"] for m in rejected["metrics"]))
+
 
 if __name__ == "__main__":
     unittest.main()

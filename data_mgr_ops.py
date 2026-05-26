@@ -123,8 +123,12 @@ class DataManagerOpsMixin:
     def mark_as_new(self, store_id, comp_sku_id, is_new):
         if not comp_sku_id:
             return False
-        is_new_str = "是" if is_new else "否"
-        ignore_str = "否" if is_new else None
+        if isinstance(is_new, str):
+            is_new_str = is_new
+            ignore_str = "否" if is_new != "否" else None
+        else:
+            is_new_str = "是" if is_new else "否"
+            ignore_str = "否" if is_new else None
         changed = False
         with self._db_lock:
             conn = self._get_conn()
@@ -198,7 +202,7 @@ class DataManagerOpsMixin:
             self.invalidate_analysis_snapshot()
         return changed
 
-    def price_match(self, main_sku_id, store_id):
+    def price_match(self, main_sku_id, store_id, match_act=True, match_orig=True):
         if not main_sku_id:
             return None
         prefix = str(store_id)
@@ -209,32 +213,38 @@ class DataManagerOpsMixin:
         
         new_act, new_orig = "", ""
         updated = False
-        if act_col in self.grid_df.columns:
+        updates = {}
+        if match_act and act_col in self.grid_df.columns:
             val = row.get(act_col)
             try:
                 num_val = float(val)
                 new_act = round(num_val - 0.1, 2) if num_val >= 0.3 else num_val
             except (ValueError, TypeError): new_act = val
+            updates['新活动价'] = new_act
             updated = True
             
-        if orig_col in self.grid_df.columns:
+        if match_orig and orig_col in self.grid_df.columns:
             new_orig = row.get(orig_col)
+            updates['新售价'] = new_orig
             updated = True
             
         if not updated:
             return None
 
         store_name = self.store_dfs[str(store_id)]["name"]
+        updates['跟价店'] = store_name
+
         with self._db_lock:
             conn = self._get_conn()
             try:
                 with conn:
-                    for c in ["新活动价", "新售价", "跟价店"]: self._ensure_column(conn, "main_products", c)
-                    conn.execute("UPDATE main_products SET `新活动价`=?, `新售价`=?, `跟价店`=? WHERE project_id = ? AND skuId=?", 
-                                (new_act, new_orig, store_name, self.active_project_id, str(main_sku_id)))
+                    for c in updates.keys(): self._ensure_column(conn, "main_products", c)
+                    set_clause = ", ".join([f"`{c}`=?" for c in updates.keys()])
+                    conn.execute(f"UPDATE main_products SET {set_clause} WHERE project_id = ? AND skuId=?", 
+                                (*updates.values(), self.active_project_id, str(main_sku_id)))
             finally:
                 conn.close()
-        self._patch_grid_main(main_sku_id, {'新活动价': new_act, '新售价': new_orig, '跟价店': store_name})
+        self._patch_grid_main(main_sku_id, updates)
         self.invalidate_analysis_snapshot()
 
         def fmt(v):
@@ -243,7 +253,12 @@ class DataManagerOpsMixin:
             try: return float(v)
             except (ValueError, TypeError): return str(v)
 
-        return {"new_act": fmt(new_act), "new_orig": fmt(new_orig), "store_name": store_name}
+        ret = {"store_name": store_name}
+        if match_act:
+            ret["new_act"] = fmt(new_act)
+        if match_orig:
+            ret["new_orig"] = fmt(new_orig)
+        return ret
 
     def clear_price_match(self, main_sku_id):
         if not main_sku_id:
@@ -269,12 +284,48 @@ class DataManagerOpsMixin:
             conn = self._get_conn()
             try:
                 with conn:
+                    old_link = conn.execute(
+                        """
+                        SELECT comp_sku_id, similarity, match_type
+                        FROM product_links
+                        WHERE project_id = ? AND main_sku_id = ? AND store_id = ?
+                        LIMIT 1
+                        """,
+                        (self.active_project_id, str(main_sku_id), str(store_id)),
+                    ).fetchone()
+                    old_comp_sku_id = old_link[0] if old_link else ""
+                    old_similarity = old_link[1] if old_link else None
+                    old_match_type = old_link[2] if old_link else ""
+                    error_type = "错配" if str(old_comp_sku_id or "").strip() else "漏配"
                     conn.execute("DELETE FROM product_links WHERE project_id = ? AND main_sku_id=? AND store_id=?", 
                                 (self.active_project_id, str(main_sku_id), str(store_id)))
                     conn.execute("""
                         INSERT INTO product_links (project_id, main_sku_id, store_id, comp_sku_id, similarity, match_type, is_new_add)
                         VALUES (?, ?, ?, ?, ?, ?, ?)
                     """, (self.active_project_id, str(main_sku_id), str(store_id), str(comp_sku_id), 1.0, '手动关联', '否'))
+                    conn.execute(
+                        """
+                        INSERT INTO manual_link_corrections (
+                            project_id, main_sku_id, store_id,
+                            old_comp_sku_id, old_similarity, old_match_type,
+                            new_comp_sku_id, new_similarity, new_match_type, error_type, created_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            self.active_project_id,
+                            str(main_sku_id),
+                            str(store_id),
+                            str(old_comp_sku_id or ""),
+                            old_similarity,
+                            str(old_match_type or ""),
+                            str(comp_sku_id),
+                            1.0,
+                            "手动关联",
+                            error_type,
+                            __import__("time").strftime("%Y-%m-%d %H:%M:%S"),
+                        ),
+                    )
             finally:
                 conn.close()
         self._reconstruct_from_sqlite()
@@ -289,8 +340,41 @@ class DataManagerOpsMixin:
             conn = self._get_conn()
             try:
                 with conn:
+                    old_link = conn.execute(
+                        """
+                        SELECT comp_sku_id, similarity, match_type
+                        FROM product_links
+                        WHERE project_id = ? AND main_sku_id = ? AND store_id = ?
+                        LIMIT 1
+                        """,
+                        (self.active_project_id, str(main_sku_id), str(store_id)),
+                    ).fetchone()
                     conn.execute("DELETE FROM product_links WHERE project_id = ? AND main_sku_id=? AND store_id=?", 
                                 (self.active_project_id, str(main_sku_id), str(store_id)))
+                    if old_link:
+                        conn.execute(
+                            """
+                            INSERT INTO manual_link_corrections (
+                                project_id, main_sku_id, store_id,
+                                old_comp_sku_id, old_similarity, old_match_type,
+                                new_comp_sku_id, new_similarity, new_match_type, error_type, created_at
+                            )
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                self.active_project_id,
+                                str(main_sku_id),
+                                str(store_id),
+                                str(old_link[0] or ""),
+                                old_link[1],
+                                str(old_link[2] or ""),
+                                "",
+                                None,
+                                "",
+                                "错配",
+                                __import__("time").strftime("%Y-%m-%d %H:%M:%S"),
+                            ),
+                        )
             except Exception as e:
                 print("DB Unlink err:", e)
             finally:

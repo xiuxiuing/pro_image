@@ -611,6 +611,7 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
             "rule_rejected": 0,
             "matched": 0,
             "unmatched_before_vector": 0,
+            "weak_ranking_boosted": 0,
         }
             
         # 1. Barcode match (fast)
@@ -679,7 +680,16 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
                 continue
 
             _blk = post_match_engine.rules_for_item(_pm_tmpl, item)
-            for sid, (score, match) in sorted(candidates.items(), key=lambda kv: kv[1][0], reverse=True):
+            ranked_candidates = []
+            for sid, (score, match) in candidates.items():
+                hit = src["sku_dict"].get(sid)
+                if not hit:
+                    continue
+                weak = post_match_engine.weak_ranking_score(item, hit, _blk)
+                weak_bonus = float((weak or {}).get("bonus") or 0.0)
+                ranked_candidates.append((sid, score, match, score + weak_bonus, weak_bonus))
+            ranked_candidates.sort(key=lambda row: (row[3], row[1]), reverse=True)
+            for sid, score, match, _rank_score, weak_bonus in ranked_candidates:
                 match_metrics["vector_candidates"] += 1
                 hit = src["sku_dict"].get(sid)
                 if not hit:
@@ -687,6 +697,8 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
                 if not post_match_engine.should_accept_post_match(item, hit, _blk):
                     match_metrics["rule_rejected"] += 1
                     continue
+                if weak_bonus > 0:
+                    match_metrics["weak_ranking_boosted"] = match_metrics.get("weak_ranking_boosted", 0) + 1
                 append_match_result(res_data[ui], hit, score, match, str(idx))
                 match_metrics["matched"] += 1
                 break

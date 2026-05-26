@@ -19,14 +19,16 @@ FIELD_MAPPINGS = build_field_mappings()
 CORE_MAIN_COLUMNS = [
     'project_id', 'skuId', '_row_orig_idx', '商品名称', '规格名称', '原价', '活动价', '销售', 
     '主图链接', '商品条码', 'SPUID', '美团类目一级', '美团类目二级', '美团类目三级', '采购价', '采购单价', '采购链接',
-    '库存', 'A单件净含量', 'A售卖数量', 'A包装单位', 'A颜色', 'A尺寸', 'A型号',
+    '库存', 'A核心品类', 'A单件净含量', 'A售卖数量', 'A包装单位', 'A尺寸', 'A多维尺寸',
+    'A品牌', 'A型号', 'A商品形态', 'A关键属性词', 'A颜色',
     '淘汰标记', '是否淘汰', '新活动价', '新售价', '跟价店', '现价毛利', '跟价毛利'
 ]
 
 CORE_COMP_COLUMNS = [
     'project_id', 'store_id', 'skuId', '商品名称', '规格名称', '原价', '活动价', '销售', 
     '主图链接', '商品条码', 'SPUID', '美团类目一级', '美团类目二级', '美团类目三级',
-    'A单件净含量', 'A售卖数量', 'A包装单位', 'A颜色', 'A尺寸', 'A型号',
+    'A核心品类', 'A单件净含量', 'A售卖数量', 'A包装单位', 'A尺寸', 'A多维尺寸',
+    'A品牌', 'A型号', 'A商品形态', 'A关键属性词', 'A颜色',
     'is_new_add', 'is_ignored',
 ]
 
@@ -133,8 +135,29 @@ class DataManagerBase:
         ]
         return next((p for p in candidates if p and os.path.isfile(p)), None)
 
-    def _load_builtin_rule_template(self):
-        path = self._builtin_rule_template_path()
+    def _builtin_rule_template_paths(self):
+        base_rels = [
+            os.path.join("data", "default_rule_templates", "production_rule_v1.json"),
+            os.path.join("data", "default_rule_templates", "production_rule_v2.json"),
+        ]
+        roots = [
+            getattr(sys, "_MEIPASS", ""),
+            os.path.dirname(os.path.abspath(__file__)),
+            os.getcwd(),
+        ]
+        out = []
+        seen = set()
+        for rel in base_rels:
+            for root in roots:
+                path = os.path.join(root, rel) if root else ""
+                if path and path not in seen and os.path.isfile(path):
+                    seen.add(path)
+                    out.append(path)
+                    break
+        return out
+
+    def _load_builtin_rule_template(self, path=None):
+        path = path or self._builtin_rule_template_path()
         if not path:
             return None
         try:
@@ -165,21 +188,27 @@ class DataManagerBase:
         return int(row[0]) if row else None
 
     def _ensure_builtin_rule_templates(self, conn):
-        row = conn.execute(
-            "SELECT id FROM rule_templates WHERE name = ? ORDER BY id LIMIT 1",
-            (PRODUCTION_RULE_TEMPLATE_NAME,),
-        ).fetchone()
-        if row:
-            return
-        item = self._load_builtin_rule_template()
-        if not item:
-            return
         now = time.strftime("%Y-%m-%d %H:%M:%S")
-        conn.execute(
-            "INSERT INTO rule_templates (name, description, config_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-            (item["name"], item["description"], item["config_json"], now, now),
-        )
-        print(f"Created builtin rule template: {item['name']}")
+        for path in self._builtin_rule_template_paths():
+            item = self._load_builtin_rule_template(path)
+            if not item:
+                continue
+            row = conn.execute(
+                "SELECT id FROM rule_templates WHERE name = ? ORDER BY id LIMIT 1",
+                (item["name"],),
+            ).fetchone()
+            if row:
+                if item["name"] == "生产规则V2":
+                    conn.execute(
+                        "UPDATE rule_templates SET description = ?, config_json = ?, updated_at = ? WHERE id = ?",
+                        (item["description"], item["config_json"], now, int(row[0])),
+                    )
+                continue
+            conn.execute(
+                "INSERT INTO rule_templates (name, description, config_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                (item["name"], item["description"], item["config_json"], now, now),
+            )
+            print(f"Created builtin rule template: {item['name']}")
 
     def _ensure_main_products_identity_schema(self, conn):
         row = conn.execute(
@@ -255,6 +284,28 @@ class DataManagerBase:
                     self._ensure_main_products_identity_schema(conn)
                     
                     conn.execute("CREATE TABLE IF NOT EXISTS product_links (project_id INTEGER, main_sku_id TEXT, store_id TEXT, comp_sku_id TEXT, similarity REAL, match_type TEXT, is_new_add TEXT)")
+                    conn.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS manual_link_corrections (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            project_id INTEGER NOT NULL,
+                            main_sku_id TEXT NOT NULL,
+                            store_id TEXT NOT NULL,
+                            old_comp_sku_id TEXT DEFAULT '',
+                            old_similarity REAL,
+                            old_match_type TEXT DEFAULT '',
+                            new_comp_sku_id TEXT NOT NULL,
+                            new_similarity REAL,
+                            new_match_type TEXT DEFAULT '手动关联',
+                            error_type TEXT DEFAULT '',
+                            created_at TEXT
+                        )
+                        """
+                    )
+                    cursor = conn.execute("PRAGMA table_info(manual_link_corrections)")
+                    manual_correction_cols = [c[1] for c in cursor.fetchall()]
+                    if "error_type" not in manual_correction_cols:
+                        conn.execute("ALTER TABLE manual_link_corrections ADD COLUMN error_type TEXT DEFAULT ''")
                     
                     comp_cols = ", ".join([f"{c} TEXT" for c in CORE_COMP_COLUMNS if c not in ['project_id', 'store_id', 'skuId']])
                     conn.execute(f"CREATE TABLE IF NOT EXISTS comp_products (project_id INTEGER, store_id TEXT, skuId TEXT, {comp_cols})")
@@ -306,6 +357,42 @@ class DataManagerBase:
                     if "rule_template_id" not in proj_cols:
                         conn.execute("ALTER TABLE projects ADD COLUMN rule_template_id INTEGER")
 
+                    conn.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS match_feedback_cases (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            project_id INTEGER NOT NULL,
+                            main_sku_id TEXT NOT NULL,
+                            store_id TEXT NOT NULL,
+                            correct_comp_sku_id TEXT NOT NULL,
+                            current_comp_sku_id TEXT DEFAULT '',
+                            feedback_type TEXT DEFAULT '漏配',
+                            note TEXT DEFAULT '',
+                            status TEXT DEFAULT 'active',
+                            created_at TEXT,
+                            updated_at TEXT
+                        )
+                        """
+                    )
+                    conn.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS match_agent_runs (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            project_id INTEGER NOT NULL,
+                            provider TEXT DEFAULT '',
+                            model_name TEXT DEFAULT '',
+                            temperature REAL DEFAULT 0.2,
+                            case_filter_json TEXT DEFAULT '{}',
+                            suggestions_json TEXT DEFAULT '{}',
+                            metrics_json TEXT DEFAULT '{}',
+                            report_path TEXT DEFAULT '',
+                            status TEXT DEFAULT 'draft',
+                            created_at TEXT,
+                            updated_at TEXT
+                        )
+                        """
+                    )
+
                     # --- rule_templates (类目规则模板) ---
                     conn.execute(
                         """
@@ -342,6 +429,9 @@ class DataManagerBase:
                     conn.execute("CREATE INDEX IF NOT EXISTS idx_comp_products_store ON comp_products(project_id, store_id)")
                     conn.execute("CREATE INDEX IF NOT EXISTS idx_comp_products_lookup ON comp_products(project_id, store_id, skuId)")
                     conn.execute("CREATE INDEX IF NOT EXISTS idx_product_links_main ON product_links(project_id, main_sku_id)")
+                    conn.execute("CREATE INDEX IF NOT EXISTS idx_manual_link_corrections_project ON manual_link_corrections(project_id, created_at)")
+                    conn.execute("CREATE INDEX IF NOT EXISTS idx_match_feedback_project ON match_feedback_cases(project_id, store_id, main_sku_id)")
+                    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_match_feedback_unique ON match_feedback_cases(project_id, main_sku_id, store_id, correct_comp_sku_id)")
 
                     # Initialize default project if none exist
                     cursor = conn.execute("SELECT COUNT(*) FROM projects")

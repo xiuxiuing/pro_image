@@ -11,6 +11,7 @@ import utils
 from field_registry import detect_field_mapping, canonical_storage_field, REQUIRED_STANDARD_FIELDS, RULE_ATTRIBUTE_FIELDS
 
 from extract_info_schema import (
+    A_FIELD_COLUMNS,
     BatchResponse,
     DEFAULT_MOONSHOT_MODEL,
     EXTRACTION_SOURCE_COL,
@@ -28,11 +29,219 @@ from extract_info_rules import (
     _strip_markdown_json_fences,
 )
 
+_INNER_COUNT_UNITS = {"片", "张", "枚", "粒", "颗", "条", "支", "个", "只", "根", "贴", "卷", "双", "副", "对"}
+_OUTER_PACK_UNITS = {"盒", "包", "袋", "箱", "套", "组", "件", "份"}
+
 _gemini_key_idx = 0
 _gemini_key_lock = threading.Lock()
+_deepseek_key_idx = 0
+_deepseek_key_lock = threading.Lock()
 
 # API key / model name are passed from the frontend
-DEFAULT_MODEL_NAME = "models/gemini-3.1-flash-lite-preview"
+DEFAULT_MODEL_NAME = "models/gemini-3.1-flash-lite"
+DEFAULT_DEEPSEEK_MODEL = "deepseek-chat"
+DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+DEFAULT_EXTRACTION_BATCH_SIZE = int(os.environ.get("PROIMAGE_ASTAR_BATCH_SIZE", "60") or "60")
+
+
+def _merge_model_with_rule_fallback(model_items, source_items, log_tag: str = ""):
+    local_items = _heuristic_batch(source_items, log_tag=f"{log_tag}-rule-merge" if log_tag else "rule-merge")
+    merged = []
+    filled = 0
+    corrected = 0
+    for model_item, local_item in zip(model_items or [], local_items or []):
+        for attr in (
+            "core_category",
+            "net_content",
+            "sell_quantity",
+            "size",
+            "multidim_size",
+        ):
+            mv = getattr(model_item, attr, None)
+            lv = getattr(local_item, attr, None)
+            empty = not mv if not isinstance(mv, list) else len(mv) == 0
+            if empty and lv:
+                setattr(model_item, attr, lv)
+                filled += 1
+        pu = (getattr(model_item, "packaging_unit", "") or "").strip()
+        if (not pu or pu == "未知") and (getattr(local_item, "packaging_unit", "") or "").strip() not in ("", "未知"):
+            setattr(model_item, "packaging_unit", local_item.packaging_unit)
+            filled += 1
+        model_qty = (getattr(model_item, "sell_quantity", "") or "").strip()
+        model_pack = (getattr(model_item, "packaging_unit", "") or "").strip()
+        local_qty = (getattr(local_item, "sell_quantity", "") or "").strip()
+        local_pack = (getattr(local_item, "packaging_unit", "") or "").strip()
+        if (
+            local_qty
+            and local_pack in _INNER_COUNT_UNITS
+            and model_pack in _OUTER_PACK_UNITS
+            and (model_qty, model_pack) != (local_qty, local_pack)
+        ):
+            setattr(model_item, "sell_quantity", local_qty)
+            setattr(model_item, "packaging_unit", local_pack)
+            corrected += 1
+        # Weak fields are not hard constraints, but filling them improves ranking/explainability.
+        for attr in ("product_form", "key_attributes", "color"):
+            mv = getattr(model_item, attr, None)
+            lv = getattr(local_item, attr, None)
+            empty = not mv if not isinstance(mv, list) else len(mv) == 0
+            if empty and lv:
+                setattr(model_item, attr, lv)
+                filled += 1
+        mv = getattr(model_item, "brand", None)
+        lv = getattr(local_item, "brand", None)
+        if not mv and lv:
+            setattr(model_item, "brand", lv)
+            filled += 1
+        merged.append(model_item)
+    if filled:
+        _ai_log(log_tag, f"模型结果叠加本地兜底补齐字段 {filled} 处")
+    if corrected:
+        _ai_log(log_tag, f"模型结果按本地规格规则纠正售卖规格 {corrected} 处")
+    return _mark_extraction_source(merged, MODEL_EXTRACTION_SOURCE)
+
+
+def _split_api_keys(api_key: str) -> list[str]:
+    keys = [k.strip() for k in re.split(r"[,，;；\s]+", str(api_key or "")) if k.strip()]
+    return keys or [""]
+
+
+def _model_provider_label(provider: str) -> str:
+    p = (provider or "gemini").strip().lower()
+    if p == "deepseek":
+        return "DeepSeek"
+    if p in ("kimi", "moonshot"):
+        return "Kimi(Moonshot)"
+    return "Gemini"
+
+
+def _model_provider_default_model(provider: str) -> str:
+    p = (provider or "gemini").strip().lower()
+    if p == "deepseek":
+        return DEFAULT_DEEPSEEK_MODEL
+    if p in ("kimi", "moonshot"):
+        return DEFAULT_MOONSHOT_MODEL
+    return DEFAULT_MODEL_NAME
+
+
+def _format_model_error(provider: str, model_name: str, exc: Exception) -> str:
+    raw = str(exc) or exc.__class__.__name__
+    low = raw.lower()
+    label = _model_provider_label(provider)
+    model = (model_name or _model_provider_default_model(provider)).strip()
+    if any(marker in low for marker in ("connection", "timeout", "timed out", "network", "ssl", "proxy")):
+        return f"{label} 连接失败，请检查网络/代理、API Key 权限和模型名（当前：{model}）：{raw}"
+    if "api key" in low or "unauthorized" in low or "permission" in low or "401" in low or "403" in low:
+        return f"{label} 鉴权失败或无模型权限（当前：{model}）：{raw}"
+    if "not found" in low or "404" in low or "model" in low:
+        return f"{label} 模型名不可用或当前 Key 无权限访问（当前：{model}）：{raw}"
+    return raw
+
+
+def _extract_batch_openai_compatible(
+    items,
+    api_key: str,
+    model_name: str,
+    base_url: str,
+    provider: str,
+    max_retries: int = 5,
+    log_tag: str = "",
+):
+    if not items:
+        return []
+    try:
+        from openai import OpenAI
+    except ImportError:
+        _ai_log(log_tag, f"{_model_provider_label(provider)} 跳过: 未安装 openai（pip install openai），改用本地规则兜底")
+        return _heuristic_batch(items, log_tag=log_tag)
+
+    global _deepseek_key_idx
+    keys = _split_api_keys(api_key)
+    model = (model_name or _model_provider_default_model(provider)).strip() or _model_provider_default_model(provider)
+    prompt = _build_extraction_prompt(items)
+    _ai_log(log_tag, f"请求 {_model_provider_label(provider)} batch: model={model!r} items={len(items)} keys_count={len(keys)}")
+
+    for attempt in range(max_retries):
+        with _deepseek_key_lock:
+            current_key = keys[_deepseek_key_idx % len(keys)]
+            _deepseek_key_idx += 1
+        try:
+            client = OpenAI(api_key=current_key, base_url=base_url, timeout=120.0, max_retries=2)
+            r = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a highly accurate product attribute extractor. "
+                            "Return ONLY one JSON object with key \"items\" (array), no markdown fences."
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.2,
+                response_format={"type": "json_object"},
+            )
+            text = (r.choices[0].message.content or "").strip()
+            text = _strip_markdown_json_fences(text)
+            data = json.loads(text)
+            data = _normalize_batch_dict_for_validate(data)
+            batch = BatchResponse.model_validate(data)
+            if len(batch.items) != len(items):
+                _ai_log(
+                    log_tag,
+                    f"{_model_provider_label(provider)} attempt {attempt + 1}/{max_retries}: 条数不一致 "
+                    f"{len(batch.items)} vs {len(items)}",
+                )
+                time.sleep(5)
+                continue
+            if batch.items:
+                s0 = batch.items[0]
+                _ai_log(
+                    log_tag,
+                    f"{_model_provider_label(provider)} 本批成功: 条数={len(batch.items)} "
+                    f"样例[0] sell={getattr(s0, 'sell_quantity', '')!r} "
+                    f"pack={getattr(s0, 'packaging_unit', '')!r} net={getattr(s0, 'net_content', '')!r}",
+                )
+            else:
+                _ai_log(log_tag, f"{_model_provider_label(provider)} 本批成功: 条数=0（无条目）")
+            return _merge_model_with_rule_fallback(batch.items, items, log_tag=log_tag)
+        except Exception as e:
+            err_msg = _format_model_error(provider, model, e)
+            if "429" in err_msg or "rate" in err_msg.lower() or "限流" in err_msg:
+                wait_time = (attempt + 1) * 20
+                _ai_log(log_tag, f"{_model_provider_label(provider)} attempt {attempt + 1}/{max_retries}: 限流/429，{wait_time}s 后重试 — {err_msg[:180]}")
+                time.sleep(wait_time)
+            elif "503" in err_msg or "UNAVAILABLE" in err_msg:
+                _ai_log(log_tag, f"{_model_provider_label(provider)} attempt {attempt + 1}/{max_retries}: 503/繁忙 — {err_msg[:180]}")
+                time.sleep(15)
+            else:
+                _ai_log(log_tag, f"{_model_provider_label(provider)} attempt {attempt + 1}/{max_retries}: {type(e).__name__}: {err_msg}")
+                time.sleep(8)
+
+    _ai_log(log_tag, f"{_model_provider_label(provider)} 已放弃 batch_len={len(items)}，改用本地规则兜底")
+    return _heuristic_batch(items, log_tag=log_tag)
+
+
+def extract_batch_deepseek(
+    items,
+    api_key: str,
+    model_name: Optional[str] = None,
+    max_retries: int = 5,
+    log_tag: str = "",
+):
+    base_url = (os.environ.get("DEEPSEEK_BASE_URL") or DEEPSEEK_BASE_URL).strip()
+    return _extract_batch_openai_compatible(
+        items,
+        api_key=api_key,
+        model_name=(model_name or DEFAULT_DEEPSEEK_MODEL),
+        base_url=base_url,
+        provider="deepseek",
+        max_retries=max_retries,
+        log_tag=log_tag,
+    )
+
+
 def extract_batch_moonshot(
     items,
     api_key: str,
@@ -92,7 +301,7 @@ def extract_batch_moonshot(
                 )
             else:
                 _ai_log(log_tag, "Kimi 兜底本批成功: 条数=0（无条目）")
-            return _mark_extraction_source(batch.items, MODEL_EXTRACTION_SOURCE)
+            return _merge_model_with_rule_fallback(batch.items, items, log_tag=log_tag)
         except Exception as e:
             err_msg = str(e)
             if "429" in err_msg or "rate" in err_msg.lower() or "限流" in err_msg:
@@ -124,12 +333,24 @@ def extract_batch_ai(
     log_tag: str = "",
     fallback_api_key: Optional[str] = None,
     fallback_model: Optional[str] = None,
+    provider: str = "gemini",
+    fallback_provider: str = "kimi",
     allow_split: bool = True,
 ):
     global _gemini_key_idx
-    keys = [k.strip() for k in re.split(r"[,，;；\s]+", str(api_key)) if k.strip()]
-    if not keys:
-        keys = [""]
+    provider_norm = (provider or "gemini").strip().lower()
+    if provider_norm == "deepseek":
+        return extract_batch_deepseek(
+            items,
+            api_key=api_key,
+            model_name=model_name,
+            max_retries=max_retries,
+            log_tag=log_tag,
+        )
+    if provider_norm not in ("gemini", ""):
+        _ai_log(log_tag, f"未知模型类型 {provider!r}，按 Gemini 处理")
+
+    keys = _split_api_keys(api_key)
 
     model_name = (model_name or DEFAULT_MODEL_NAME).strip() or DEFAULT_MODEL_NAME
     _ai_log(log_tag, f"请求 Gemini batch: model={model_name!r} items={len(items)} keys_count={len(keys)}")
@@ -162,7 +383,7 @@ def extract_batch_ai(
                         )
                     else:
                         _ai_log(log_tag, "本批成功: 条数=0（无条目）")
-                    return _mark_extraction_source(parsed_items, MODEL_EXTRACTION_SOURCE)
+                    return _merge_model_with_rule_fallback(parsed_items, items, log_tag=log_tag)
                 else:
                     _ai_log(
                         log_tag,
@@ -214,6 +435,8 @@ def extract_batch_ai(
             log_tag=log_tag,
             fallback_api_key=fallback_api_key,
             fallback_model=fallback_model,
+            provider=provider_norm or "gemini",
+            fallback_provider=fallback_provider,
             allow_split=True,
         )
         right = extract_batch_ai(
@@ -224,12 +447,24 @@ def extract_batch_ai(
             log_tag=log_tag,
             fallback_api_key=fallback_api_key,
             fallback_model=fallback_model,
+            provider=provider_norm or "gemini",
+            fallback_provider=fallback_provider,
             allow_split=True,
         )
         return left + right
 
     fk = (fallback_api_key or "").strip()
     if fk:
+        fallback_provider_norm = (fallback_provider or "kimi").strip().lower()
+        if fallback_provider_norm == "deepseek":
+            _ai_log(log_tag, "改用 DeepSeek 兜底本批…")
+            return extract_batch_deepseek(
+                items,
+                api_key=fk,
+                model_name=(fallback_model or "").strip() or None,
+                max_retries=max_retries,
+                log_tag=log_tag,
+            )
         _ai_log(log_tag, "改用 Kimi(Moonshot) 兜底本批…")
         return extract_batch_moonshot(
             items,
@@ -284,12 +519,16 @@ def _summarize_written_a_columns(df: pd.DataFrame, log_tag: str) -> None:
 def process_file_ai(
     file_path,
     api_key,
-    batch_size=110,
+    batch_size=None,
     progress_cb=None,
     model_name=None,
     fallback_api_key: Optional[str] = None,
     fallback_model: Optional[str] = None,
+    provider: str = "gemini",
+    fallback_provider: str = "kimi",
 ):
+    if batch_size is None:
+        batch_size = DEFAULT_EXTRACTION_BATCH_SIZE
     log_tag = os.path.basename(file_path) or "unknown.xlsx"
     _ai_log(log_tag, f"开始处理文件 path={file_path}")
     print(f"Loading {file_path}...")
@@ -320,8 +559,8 @@ def process_file_ai(
         print(f"Required columns not found in {file_path}. Available: {cols}")
         return
 
-    # Initialize target columns if they don't exist (new 6 columns + source marker)
-    target_cols = ['A单件净含量', 'A售卖数量', 'A包装单位', 'A颜色', 'A尺寸', 'A型号']
+    # Initialize target columns if they don't exist (A* extraction columns + source marker)
+    target_cols = list(A_FIELD_COLUMNS)
     for col in target_cols + [EXTRACTION_SOURCE_COL]:
         if col not in df.columns:
             df[col] = ""
@@ -385,7 +624,13 @@ def process_file_ai(
         sp = str(r.get(spec_col, '')).strip()
         if nm.lower() == 'nan': nm = ''
         if sp.lower() == 'nan': sp = ''
-        tmp_map[k] = {"name": nm, "spec": sp}
+        tmp_map[k] = {
+            "name": nm,
+            "spec": sp,
+            "l1": str(r.get("美团类目一级", "") or "").strip(),
+            "l2": str(r.get("美团类目二级", "") or "").strip(),
+            "l3": str(r.get("美团类目三级", "") or "").strip(),
+        }
     
     for i in range(0, total_unique, batch_size):
         batch_inputs = unique_inputs[i:i + batch_size]
@@ -405,6 +650,8 @@ def process_file_ai(
             log_tag=log_tag,
             fallback_api_key=fallback_api_key,
             fallback_model=fallback_model,
+            provider=provider,
+            fallback_provider=fallback_provider,
         )
         
         for name, res in zip(batch_inputs, batch_results):
@@ -424,8 +671,13 @@ def process_file_ai(
         df.loc[row_mask, 'A包装单位'] = getattr(res, "packaging_unit", "") or ""
         df.loc[row_mask, 'A颜色'] = " | ".join(getattr(res, "color", []) or [])
         df.loc[row_mask, 'A尺寸'] = " | ".join(getattr(res, "size", []) or [])
+        df.loc[row_mask, 'A品牌'] = getattr(res, "brand", "") or ""
         # Model post-processing: keep closer to offline extractor output
         df.loc[row_mask, 'A型号'] = _postprocess_model(getattr(res, "model", "") or "", "", name)  # name==_temp_input here
+        df.loc[row_mask, 'A核心品类'] = getattr(res, "core_category", "") or ""
+        df.loc[row_mask, 'A商品形态'] = getattr(res, "product_form", "") or ""
+        df.loc[row_mask, 'A关键属性词'] = " | ".join(getattr(res, "key_attributes", []) or [])
+        df.loc[row_mask, 'A多维尺寸'] = " | ".join(getattr(res, "multidim_size", []) or [])
         df.loc[row_mask, EXTRACTION_SOURCE_COL] = _get_extraction_source(res) or MODEL_EXTRACTION_SOURCE
 
     df.drop(columns=['_temp_input'], inplace=True)

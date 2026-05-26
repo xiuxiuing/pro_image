@@ -106,7 +106,7 @@ _UNIT_SUBS: list[tuple[re.Pattern[str], _Repl]] = [
 
 # 常见「数 + 计量包装」：归一成无空格「6瓶」形式，便于与 ml/g 并列抽取
 _PACK_UNIT = re.compile(
-    r"(\d+(?:\.\d+)?)\s*(瓶|盒|袋|包|杯|支|条|片|听|罐|桶|箱|板|套|枚|个|只|块|卷|组|件|枚装|瓶装|盒装)\b"
+    r"(\d+(?:\.\d+)?)\s*(瓶|盒|袋|包|杯|碗|支|条|片|听|罐|桶|箱|板|套|枚|粒|颗|个|只|份|把|本|台|床|顶|贴|块|卡|卷|组|件|根|张|双|副|对|团|枚装|瓶装|盒装)\b"
 )
 
 
@@ -130,7 +130,7 @@ def normalize_units(text: str) -> str:
 # --- 从整段文字中抽取「数+单位」短语（归一后）---
 
 _QTY_SCAN = re.compile(
-    r"(?i)(?:\d+(?:\.\d+)?(?:ml|g|kg)|\d+(?:\.\d+)?L(?![a-z])|\d+(?:\.\d+)?(?:瓶|盒|袋|包|杯|支|条|片|听|罐|桶|箱|板|套|枚|个|只|块|卷|组|件))"
+    r"(?i)(?:\d+(?:\.\d+)?(?:ml|g|kg)|\d+(?:\.\d+)?L(?![a-z])|\d+(?:\.\d+)?(?:瓶|盒|袋|包|杯|支|条|片|听|罐|桶|箱|板|套|枚|个|只|块|卷|组|件|根|张|双|副|团))"
 )
 
 
@@ -143,7 +143,7 @@ def _canonical_qty_token(raw: str) -> str:
     m = re.fullmatch(r"(?i)(\d+(?:\.\d+)?)l", s)
     if m:
         return f"{m.group(1)}L"
-    m = re.fullmatch(r"(\d+(?:\.\d+)?)(瓶|盒|袋|包|杯|支|条|片|听|罐|桶|箱|板|套|枚|个|只|块|卷|组|件)", s)
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)(瓶|盒|袋|包|杯|支|条|片|听|罐|桶|箱|板|套|枚|个|只|块|卷|组|件|根|张|双|副|团)", s)
     if m:
         return f"{m.group(1)}{m.group(2)}"
     return s
@@ -295,6 +295,9 @@ def _extract_core_product_name(normalized_name: str) -> str:
     # 3) 去掉常见无信息修饰
     noise = (
         "新老包装随机",
+        "品牌随机",
+        "随机品牌",
+        "不限品牌",
         "随机",
         "网红",
         "爆款",
@@ -423,10 +426,10 @@ def _pick_net_content(quantity_snippets: tuple[str, ...]) -> str:
 
 def _pick_sell_quantity(quantity_snippets: tuple[str, ...], text: str) -> str:
     for tok in quantity_snippets:
-        if re.fullmatch(r"\d+(?:\.\d+)?(瓶|盒|袋|包|杯|支|条|片|听|罐|桶|箱|板|套|枚|个|只|块|卷|组|件)", tok):
+        if re.fullmatch(r"\d+(?:\.\d+)?(瓶|盒|袋|包|杯|支|条|片|听|罐|桶|箱|板|套|枚|个|只|块|卷|组|件|根|张|双|副|团)", tok):
             return tok
     m = re.search(
-        r"(\d+(?:\.\d+)?)\s*(?:x|×|\*)\s*(\d+(?:\.\d+)?)\s*(袋|包|片|瓶|盒|罐|听|条|支|个|只)\b",
+        r"(\d+(?:\.\d+)?)\s*(?:x|×|\*)\s*(\d+(?:\.\d+)?)\s*(袋|包|片|瓶|盒|罐|听|条|支|个|只|根|张|双|副)\b",
         text,
         flags=re.IGNORECASE,
     )

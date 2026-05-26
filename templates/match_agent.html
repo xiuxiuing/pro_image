@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>关联优化 Agent - 商品分析平台</title>
+    <style>
+        :root { --bg:#f6f8fb; --panel:#fff; --text:#0f172a; --muted:#64748b; --line:#e2e8f0; --blue:#2563eb; --green:#059669; --amber:#d97706; --red:#dc2626; }
+        * { box-sizing: border-box; }
+        body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif; color:var(--text); background:var(--bg); }
+        header { height:72px; display:flex; align-items:center; padding:0 32px; background:#fff; border-bottom:1px solid var(--line); }
+        .brand-link { display:inline-flex; align-items:center; height:72px; color:var(--text); text-decoration:none; cursor:pointer; }
+        .brand-link h1 { margin:0; font-size:24px; letter-spacing:0; }
+        .brand-link:hover h1 { color:var(--blue); }
+        main { max-width:1280px; margin:0 auto; padding:28px 24px 56px; }
+        .project-picker { width:calc((100% - 16px) / 2); display:grid; grid-template-columns:88px minmax(0, 1fr) 96px; gap:10px; align-items:center; }
+        .project-picker label { margin:0; font-size:13px; color:#334155; }
+        .grid { display:grid; grid-template-columns:minmax(0, 1fr) minmax(0, 1fr); gap:16px; margin-top:20px; align-items:stretch; }
+        .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:18px; min-width:0; }
+        .grid > .panel:not(.full) { min-height:292px; }
+        .panel h2 { margin:0 0 14px; font-size:17px; }
+        label { display:block; font-size:12px; font-weight:700; color:#334155; margin:10px 0 6px; }
+        input, select, textarea { width:100%; min-height:40px; border:1px solid #cbd5e1; border-radius:6px; padding:9px 10px; font-size:14px; background:#fff; }
+        textarea { min-height:72px; resize:vertical; }
+        .row { display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:10px; }
+        .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; align-items:center; }
+        button, .btn { min-height:40px; border:0; border-radius:6px; padding:9px 13px; font-weight:700; cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; justify-content:center; gap:6px; font-size:14px; }
+        .primary { background:var(--blue); color:#fff; }
+        .secondary { background:#e2e8f0; color:#0f172a; }
+        .success { background:var(--green); color:#fff; }
+        .muted { color:var(--muted); font-size:13px; }
+        .full { grid-column: 1 / -1; }
+        table { width:100%; border-collapse:collapse; font-size:13px; }
+        th, td { border-bottom:1px solid var(--line); padding:10px 8px; text-align:left; vertical-align:top; }
+        th { color:#475569; background:#f8fafc; font-size:12px; }
+        .badge { display:inline-flex; border-radius:999px; padding:3px 8px; font-size:12px; font-weight:700; background:#e2e8f0; color:#334155; }
+        .badge.ok { background:#dcfce7; color:#166534; }
+        .badge.warn { background:#fef3c7; color:#92400e; }
+        .badge.obs { background:#dbeafe; color:#1d4ed8; }
+        .stats { display:grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap:10px; margin:12px 0 16px; }
+        .stat { border:1px solid var(--line); border-radius:8px; padding:12px; background:#f8fafc; }
+        .stat .k { font-size:12px; color:var(--muted); }
+        .stat .v { margin-top:6px; font-size:20px; font-weight:800; }
+        .tabs { display:flex; gap:8px; margin:12px 0; }
+        .tab { background:#e2e8f0; color:#0f172a; }
+        .tab.active { background:#0f172a; color:#fff; }
+        .hidden { display:none; }
+        .message { margin-top:10px; font-size:13px; color:#334155; white-space:pre-wrap; }
+        .match-change-table { table-layout:fixed; min-width:1780px; }
+        .match-change-table th:nth-child(1), .match-change-table td:nth-child(1),
+        .match-change-table th:nth-child(3), .match-change-table td:nth-child(3),
+        .match-change-table th:nth-child(6), .match-change-table td:nth-child(6) { width:360px; }
+        .match-change-table th:nth-child(2), .match-change-table td:nth-child(2) { width:180px; }
+        .match-change-table th:nth-child(4), .match-change-table td:nth-child(4),
+        .match-change-table th:nth-child(7), .match-change-table td:nth-child(7) { width:92px; }
+        .match-change-table th:nth-child(5), .match-change-table td:nth-child(5),
+        .match-change-table th:nth-child(8), .match-change-table td:nth-child(8) { width:96px; }
+        .match-change-table th:nth-child(9), .match-change-table td:nth-child(9) { width:64px; }
+        .match-change-table th:nth-child(10), .match-change-table td:nth-child(10) { width:300px; }
+        .product-cell { display:flex; align-items:flex-start; gap:10px; width:100%; max-height:68px; overflow:hidden; }
+        .product-thumb { width:44px; height:44px; flex:0 0 44px; object-fit:cover; border-radius:6px; border:1px solid var(--line); background:#f8fafc; }
+        .product-thumb.empty { display:flex; align-items:center; justify-content:center; color:#94a3b8; font-size:12px; }
+        .product-info { min-width:0; display:grid; gap:3px; }
+        .product-name { font-weight:700; color:#0f172a; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .product-meta-line { color:#64748b; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .store-cell { display:block; width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .reason-cell { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; line-height:1.45; color:#334155; }
+        .match-filter-bar { display:flex; align-items:center; gap:8px; margin:0 0 10px; }
+        .match-filter-bar label { margin:0; font-size:12px; color:#334155; }
+        .match-filter-bar select { width:104px; min-height:34px; padding:6px 8px; font-size:13px; }
+        .nowrap { white-space:nowrap; }
+        @media (max-width: 900px) { .grid, .row, .stats, .project-picker { width:100%; grid-template-columns:1fr; } .grid > .panel:not(.full) { min-height:0; } }
+    </style>
+</head>
+<body>
+<header>
+    <a class="brand-link" href="/" title="返回项目页"><h1>关联优化 Agent</h1></a>
+</header>
+<main>
+    <div class="project-picker">
+        <label for="project-select">项目选择</label>
+        <select id="project-select" onchange="onProjectChange()"><option value="">加载项目中...</option></select>
+        <button class="secondary" type="button" onclick="loadProjects()">刷新项目</button>
+    </div>
+
+    <section class="grid">
+        <div class="panel">
+            <h2>单条反馈样本</h2>
+            <div class="row">
+                <div><label>主店 SKU</label><input id="case-main" placeholder="主店 skuId"></div>
+                <div><label>竞店名称</label><select id="case-store"><option value="">请选择竞店</option></select></div>
+                <div><label>正确竞店 SKU</label><input id="case-correct" placeholder="竞店 skuId"></div>
+            </div>
+            <div class="row">
+                <div><label>错误竞店 SKU</label><input id="case-current" placeholder="必填，错误匹配的竞店 skuId"></div>
+                <div><label>反馈类型</label><select id="case-type"><option>漏配</option><option>错配</option><option>误拦截</option></select></div>
+                <div><label>备注</label><input id="case-note" placeholder="可空"></div>
+            </div>
+            <div class="actions">
+                <button class="primary" onclick="createCase()">保存样本</button>
+                <button class="secondary" onclick="loadCases()">刷新列表</button>
+            </div>
+            <div id="case-message" class="message"></div>
+        </div>
+
+        <div class="panel">
+            <h2>批量导入与运行</h2>
+            <label>反馈样本 Excel</label>
+            <input type="file" id="case-file" accept=".xlsx,.xls">
+            <div class="muted">必需列：主店skuId、竞店/store_id、正确竞店skuId、错误竞店skuId；可选：反馈类型、备注。</div>
+            <div class="actions"><button class="secondary" onclick="importCases()">导入样本</button></div>
+            <div class="row">
+                <div><label>模型提供商</label><select id="agent-provider" onchange="syncModelOptions()"><option value="gemini">Gemini</option><option value="deepseek">DeepSeek</option><option value="gpt">GPT</option></select></div>
+                <div><label>模型名</label><select id="agent-model" onchange="syncCustomModel()"></select></div>
+                <div><label>温度</label><input id="agent-temp" value="0.2"></div>
+            </div>
+            <div id="agent-custom-model-wrap" class="hidden">
+                <label>自定义模型名</label>
+                <input id="agent-custom-model" placeholder="填写完整模型 ID">
+            </div>
+            <label>API Key</label>
+            <input type="password" id="agent-api-key" placeholder="直接填写当前模型提供商的 API Key">
+            <div class="actions">
+                <button class="primary" onclick="runAgent()">生成规则评估</button>
+                <button class="secondary" onclick="loadRuns()">历史运行</button>
+            </div>
+            <div id="run-message" class="message"></div>
+        </div>
+
+        <div class="panel full">
+            <h2>快速优化</h2>
+            <div class="row">
+                <div><label>项目名/项目ID</label><input id="quick-project" placeholder="可空，默认使用上方选择项目"></div>
+                <div><label>主店 SKU</label><input id="quick-main" placeholder="主店 skuId"></div>
+                <div><label>竞店ID</label><input id="quick-store" placeholder="可空，系统自动定位"></div>
+            </div>
+            <div class="row">
+                <div><label>正确竞店 SKU</label><input id="quick-correct" placeholder="应该匹配的竞店 skuId"></div>
+                <div><label>错误竞店 SKU</label><input id="quick-wrong" placeholder="当前错配的竞店 skuId"></div>
+                <div><label>备注</label><input id="quick-note" placeholder="可空"></div>
+            </div>
+            <div class="actions">
+                <button class="primary" onclick="quickRunAgent()">保存样本并生成规则评估</button>
+            </div>
+            <div id="quick-message" class="message"></div>
+        </div>
+
+        <div class="panel full">
+            <h2>反馈样本</h2>
+            <div style="overflow:auto; max-height:280px;">
+                <table>
+                    <thead><tr><th>ID</th><th>主店SKU</th><th>竞店</th><th>正确竞店SKU</th><th>错误竞店SKU</th><th>类型</th><th>备注</th><th>时间</th></tr></thead>
+                    <tbody id="cases-body"><tr><td colspan="8">加载中...</td></tr></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="panel full">
+            <h2>Agent 输出</h2>
+            <div id="run-actions" class="actions hidden">
+                <a id="report-link" class="btn success" href="#">下载 Excel 报告</a>
+                <button id="apply-btn" class="secondary" onclick="applyRun()">应用优化方案</button>
+                <button id="apply-v2-btn" class="secondary" onclick="applyRunToV2()">一键实施到内置V2</button>
+                <label class="nowrap" style="display:inline-flex; align-items:center; gap:6px; margin:0; font-weight:600;"><input id="bind-project-v2" type="checkbox" style="width:auto; min-height:0;"> 同时绑定当前项目到V2</label>
+            </div>
+            <div id="stats" class="stats"></div>
+            <div class="tabs">
+                <button class="tab active" onclick="showTab('suggestions')">规则优化点</button>
+                <button class="tab" onclick="showTab('diagnostics')">诊断摘要</button>
+                <button class="tab" onclick="showTab('diffs')">重跑汇总</button>
+                <button class="tab" onclick="showTab('afields')">A信息</button>
+                <button class="tab" onclick="showTab('vectors')">匹配变化</button>
+            </div>
+            <div id="tab-suggestions"></div>
+            <div id="tab-diagnostics" class="hidden"></div>
+            <div id="tab-diffs" class="hidden"></div>
+            <div id="tab-afields" class="hidden"></div>
+            <div id="tab-vectors" class="hidden"></div>
+        </div>
+    </section>
+</main>
+
+<script>
+let currentRunId = null;
+let selectedProjectId = "";
+let projectStores = [];
+let currentMatchChangeRows = [];
+const MODEL_OPTIONS = {
+    gemini: [
+        {value:'gemini-3.5-flash', label:'Gemini 3.5 Flash'},
+        {value:'gemini-3.1-pro-preview', label:'Gemini 3.1 Pro Preview'},
+        {value:'gemini-3.1-pro-preview-customtools', label:'Gemini 3.1 Pro Preview Custom Tools'},
+        {value:'gemini-3.1-flash-lite', label:'Gemini 3.1 Flash-Lite'},
+        {value:'gemini-3.1-flash-lite-preview', label:'Gemini 3.1 Flash-Lite Preview'},
+        {value:'gemini-3-flash-preview', label:'Gemini 3 Flash Preview'},
+        {value:'gemini-2.5-pro', label:'Gemini 2.5 Pro'},
+        {value:'gemini-2.5-flash', label:'Gemini 2.5 Flash'},
+        {value:'gemini-2.5-flash-lite', label:'Gemini 2.5 Flash-Lite'},
+        {value:'gemini-2.5-flash-lite-preview-09-2025', label:'Gemini 2.5 Flash-Lite Preview 09-2025'},
+        {value:'custom', label:'自定义模型'}
+    ],
+    deepseek: [
+        {value:'deepseek-v4-flash', label:'DeepSeek V4 Flash'},
+        {value:'deepseek-v4-pro', label:'DeepSeek V4 Pro'},
+        {value:'deepseek-chat', label:'DeepSeek Chat（旧兼容）'},
+        {value:'deepseek-reasoner', label:'DeepSeek Reasoner（旧兼容）'},
+        {value:'custom', label:'自定义模型'}
+    ],
+    gpt: [
+        {value:'gpt-5.2', label:'GPT-5.2'},
+        {value:'gpt-5-mini', label:'GPT-5 Mini'},
+        {value:'gpt-5-nano', label:'GPT-5 Nano'},
+        {value:'gpt-4.1', label:'GPT-4.1'},
+        {value:'gpt-4.1-mini', label:'GPT-4.1 Mini'},
+        {value:'custom', label:'自定义模型'}
+    ]
+};
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+function compactJson(v) {
+    if (v == null || v === '') return '';
+    try { return JSON.stringify(v); } catch (_) { return String(v); }
+}
+function firstImageUrl(raw) {
+    const text = String(raw || '').trim();
+    if (!text) return '';
+    const parts = text.split(/[;；,\s]+/).map(x => x.split('!!')[0].trim()).filter(Boolean);
+    return parts.find(x => /^https?:\/\//i.test(x)) || '';
+}
+function productCell(row, prefix, skuKey) {
+    const img = firstImageUrl(row[`${prefix}_image`] || '');
+    const name = row[`${prefix}_name`] || '-';
+    const spec = row[`${prefix}_spec`] || '-';
+    const sku = row[skuKey] || '-';
+    const imgCell = img
+        ? `<img class="product-thumb" src="${esc(img)}" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'), {className:'product-thumb empty', textContent:'无图'}))">`
+        : '<div class="product-thumb empty">无图</div>';
+    return `<div class="product-cell">${imgCell}<div class="product-info"><div class="product-name" title="${esc(name)}">${esc(name)}</div><div class="product-meta-line" title="${esc(spec)}">规格：${esc(spec)}</div><div class="product-meta-line">SKU：${esc(sku)}</div></div></div>`;
+}
+function syncModelOptions() {
+    const provider = document.getElementById('agent-provider').value;
+    const sel = document.getElementById('agent-model');
+    sel.innerHTML = (MODEL_OPTIONS[provider] || MODEL_OPTIONS.gemini)
+        .map(item => `<option value="${esc(item.value)}">${esc(item.label)}（${esc(item.value)}）</option>`)
+        .join('');
+    syncCustomModel();
+}
+function syncCustomModel() {
+    const isCustom = document.getElementById('agent-model').value === 'custom';
+    document.getElementById('agent-custom-model-wrap').classList.toggle('hidden', !isCustom);
+}
+function getSelectedModelName() {
+    const selected = document.getElementById('agent-model').value;
+    return selected === 'custom'
+        ? document.getElementById('agent-custom-model').value.trim()
+        : selected;
+}
+async function api(url, options={}) {
+    const r = await fetch(url, options);
+    const text = await r.text();
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch (_) { data = {message: text}; }
+    if (!r.ok || data.status === 'error') throw new Error(data.message || `请求失败（HTTP ${r.status}）`);
+    return data;
+}
+async function createCase() {
+    const body = {
+        project_id: selectedProjectId,
+        main_sku_id: document.getElementById('case-main').value.trim(),
+        store_id: document.getElementById('case-store').value.trim(),
+        correct_comp_sku_id: document.getElementById('case-correct').value.trim(),
+        current_comp_sku_id: document.getElementById('case-current').value.trim(),
+        feedback_type: document.getElementById('case-type').value,
+        note: document.getElementById('case-note').value.trim()
+    };
+    try {
+        await api('/api/match-agent/cases', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+        document.getElementById('case-message').textContent = '样本已保存';
+        loadCases();
+    } catch (e) { document.getElementById('case-message').textContent = e.message; }
+}
+async function importCases() {
+    const f = document.getElementById('case-file').files[0];
+    if (!f) { document.getElementById('run-message').textContent = '请先选择Excel文件'; return; }
+    const fd = new FormData(); fd.append('file', f); fd.append('project_id', selectedProjectId);
+    try {
+        const data = await api('/api/match-agent/cases/import', {method:'POST', body:fd});
+        document.getElementById('run-message').textContent = `导入 ${data.created || 0} 条` + ((data.errors || []).length ? `，错误 ${data.errors.length} 条` : '');
+        loadCases();
+    } catch (e) { document.getElementById('run-message').textContent = e.message; }
+}
+function storeLabel(storeId) {
+    const item = projectStores.find(s => String(s.store_id) === String(storeId));
+    return item ? `${item.store_name}（ID ${item.store_id}）` : storeId;
+}
+async function loadStores() {
+    const sel = document.getElementById('case-store');
+    if (!selectedProjectId) {
+        projectStores = [];
+        sel.innerHTML = '<option value="">请先选择项目</option>';
+        return;
+    }
+    const data = await api(`/api/match-agent/stores?project_id=${encodeURIComponent(selectedProjectId)}`);
+    projectStores = data.items || [];
+    sel.innerHTML = projectStores.length
+        ? '<option value="">请选择竞店</option>' + projectStores.map(s => `<option value="${esc(s.store_id)}">${esc(s.store_name)}（ID ${esc(s.store_id)}）</option>`).join('')
+        : '<option value="">暂无竞店</option>';
+}
+async function loadCases() {
+    const data = await api(`/api/match-agent/cases?project_id=${encodeURIComponent(selectedProjectId)}`);
+    const rows = data.items || [];
+    document.getElementById('cases-body').innerHTML = rows.length ? rows.map(r => `
+        <tr><td>${esc(r.id)}</td><td>${esc(r.main_sku_id)}</td><td>${esc(storeLabel(r.store_id))}</td><td>${esc(r.correct_comp_sku_id)}</td><td>${esc(r.current_comp_sku_id)}</td><td>${esc(r.feedback_type)}</td><td>${esc(r.note)}</td><td>${esc(r.created_at)}</td></tr>
+    `).join('') : '<tr><td colspan="8">暂无反馈样本</td></tr>';
+}
+async function runAgent() {
+    document.getElementById('run-message').textContent = '正在诊断、生成规则草稿并重跑评估...';
+    try {
+        const body = {
+            project_id: selectedProjectId,
+            provider: document.getElementById('agent-provider').value,
+            model_name: getSelectedModelName(),
+            temperature: document.getElementById('agent-temp').value,
+            api_key: document.getElementById('agent-api-key').value.trim()
+        };
+        const data = await api('/api/match-agent/runs', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+        document.getElementById('run-message').textContent = '规则评估完成';
+        renderRun(data.run);
+        loadRuns();
+    } catch (e) { document.getElementById('run-message').textContent = e.message; }
+}
+async function quickRunAgent() {
+    document.getElementById('quick-message').textContent = '正在保存样本、诊断并生成规则评估...';
+    const projectRaw = document.getElementById('quick-project').value.trim();
+    const body = {
+        project_id: /^\d+$/.test(projectRaw) ? projectRaw : (projectRaw ? "" : selectedProjectId),
+        project_name: projectRaw && !/^\d+$/.test(projectRaw) ? projectRaw : "",
+        main_sku_id: document.getElementById('quick-main').value.trim(),
+        store_id: document.getElementById('quick-store').value.trim(),
+        correct_comp_sku_id: document.getElementById('quick-correct').value.trim(),
+        wrong_comp_sku_id: document.getElementById('quick-wrong').value.trim(),
+        feedback_type: '错配',
+        note: document.getElementById('quick-note').value.trim(),
+        provider: document.getElementById('agent-provider').value,
+        model_name: getSelectedModelName(),
+        temperature: document.getElementById('agent-temp').value,
+        api_key: document.getElementById('agent-api-key').value.trim()
+    };
+    try {
+        const data = await api('/api/match-agent/quick-run', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+        document.getElementById('quick-message').textContent = `快速优化完成，样本ID：${data.case_id || ''}，竞店ID：${data.store_id || ''}`;
+        renderRun(data.run);
+        loadCases();
+        loadRuns();
+    } catch (e) { document.getElementById('quick-message').textContent = e.message; }
+}
+async function loadRuns() {
+    const data = await api(`/api/match-agent/runs?project_id=${encodeURIComponent(selectedProjectId)}`);
+    const first = (data.items || [])[0];
+    if (first) {
+        const detail = await api(`/api/match-agent/runs/${first.id}`);
+        renderRun(detail.run);
+    }
+}
+function badge(level) {
+    const cls = level === '可发布' ? 'ok' : (level === '观察' ? 'obs' : 'warn');
+    return `<span class="badge ${cls}">${esc(level)}</span>`;
+}
+function renderRun(run) {
+    currentRunId = run.id;
+    document.getElementById('run-actions').classList.remove('hidden');
+    document.getElementById('report-link').href = `/api/match-agent/runs/${run.id}/report`;
+    document.getElementById('apply-btn').disabled = !run.can_apply || run.status === 'applied' || run.status === 'applied_and_v2';
+    document.getElementById('apply-v2-btn').disabled = !run.can_apply || run.applied_to_v2 || !((run.rule_changes || run.suggestions || []).length);
+    const m = run.metrics || {};
+    const rr = run.rerun_summary || {};
+    document.getElementById('stats').innerHTML = [
+        ['样本数', m.total_cases || 0], ['触发样本', m.triggered_cases || 0], ['变化数量', rr.changed_count || m.changed_count || 0],
+        ['前均分', rr.before_avg_similarity || m.before_avg_similarity || 0], ['后均分', rr.after_avg_similarity || m.after_avg_similarity || 0], ['可应用', run.can_apply ? '是' : '否']
+    ].map(x => `<div class="stat"><div class="k">${x[0]}</div><div class="v">${x[1]}</div></div>`).join('');
+    renderSuggestions(run.rule_changes || run.suggestions || []);
+    renderDiagnostics(run.diagnostics || []);
+    renderDiffs(run.rerun_summary || {});
+    renderAInfo(run.diagnostics || []);
+    currentMatchChangeRows = run.match_change_details || [];
+    renderMatchChanges(run.match_change_details || []);
+}
+function renderSuggestions(rows) {
+    document.getElementById('tab-suggestions').innerHTML = table(['id','category3','reason','risk','metrics'], rows.map(r => ({
+        id:r.id, category3:r.category3, reason:r.reason, risk:r.risk, metrics:compactJson(r.metrics)
+    })));
+}
+function renderDiagnostics(rows) {
+    document.getElementById('tab-diagnostics').innerHTML = table(['主店SKU','竞店','正确SKU','错误SKU','三级类目','诊断类型','核心原因','触发','正确规则拦截','错误规则拦截','文本正确分','文本错误分','文本候选排名','规则拦截维度'], rows.map(r => ({
+        主店SKU:r.main_sku_id, 竞店:r.store_name, 正确SKU:r.correct_comp_sku_id, 当前SKU:r.current_comp_sku_id, 三级类目:r.category3,
+        错误SKU:r.current_comp_sku_id, 诊断类型:r.diagnosis_type || '', 核心原因:r.core_reason || r.reason, 触发:(r.trigger && r.trigger.triggered) ? '是' : '否',
+        正确规则拦截:(r.trigger && r.trigger.correct_rule_blocked) ? '是' : '否',
+        错误规则拦截:(r.trigger && r.trigger.wrong_rule_blocked) ? '是' : '否',
+        文本正确分:(r.vector_diff || {}).main_correct_score ?? '', 文本错误分:(r.vector_diff || {}).main_wrong_score ?? '',
+        文本候选排名:r.candidate_rank || '',
+        规则拦截维度:((r.trigger || {}).blocked_metrics || []).join(',')
+    })));
+}
+function renderDiffs(summary) { renderSimple('diffs', [summary || {}], ['before_match_count','after_match_count','changed_count','before_avg_similarity','after_avg_similarity']); }
+function renderMatchChanges(rows) {
+    const filterValue = document.getElementById('match-change-filter')?.value || '';
+    const sourceRows = rows || [];
+    const visibleRows = filterValue ? sourceRows.filter(r => String(r.changed || '').trim() === filterValue) : sourceRows;
+    const headers = ['主店商品','竞店','原匹配商品','原分数','原类型','新匹配商品','新分数','新类型','变化','变化原因'];
+    const mapped = visibleRows.map(r => ({
+        主店商品: productCell(r, 'main', 'main_sku_id'),
+        竞店: `<span class="store-cell" title="${esc(storeLabel(r.store_id))}">${esc(storeLabel(r.store_id))}</span>`,
+        原匹配商品: productCell(r, 'old_comp', 'old_comp_sku_id'),
+        原分数: esc(r.old_similarity),
+        原类型: esc(r.old_match_type),
+        新匹配商品: productCell(r, 'new_comp', 'new_comp_sku_id'),
+        新分数: esc(r.new_similarity),
+        新类型: esc(r.new_match_type),
+        变化: esc(r.changed),
+        变化原因: `<span class="reason-cell" title="${esc(r.change_reason || '')}">${esc(r.change_reason || '-')}</span>`
+    }));
+    const toolbar = `<div class="match-filter-bar"><label for="match-change-filter">变化</label><select id="match-change-filter" onchange="renderMatchChanges(currentMatchChangeRows)"><option value="">全部</option><option value="是"${filterValue === '是' ? ' selected' : ''}>是</option><option value="否"${filterValue === '否' ? ' selected' : ''}>否</option></select><span class="muted">${visibleRows.length}/${sourceRows.length}</span></div>`;
+    if (!mapped.length) {
+        document.getElementById('tab-vectors').innerHTML = toolbar + '<div class="muted">暂无数据</div>';
+        return;
+    }
+    document.getElementById('tab-vectors').innerHTML = toolbar + `<div style="overflow:auto;"><table class="match-change-table"><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>` +
+        mapped.map(r => `<tr>${headers.map(h => `<td>${r[h] || ''}</td>`).join('')}</tr>`).join('') +
+        '</tbody></table></div>';
+}
+function renderAInfo(rows) {
+    const out = [];
+    rows.forEach(r => (r.a_field_diff || []).forEach(x => out.push({main_sku_id:r.main_sku_id, correct_comp_sku_id:r.correct_comp_sku_id, wrong_comp_sku_id:r.current_comp_sku_id, ...x})));
+    renderSimple('afields', out, ['main_sku_id','correct_comp_sku_id','wrong_comp_sku_id','field','main','wrong','correct','main_vs_wrong','main_vs_correct','status']);
+}
+function renderSimple(id, rows, headers) { document.getElementById(`tab-${id}`).innerHTML = table(headers, rows); }
+function table(headers, rows, raw=false) {
+    if (!rows.length) return '<div class="muted">暂无数据</div>';
+    return `<div style="overflow:auto;"><table><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>` +
+        rows.map(r => `<tr>${headers.map(h => `<td>${raw && h === '发布等级' ? (r[h] || '') : esc(r[h] ?? r[h === '三级类目' ? '三类' : h] ?? '')}</td>`).join('')}</tr>`).join('') +
+        '</tbody></table></div>';
+}
+function showTab(id) {
+    ['suggestions','diagnostics','diffs','afields','vectors'].forEach(x => document.getElementById(`tab-${x}`).classList.toggle('hidden', x !== id));
+    document.querySelectorAll('.tab').forEach((b, i) => b.classList.toggle('active', ['suggestions','diagnostics','diffs','afields','vectors'][i] === id));
+}
+async function applyRun() {
+    if (!currentRunId) return;
+    if (!confirm('确认应用优化方案？将创建新模板、绑定当前项目，并写回本次重跑范围内的关联关系。')) return;
+    try {
+        const data = await api(`/api/match-agent/runs/${currentRunId}/apply`, {method:'POST'});
+        document.getElementById('run-message').textContent = `已应用优化方案，新规则模板 ID：${data.template_id}`;
+        loadRuns();
+    } catch (e) { document.getElementById('run-message').textContent = e.message; }
+}
+async function applyRunToV2() {
+    if (!currentRunId) return;
+    if (!confirm('确认一键实施到内置V2？这会修改全局生产规则V2，影响之后选择V2的项目。')) return;
+    try {
+        const data = await api(`/api/match-agent/runs/${currentRunId}/apply-to-v2`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({bind_project:document.getElementById('bind-project-v2').checked})});
+        const cats = (data.categories || []).join('、') || '-';
+        document.getElementById('run-message').textContent = `已实施到内置V2，模板ID：${data.template_id}，规则组数：${data.group_count}，影响三级类目：${cats}` + (data.bind_project ? '，当前项目已绑定V2' : '');
+        const detail = await api(`/api/match-agent/runs/${currentRunId}`);
+        renderRun(detail.run);
+        loadRuns();
+    } catch (e) { document.getElementById('run-message').textContent = e.message; }
+}
+async function loadProjects() {
+    const projects = await api('/api/projects');
+    const items = Array.isArray(projects) ? projects : (projects.items || []);
+    const sel = document.getElementById('project-select');
+    if (!items.length) {
+        selectedProjectId = "";
+        sel.innerHTML = '<option value="">暂无项目</option>';
+        return;
+    }
+    const active = items.find(p => p.is_active || p.is_active === 1) || items[0];
+    const keep = selectedProjectId && items.some(p => String(p.id) === String(selectedProjectId));
+    selectedProjectId = keep ? selectedProjectId : String(active.id);
+    sel.innerHTML = items.map(p => `<option value="${esc(p.id)}"${String(p.id) === String(selectedProjectId) ? ' selected' : ''}>${esc(p.name)}（ID ${esc(p.id)}）</option>`).join('');
+    await refreshProjectScopedData();
+}
+async function onProjectChange() {
+    selectedProjectId = document.getElementById('project-select').value;
+    currentRunId = null;
+    document.getElementById('run-actions').classList.add('hidden');
+    document.getElementById('stats').innerHTML = '';
+    ['suggestions','diagnostics','diffs','afields','vectors'].forEach(id => document.getElementById(`tab-${id}`).innerHTML = '');
+    await refreshProjectScopedData();
+}
+async function refreshProjectScopedData() {
+    await loadStores().catch(e => {
+        projectStores = [];
+        document.getElementById('case-store').innerHTML = `<option value="">${esc(e.message)}</option>`;
+    });
+    await loadCases().catch(e => document.getElementById('cases-body').innerHTML = `<tr><td colspan="8">${esc(e.message)}</td></tr>`);
+    await loadRuns().catch(() => {});
+}
+loadProjects().catch(() => {
+    document.getElementById('project-select').innerHTML = '<option value="">项目加载失败</option>';
+});
+syncModelOptions();
+</script>
+</body>
+</html>

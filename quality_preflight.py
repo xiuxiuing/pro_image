@@ -214,11 +214,12 @@ def build_quality_report(preflight: Optional[dict] = None, analysis_metrics: Opt
         vector_total += int(item.get("total") or 0)
         vector_success += int(item.get("vectors") or 0)
 
-    match_total = rule_rejected = vector_candidates = 0
+    match_total = rule_rejected = vector_candidates = weak_ranking_boosted = 0
     for src in ((analysis_metrics.get("matching") or {}).get("sources") or []):
         match_total += int(src.get("matched") or 0)
         rule_rejected += int(src.get("rule_rejected") or 0)
         vector_candidates += int(src.get("vector_candidates") or 0)
+        weak_ranking_boosted += int(src.get("weak_ranking_boosted") or 0)
 
     warnings = []
     for item in preflight.get("items") or []:
@@ -245,6 +246,7 @@ def build_quality_report(preflight: Optional[dict] = None, analysis_metrics: Opt
             "matched": match_total,
             "rule_rejected": rule_rejected,
             "vector_candidates": vector_candidates,
+            "weak_ranking_boosted": weak_ranking_boosted,
             "warning_count": len([w for w in warnings if w]),
         },
         "warnings": [w for w in warnings if w],

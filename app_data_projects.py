@@ -43,12 +43,19 @@ def handle_projects():
         if not valid_comp_files:
             return jsonify({"status": "error", "message": "At least one competitor store file is required"}), 400
 
+        raw_rt = (request.form.get("rule_template_id") or "").strip()
+        try:
+            rule_template_id = int(raw_rt) if raw_rt else None
+        except ValueError:
+            rule_template_id = None
+        if rule_template_id and not dm.get_rule_template(rule_template_id):
+            return jsonify({"status": "error", "message": "规则模板不存在"}), 400
+
         err = _validate_upload(main_file, "主店文件")
         if err: return jsonify({"status": "error", "message": err}), 400
         for f in valid_comp_files:
             err = _validate_upload(f, f"竞店文件 ({f.filename})")
             if err: return jsonify({"status": "error", "message": err}), 400
-
         import time, os, shutil
         # Temporary PID for directory naming
         temp_pid = int(time.time())
@@ -76,7 +83,7 @@ def handle_projects():
             comp_infos,
             status='creating',
             match_config_json="",
-            rule_template_id=None,
+            rule_template_id=rule_template_id,
         )
 
         # Rename temp directory to real PID
@@ -295,10 +302,19 @@ def analyze_project(pid):
         return jsonify({"status": "success", "project_id": pid, "ready": False})
 
     use_ai = request.form.get('use_ai') == 'on'
-    api_key = request.form.get('api_key')
+    api_key = (request.form.get('api_key') or "").strip()
     ai_model_name = (request.form.get('ai_model_name') or "").strip()
+    ai_provider = (request.form.get('ai_provider') or "").strip().lower()
+    if not ai_provider:
+        if ai_model_name.lower().startswith("deepseek") or api_key.lower().startswith("sk-"):
+            ai_provider = "deepseek"
+        else:
+            ai_provider = "gemini"
     kimi_api_key = (request.form.get('kimi_api_key') or "").strip()
     kimi_model_name = (request.form.get('kimi_model_name') or "").strip()
+    fallback_provider = (request.form.get('fallback_provider') or "").strip().lower()
+    if not fallback_provider:
+        fallback_provider = "kimi" if kimi_model_name.lower().startswith("kimi") else "deepseek"
 
     main_name = os.path.basename(main_path).replace('.xlsx','').replace('.xls','')
     comp_names = [os.path.basename(p).replace('.xlsx','').replace('.xls','') for p in comp_paths]
@@ -383,7 +399,8 @@ def analyze_project(pid):
                         _update_step(pid, _fi, "running", f"batch {batch}/{total}")
                     extract_info_ai2.process_file_ai(
                         fp, api_key, progress_cb=_ai_cb,
-                        model_name=ai_model_name, fallback_api_key=kimi_api_key or None, fallback_model=kimi_model_name or None
+                        model_name=ai_model_name, fallback_api_key=kimi_api_key or None, fallback_model=kimi_model_name or None,
+                        provider=ai_provider, fallback_provider=fallback_provider
                     )
                     _update_step(pid, fi, "done")
                     if fi + 1 < len(all_ai_paths) and _ai_gap > 0:

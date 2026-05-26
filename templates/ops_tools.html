@@ -273,32 +273,49 @@
                     <div class="inline-note">不区分主店/竞店；本步骤只负责批量提取 A* 字段。</div>
                 </div>
                 <div class="row">
+                    <input type="hidden" name="ai_provider" id="astar-ai-provider" value="">
+                    <input type="hidden" name="fallback_provider" id="astar-fallback-provider" value="deepseek">
                     <div class="field">
-                        <label>Gemini 模型</label>
-                        <select name="ai_model_name">
-                            <option value="" selected>默认</option>
-                            <option value="models/gemini-3.1-flash-lite-preview">models/gemini-3.1-flash-lite-preview</option>
-                            <option value="gemini-3.1-flash-lite-preview">gemini-3.1-flash-lite-preview</option>
-                            <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
+                        <label>模型名称</label>
+                        <select name="ai_model_name" id="astar-ai-model" onchange="syncAstarAiProviderOptions()">
+                            <optgroup label="Gemini">
+                                <option value="models/gemini-3.1-flash-lite-preview">models/gemini-3.1-flash-lite-preview</option>
+                                <option value="gemini-3.1-flash-lite-preview">gemini-3.1-flash-lite-preview</option>
+                                <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
+                            </optgroup>
+                            <optgroup label="DeepSeek">
+                                <option value="deepseek-chat" selected>deepseek-chat</option>
+                                <option value="deepseek-reasoner">deepseek-reasoner</option>
+                                <option value="deepseek-v4-flash">deepseek-v4-flash</option>
+                                <option value="deepseek-v4-pro">deepseek-v4-pro</option>
+                            </optgroup>
                         </select>
                     </div>
                     <div class="field">
-                        <label>Gemini API Key</label>
+                        <label>API Key</label>
                         <input type="password" name="api_key" required placeholder="可填多个 Key，用逗号 / 分号 / 空格分隔">
-                        <div class="inline-note">多个 Gemini Key 会按批次轮询使用，例如：key1,key2,key3</div>
+                        <div class="inline-note">多个 Key 会按批次轮询使用，例如：key1,key2,key3</div>
                     </div>
                 </div>
                 <div class="row">
                     <div class="field">
-                        <label>Kimi 模型（可选）</label>
-                        <select name="kimi_model_name">
+                        <label>备用模型（可选）</label>
+                        <select name="kimi_model_name" id="astar-fallback-model" onchange="syncAstarAiProviderOptions()">
                             <option value="" selected>默认</option>
-                            <option value="kimi-k2.5">kimi-k2.5</option>
-                            <option value="kimi-k2-turbo-preview">kimi-k2-turbo-preview</option>
+                            <optgroup label="DeepSeek">
+                                <option value="deepseek-chat">deepseek-chat</option>
+                                <option value="deepseek-reasoner">deepseek-reasoner</option>
+                                <option value="deepseek-v4-flash">deepseek-v4-flash</option>
+                                <option value="deepseek-v4-pro">deepseek-v4-pro</option>
+                            </optgroup>
+                            <optgroup label="Kimi(Moonshot)">
+                                <option value="kimi-k2.5">kimi-k2.5</option>
+                                <option value="kimi-k2-turbo-preview">kimi-k2-turbo-preview</option>
+                            </optgroup>
                         </select>
                     </div>
                     <div class="field">
-                        <label>Kimi API Key（可选）</label>
+                        <label>备用 API Key（可选）</label>
                         <input type="password" name="kimi_api_key" placeholder="留空则最终走本地规则兜底">
                     </div>
                 </div>
@@ -486,6 +503,20 @@
                 .replace(/</g, "&lt;")
                 .replace(/>/g, "&gt;")
                 .replace(/"/g, "&quot;");
+        }
+
+        function inferAstarProviderFromModel(modelName, defaultProvider = "gemini") {
+            const value = String(modelName || "").toLowerCase();
+            if (value.startsWith("deepseek")) return "deepseek";
+            if (value.startsWith("kimi")) return "kimi";
+            return defaultProvider;
+        }
+
+        function syncAstarAiProviderOptions() {
+            const model = document.getElementById("astar-ai-model")?.value || "";
+            const fallbackModel = document.getElementById("astar-fallback-model")?.value || "";
+            document.getElementById("astar-ai-provider").value = inferAstarProviderFromModel(model, "gemini");
+            document.getElementById("astar-fallback-provider").value = inferAstarProviderFromModel(fallbackModel, "deepseek");
         }
 
         function renderSteps(containerId, steps) {
@@ -860,6 +891,7 @@
 
         loadRuleTemplates();
         loadPrivateKeyStatus();
+        syncAstarAiProviderOptions();
         renderAstarChoices();
         updateOutputSourceUI();
     </script>

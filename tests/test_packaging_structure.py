@@ -3,7 +3,7 @@ import glob
 import unittest
 from pathlib import Path
 
-from packaging_core import BUSINESS_SOURCE_FILES, CORE_NUITKA_MODULES
+from packaging_core import BUSINESS_SOURCE_FILES, CORE_NUITKA_MODULES, DEFAULT_RULE_TEMPLATE_FILES
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,6 +37,7 @@ class PackagingStructureTests(unittest.TestCase):
             "app_data_projects.py",
             "app_data_rules.py",
             "app_data_grid.py",
+            "app_data_match_agent.py",
             "data_mgr.py",
             "data_mgr_base.py",
             "data_mgr_import.py",
@@ -45,6 +46,8 @@ class PackagingStructureTests(unittest.TestCase):
             "data_mgr_ops.py",
             "data_mgr_export.py",
             "data_mgr_rule_templates.py",
+            "data_mgr_match_agent.py",
+            "match_agent_report.py",
             "field_registry.py",
             "quality_preflight.py",
             "packaging_core.py",
@@ -77,6 +80,15 @@ class PackagingStructureTests(unittest.TestCase):
                     continue
                 self.assertNotIn(f"'{module}'", spec)
                 self.assertNotIn(f'"{module}"', spec)
+
+    def test_offline_package_includes_default_rule_templates(self):
+        expected = {
+            ("data", "default_rule_templates", "production_rule_v1.json"),
+            ("data", "default_rule_templates", "production_rule_v2.json"),
+        }
+        self.assertTrue(expected.issubset(set(DEFAULT_RULE_TEMPLATE_FILES)))
+        for parts in DEFAULT_RULE_TEMPLATE_FILES:
+            self.assertTrue((ROOT.joinpath(*parts)).is_file(), "/".join(parts))
 
     def test_ops_routes_stay_on_the_same_urls_after_split(self):
         expected = {
@@ -119,10 +131,21 @@ class PackagingStructureTests(unittest.TestCase):
             "/api/market-analysis",
             "/api/statistics/products",
             "/api/statistics/export",
+            "/api/match-agent/stores",
+            "/api/match-agent/cases",
+            "/api/match-agent/cases/import",
+            "/api/match-agent/quick-run",
+            "/api/match-agent/runs",
+            "/api/match-agent/runs/<int:run_id>",
+            "/api/match-agent/runs/<int:run_id>/report",
+            "/api/match-agent/runs/<int:run_id>/publish-rule-template",
+            "/api/match-agent/runs/<int:run_id>/apply",
+            "/api/match-agent/runs/<int:run_id>/apply-to-v2",
             "/api/store_products/<store_id>",
             "/api/unlinked_items",
             "/api/main_products",
             "/api/main_products/<path:main_sku_id>/links",
+            "/api/main_products/<path:main_sku_id>/match-explain/<store_id>",
             "/api/eliminate",
             "/api/toggle_handled",
             "/api/toggle_ref",
@@ -136,6 +159,7 @@ class PackagingStructureTests(unittest.TestCase):
             "/img/<path:filename>",
             "/api/export",
             "/api/export_new",
+            "/api/export_corrections",
         }
 
         self.assertEqual(expected, route_rules(["app_data.py", "app_data_*.py"]))

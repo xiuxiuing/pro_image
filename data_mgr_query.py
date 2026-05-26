@@ -4,7 +4,9 @@ import re
 import sys
 import threading
 import time
+from difflib import SequenceMatcher
 import pandas as pd
+import post_match_engine
 from data_mgr_query_unlinked import DataManagerUnlinkedQueryMixin
 from utils import clean_text_value
 
@@ -1589,3 +1591,191 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
             except (ValueError, IndexError):
                 item["__store_name"] = store_id or "竞店"
         return {"items": records, "total": len(records)}
+
+    def get_match_explanation(self, main_sku_id, store_id):
+        if not self.active_project_id or not main_sku_id or store_id is None:
+            return {"status": "error", "message": "缺少项目或商品参数"}
+        sid = str(store_id)
+        with self._db_lock:
+            conn = self._get_conn()
+            try:
+                main_df = pd.read_sql(
+                    "SELECT * FROM main_products WHERE project_id = ? AND skuId = ? LIMIT 1",
+                    conn,
+                    params=(self.active_project_id, str(main_sku_id)),
+                )
+                link_df = pd.read_sql(
+                    """
+                    SELECT * FROM product_links
+                    WHERE project_id = ? AND main_sku_id = ? AND store_id = ?
+                    LIMIT 1
+                    """,
+                    conn,
+                    params=(self.active_project_id, str(main_sku_id), sid),
+                )
+                comp_sku = ""
+                if not link_df.empty:
+                    comp_sku = str(link_df.iloc[0].get("comp_sku_id") or "")
+                comp_df = pd.read_sql(
+                    """
+                    SELECT * FROM comp_products
+                    WHERE project_id = ? AND store_id = ? AND skuId = ?
+                    LIMIT 1
+                    """,
+                    conn,
+                    params=(self.active_project_id, sid, comp_sku),
+                ) if comp_sku else pd.DataFrame()
+            finally:
+                conn.close()
+
+        if main_df.empty:
+            return {"status": "error", "message": "主店商品不存在"}
+        if link_df.empty or not comp_sku:
+            return {"status": "error", "message": "当前竞店未关联商品"}
+        if comp_df.empty:
+            return {"status": "error", "message": "竞店关联商品不存在"}
+
+        main = main_df.fillna("").iloc[0].to_dict()
+        comp = comp_df.fillna("").iloc[0].to_dict()
+        link = link_df.fillna("").iloc[0].to_dict()
+        template = self.get_post_match_template_for_project(self.active_project_id)
+        block = post_match_engine.rules_for_item(template, main)
+        group = post_match_engine.get_rule_group_for_item(template, main) or {}
+        explain = post_match_engine.explain_post_match(main, comp, block)
+        weak = post_match_engine.weak_ranking_score(main, comp, block)
+        try:
+            store_name = self.store_names[int(sid)]
+        except (ValueError, IndexError):
+            store_name = sid or "竞店"
+        return {
+            "status": "ok",
+            "project_id": self.active_project_id,
+            "store_id": sid,
+            "store_name": store_name,
+            "rule_group": {
+                "id": group.get("id", ""),
+                "name": group.get("name", "未命中规则组"),
+            },
+            "link": {
+                "main_sku_id": str(main_sku_id),
+                "comp_sku_id": comp_sku,
+                "similarity": link.get("similarity", ""),
+                "match_type": link.get("match_type", ""),
+            },
+            "main": main,
+            "candidate": comp,
+            "post_match": explain,
+            "weak_ranking": weak,
+            "other_candidates": self._build_match_explain_other_candidates(main, comp_sku, sid, block),
+        }
+
+    def _match_explain_text(self, item):
+        if not item:
+            return ""
+        parts = []
+        for col in ("商品名称", "规格名称", "美团类目一级", "美团类目二级", "美团类目三级", "核心品类", "售卖数量", "包装单位", "净含量"):
+            val = item.get(col, "")
+            if val is None:
+                continue
+            text = str(val).strip()
+            if text and text.lower() not in ("nan", "none", "-"):
+                parts.append(text)
+        return " ".join(parts)
+
+    def _match_explain_similarity(self, main, candidate):
+        a = self._match_explain_text(main)
+        b = self._match_explain_text(candidate)
+        if not a or not b:
+            return 0.0
+        return float(SequenceMatcher(None, a, b).ratio())
+
+    def _match_explain_failed_summary(self, explain):
+        metric_labels = {
+            "core_conflict": "高风险冲突",
+            "category_gate": "类目门槛",
+            "core": "核心品类",
+            "cat3": "三级类目",
+            "net": "净含量",
+            "sell": "售卖数量",
+            "pack": "包装单位",
+            "size": "尺寸",
+            "multidim_size": "多维尺寸",
+            "brand": "品牌",
+            "color": "颜色",
+            "model": "型号",
+            "product_form": "商品形态",
+            "key_attributes": "关键属性词",
+        }
+        failed = [
+            m for m in (explain or {}).get("metrics", [])
+            if m.get("enabled") and not m.get("passed")
+        ]
+        if failed:
+            return "；".join(
+                f"{metric_labels.get(m.get('key'), m.get('key', ''))}: {m.get('reason', '')}".strip(": ")
+                for m in failed
+                if m.get("reason")
+            )
+        if (explain or {}).get("accepted"):
+            return "后验规则放过；未成为当前结果通常是原始向量/文本候选排序低于已选商品，或未进入当次召回TopK"
+        return (explain or {}).get("reason", "")
+
+    def _build_match_explain_other_candidates(self, main, selected_comp_sku, store_id, block, limit=2):
+        if not self.active_project_id or not main or store_id is None:
+            return []
+        with self._db_lock:
+            conn = self._get_conn()
+            try:
+                comp_df = pd.read_sql(
+                    """
+                    SELECT * FROM comp_products
+                    WHERE project_id = ? AND store_id = ?
+                    """,
+                    conn,
+                    params=(self.active_project_id, str(store_id)),
+                )
+            finally:
+                conn.close()
+        if comp_df.empty:
+            return []
+
+        scored_candidates = []
+        selected = str(selected_comp_sku or "")
+        for cand in comp_df.fillna("").to_dict(orient="records"):
+            sku = str(cand.get("skuId") or "")
+            if not sku or sku == selected:
+                continue
+            text_score = self._match_explain_similarity(main, cand)
+            scored_candidates.append((text_score, cand))
+
+        scored_candidates.sort(key=lambda row: row[0], reverse=True)
+
+        rows = []
+        for text_score, cand in scored_candidates[:80]:
+            sku = str(cand.get("skuId") or "")
+            explain = post_match_engine.explain_post_match(main, cand, block)
+            weak = post_match_engine.weak_ranking_score(main, cand, block)
+            accepted = bool((explain or {}).get("accepted"))
+            failed_count = sum(
+                1 for m in (explain or {}).get("metrics", [])
+                if m.get("enabled") and not m.get("passed")
+            )
+            rows.append({
+                "skuId": sku,
+                "商品名称": cand.get("商品名称", ""),
+                "规格名称": cand.get("规格名称", ""),
+                "text_similarity": text_score,
+                "weak_bonus": float((weak or {}).get("bonus") or 0.0),
+                "post_match": explain,
+                "weak_ranking": weak,
+                "accepted": accepted,
+                "failed_count": failed_count,
+                "summary": self._match_explain_failed_summary(explain),
+            })
+
+        rows.sort(key=lambda r: (r["text_similarity"] + r["weak_bonus"], r["text_similarity"]), reverse=True)
+        rejected = [r for r in rows if not r["accepted"]][:limit]
+        accepted = [r for r in rows if r["accepted"]][:max(0, limit - len(rejected))]
+        result = rejected + accepted
+        result.sort(key=lambda r: (r["text_similarity"] + r["weak_bonus"], r["text_similarity"]), reverse=True)
+        return result[:limit]

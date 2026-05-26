@@ -11,6 +11,7 @@ from flask import Blueprint, request, jsonify
 from packaging_core import (
     BUSINESS_SOURCE_FILES,
     CORE_NUITKA_MODULES,
+    DEFAULT_RULE_TEMPLATE_FILES,
     REQUIRED_MODEL_FILES,
     RESOURCE_DIRS,
     cleanup_packaging_intermediates,
@@ -122,8 +123,8 @@ def _verify_nuitka_artifact(target, artifact):
     required = [
         os.path.join("templates"),
         os.path.join("static"),
-        os.path.join("data", "default_rule_templates", "production_rule_v1.json"),
     ]
+    required.extend(os.path.join(*parts) for parts in DEFAULT_RULE_TEMPLATE_FILES)
     required.extend(os.path.join("models", *parts) for parts in REQUIRED_MODEL_FILES)
     for rel in required:
         needle = rel.replace("\\", "/")

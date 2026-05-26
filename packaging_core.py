@@ -20,6 +20,7 @@ BUILD_DEPENDENCY_MODULES = (
 CORE_NUITKA_MODULES = (
     "main_030822",
     "post_match_engine",
+    "a_field_normalizer",
     "product_text_extract",
     "extract_info_ai2",
     "extract_info_rules",
@@ -38,6 +39,7 @@ BUSINESS_SOURCE_FILES = (
     "app_data_projects.py",
     "app_data_rules.py",
     "app_data_grid.py",
+    "app_data_match_agent.py",
     "data_mgr.py",
     "data_mgr_base.py",
     "data_mgr_import.py",
@@ -46,12 +48,19 @@ BUSINESS_SOURCE_FILES = (
     "data_mgr_ops.py",
     "data_mgr_export.py",
     "data_mgr_rule_templates.py",
+    "data_mgr_match_agent.py",
+    "match_agent_report.py",
     "field_registry.py",
     "quality_preflight.py",
     "packaging_core.py",
 )
 
 RESOURCE_DIRS = ("templates", "static", "data")
+
+DEFAULT_RULE_TEMPLATE_FILES = (
+    ("data", "default_rule_templates", "production_rule_v1.json"),
+    ("data", "default_rule_templates", "production_rule_v2.json"),
+)
 
 REQUIRED_MODEL_FILES = (
     ("dinov2-base", "preprocessor_config.json"),

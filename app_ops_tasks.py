@@ -410,11 +410,21 @@ def api_ops_astar_extract():
         return jsonify({"status": "error", "message": err}), 400
 
     api_key = (request.form.get("api_key") or "").strip()
-    if not api_key:
-        return jsonify({"status": "error", "message": "请填写 Gemini API Key"}), 400
     ai_model_name = (request.form.get("ai_model_name") or "").strip()
+    ai_provider = (request.form.get("ai_provider") or "").strip().lower()
+    if not ai_provider:
+        if ai_model_name.lower().startswith("deepseek") or api_key.lower().startswith("sk-"):
+            ai_provider = "deepseek"
+        else:
+            ai_provider = "gemini"
+    if not api_key:
+        provider_label = "DeepSeek" if ai_provider == "deepseek" else "Gemini"
+        return jsonify({"status": "error", "message": f"请填写 {provider_label} API Key"}), 400
     kimi_api_key = (request.form.get("kimi_api_key") or "").strip()
     kimi_model_name = (request.form.get("kimi_model_name") or "").strip()
+    fallback_provider = (request.form.get("fallback_provider") or "").strip().lower()
+    if not fallback_provider:
+        fallback_provider = "kimi" if kimi_model_name.lower().startswith("kimi") else "deepseek"
 
     labels = [_ops_file_label(f, f"文件{i+1}") for i, f in enumerate(source_files)]
     task = _ops_create_task("astar", [f"A* 提取 {label}" for label in labels], "A* 提取排队中")
@@ -449,6 +459,8 @@ def api_ops_astar_extract():
                     model_name=ai_model_name,
                     fallback_api_key=kimi_api_key or None,
                     fallback_model=kimi_model_name or None,
+                    provider=ai_provider,
+                    fallback_provider=fallback_provider,
                 )
                 _ops_update_step(task_id, idx, "done", "完成")
 

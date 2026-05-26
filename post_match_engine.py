@@ -30,6 +30,20 @@ import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from a_field_normalizer import (
+    ATTRIBUTE_SYNONYM_GROUPS,
+    CORE_CATEGORY_SYNONYM_GROUPS,
+    FORM_SYNONYM_GROUPS,
+    MODEL_SYNONYM_GROUPS,
+    BRAND_SYNONYM_GROUPS,
+    core_category_conflict_pair,
+    normalize_key_attributes,
+    normalize_core_category,
+    normalize_brand,
+    normalize_model,
+    normalize_product_form,
+    split_a_tokens,
+)
 from utils import clean_text_value
 
 # Excel / AI 列名
@@ -44,9 +58,27 @@ COL_SELL = "A售卖数量"
 COL_PACK = "A包装单位"
 COL_COLOR = "A颜色"
 COL_SIZE = "A尺寸"
+COL_MULTIDIM_SIZE = "A多维尺寸"
 COL_MODEL = "A型号"
+COL_BRAND = "A品牌"
+COL_CORE = "A核心品类"
+COL_FORM = "A商品形态"
+COL_ATTRS = "A关键属性词"
+
+_WEAK_RANKING_WEIGHTS = {
+    "brand": 0.02,
+    "model": 0.025,
+    "product_form": 0.015,
+    "key_attributes": 0.015,
+    "color": 0.005,
+}
+
+_SENSITIVE_GATE_L1 = {"成人用品", "医疗器械"}
 
 _METRIC_DEFAULTS: Dict[str, Dict[str, Any]] = {
+    "core_conflict": {"en": True},
+    "category_gate": {"en": False, "mode": "cat2_or_core", "syn": CORE_CATEGORY_SYNONYM_GROUPS},
+    "core": {"en": False, "syn": CORE_CATEGORY_SYNONYM_GROUPS},
     "cat3": {"en": True},
     "net": {"en": True, "max_rel": 0.2},
     "sell": {"en": True, "max_diff": 0.0},
@@ -55,16 +87,16 @@ _METRIC_DEFAULTS: Dict[str, Dict[str, Any]] = {
         "syn": [
             [
                 "瓶", "听", "支", "罐", "小瓶", "玻璃瓶", "PET瓶", "易拉罐", "铁罐", "易开罐",
-                "杯", "杯装", "塑杯", "纸杯", "件",
+                "杯", "碗", "杯装", "碗装", "塑杯", "纸杯", "件", "份",
             ],
             [
                 "袋", "包", "小袋", "小包", "真空袋", "自立袋", "盒", "纸盒", "礼盒", "小盒", "方盒",
-                "根", "条", "棒", "枚", "个", "只", "颗", "粒",
+                "根", "条", "棒", "枚", "个", "只", "颗", "粒", "团", "把", "本", "台", "床", "顶", "贴", "块", "卡", "对",
             ],
         ],
     },
     "color": {
-        "en": True,
+        "en": False,
         "syn": [
             [
                 "黑色", "纯黑", "炭黑", "曜石黑", "哑光黑", "墨黑", "酷黑", "深灰", "铁灰", "烟灰", "高级灰", "碳灰", "中灰",
@@ -81,7 +113,11 @@ _METRIC_DEFAULTS: Dict[str, Dict[str, Any]] = {
         ],
     },
     "size": {"en": True, "max_rel": 0.125},
-    "model": {"en": True, "syn": []},
+    "multidim_size": {"en": False, "max_rel": 0.125},
+    "product_form": {"en": False, "syn": FORM_SYNONYM_GROUPS},
+    "key_attributes": {"en": False, "syn": ATTRIBUTE_SYNONYM_GROUPS},
+    "model": {"en": False, "syn": MODEL_SYNONYM_GROUPS},
+    "brand": {"en": False, "syn": BRAND_SYNONYM_GROUPS},
 }
 
 
@@ -286,8 +322,63 @@ def _parse_size_mm(s: str) -> Optional[float]:
     return None
 
 
+def _unit_to_mm(value: float, unit: str) -> Optional[float]:
+    unit = (unit or "").lower()
+    if unit == "mm":
+        return value
+    if unit == "cm":
+        return value * 10.0
+    if unit == "m":
+        return value * 1000.0
+    return None
+
+
+def _parse_multidim_mm(s: str) -> Optional[Tuple[float, ...]]:
+    text = _norm_str(s).lower()
+    if not text:
+        return None
+    expr_pat = re.compile(
+        r"\d+(?:\.\d+)?\s*(?:mm|cm|m)?(?:\s*[x×*]\s*\d+(?:\.\d+)?\s*(?:mm|cm|m)?)+",
+        re.IGNORECASE,
+    )
+    part_pat = re.compile(r"(\d+(?:\.\d+)?)\s*(mm|cm|m)?", re.IGNORECASE)
+    for expr in expr_pat.findall(text):
+        parts = [(float(m.group(1)), (m.group(2) or "").lower()) for m in part_pat.finditer(expr)]
+        if len(parts) < 2:
+            continue
+        default_unit = ""
+        for _value, unit in reversed(parts):
+            if unit:
+                default_unit = unit
+                break
+        if not default_unit:
+            continue
+        dims: List[float] = []
+        ok = True
+        for value, unit in parts:
+            mm = _unit_to_mm(value, unit or default_unit)
+            if mm is None or mm <= 0:
+                ok = False
+                break
+            dims.append(mm)
+        if ok and len(dims) >= 2:
+            return tuple(sorted(dims))
+    return None
+
+
+def _multidim_values_match(q_dims: Tuple[float, ...], h_dims: Tuple[float, ...], max_rel: float) -> bool:
+    if len(q_dims) != len(h_dims):
+        return False
+    for q, h in zip(q_dims, h_dims):
+        if q <= 0 or h <= 0:
+            continue
+        if abs(h - q) / max(q, 1e-9) > max_rel + 1e-9:
+            return False
+    return True
+
+
 # 与 extract 中「X罐 / X瓶…」的售卖件数一致，避免取到 330ml 里的 330
-_SELL_UNITS = "罐|瓶|包|个|条|片|袋|盒|听|支|杯|件|枚|粒|颗"
+_SELL_UNITS = "罐|瓶|包|个|条|片|袋|盒|听|杯|碗|支|件|份|枚|粒|颗|只|把|本|台|床|顶|贴|块|卡|根|张|双|副|对|团"
 _SELL_NUM_BEFORE_UNIT = re.compile(
     rf"(\d+(?:\.\d+)?)\s*(?:{_SELL_UNITS})",
     re.IGNORECASE,
@@ -358,13 +449,141 @@ def _color_sig(s: str, smap: Dict[str, str]) -> str:
     return "|".join(toks)
 
 
+def _core_norm(s: str, custom_syn: Any = None) -> str:
+    raw = _norm_str(s)
+    if not raw:
+        return ""
+    custom_map = _synonym_map(custom_syn or [])
+    if custom_map:
+        mapped = _apply_syn(raw, custom_map)
+        if mapped != raw:
+            return mapped
+    return normalize_core_category(raw)
+
+
+def _core_compatible(a: str, b: str, custom_syn: Any = None) -> bool:
+    na = _core_norm(a, custom_syn)
+    nb = _core_norm(b, custom_syn)
+    return not (na and nb) or na == nb
+
+
+def _category_gate_pass(query_item: dict, hit_item: dict, config: Optional[Dict[str, Any]]) -> tuple[bool, str, Dict[str, Any]]:
+    """V2 category gate: same cat2 OR same normalized core category; missing data usually does not hard-block."""
+    config = config or {}
+    q1 = _norm_str(get_cat1(query_item))
+    h1 = _norm_str(get_cat1(hit_item))
+    q2 = _norm_str(get_cat2(query_item))
+    h2 = _norm_str(get_cat2(hit_item))
+    qc = _g(query_item, (COL_CORE,))
+    hc = _g(hit_item, (COL_CORE,))
+    qn = _core_norm(qc, config.get("syn"))
+    hn = _core_norm(hc, config.get("syn"))
+    values = {
+        "main_cat1": q1,
+        "candidate_cat1": h1,
+        "main_cat2": q2,
+        "candidate_cat2": h2,
+        "main_core": qc,
+        "candidate_core": hc,
+        "main_core_norm": qn,
+        "candidate_core_norm": hn,
+    }
+    if q2 and h2 and q2 == h2:
+        return True, "二级类目一致", values
+    if qn and hn and qn == hn:
+        return True, "二级类目不同但核心品类一致", values
+    if q1 and h1 and q1 != h1 and ({q1, h1} & _SENSITIVE_GATE_L1) and q2 and h2 and q2 != h2:
+        return False, "敏感一级类目跨类且二级类目不同", values
+    if q2 and h2 and q2 != h2 and qn and hn and qn != hn:
+        return False, "二级类目不同且核心品类不同", values
+    return True, "品类信息不足，避免误杀放过", values
+
+
+def _norm_with_custom_syn(value: str, syn: Any = None) -> str:
+    raw = _norm_str(value)
+    if not raw:
+        return ""
+    smap = _synonym_map(syn or [])
+    return _apply_syn(raw, smap) if smap else raw
+
+
+def weak_ranking_score(query_item: dict, hit_item: dict, block: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Weak A-field ranking signal. This never rejects candidates; it only gives a
+    small deterministic bonus used to order candidates that already came from
+    vector recall and still pass strong post-match rules.
+    """
+    block = block or {}
+    details: Dict[str, Any] = {}
+    total = 0.0
+
+    r = block.get("brand") or _METRIC_DEFAULTS.get("brand") or {}
+    qb = normalize_brand(_norm_with_custom_syn(_g(query_item, (COL_BRAND,)), r.get("syn")))
+    hb = normalize_brand(_norm_with_custom_syn(_g(hit_item, (COL_BRAND,)), r.get("syn")))
+    brand_hit = bool(qb and hb and qb == hb)
+    if brand_hit:
+        total += _WEAK_RANKING_WEIGHTS["brand"]
+    details["brand"] = {"main": qb, "candidate": hb, "matched": brand_hit, "bonus": _WEAK_RANKING_WEIGHTS["brand"] if brand_hit else 0.0}
+
+    r = block.get("model") or _METRIC_DEFAULTS.get("model") or {}
+    qm = normalize_model(_norm_with_custom_syn(_g(query_item, (COL_MODEL,)), r.get("syn")))
+    hm = normalize_model(_norm_with_custom_syn(_g(hit_item, (COL_MODEL,)), r.get("syn")))
+    model_hit = bool(qm and hm and qm == hm)
+    if model_hit:
+        total += _WEAK_RANKING_WEIGHTS["model"]
+    details["model"] = {"main": qm, "candidate": hm, "matched": model_hit, "bonus": _WEAK_RANKING_WEIGHTS["model"] if model_hit else 0.0}
+
+    r = block.get("product_form") or _METRIC_DEFAULTS.get("product_form") or {}
+    qf = normalize_product_form(_norm_with_custom_syn(_g(query_item, (COL_FORM,)), r.get("syn")))
+    hf = normalize_product_form(_norm_with_custom_syn(_g(hit_item, (COL_FORM,)), r.get("syn")))
+    form_hit = bool(qf and hf and qf == hf)
+    if form_hit:
+        total += _WEAK_RANKING_WEIGHTS["product_form"]
+    details["product_form"] = {"main": qf, "candidate": hf, "matched": form_hit, "bonus": _WEAK_RANKING_WEIGHTS["product_form"] if form_hit else 0.0}
+
+    r = block.get("key_attributes") or _METRIC_DEFAULTS.get("key_attributes") or {}
+    qa = [_norm_with_custom_syn(x, r.get("syn")) for x in normalize_key_attributes(_g(query_item, (COL_ATTRS,)))]
+    ha = [_norm_with_custom_syn(x, r.get("syn")) for x in normalize_key_attributes(_g(hit_item, (COL_ATTRS,)))]
+    qset = {x for x in qa if x}
+    hset = {x for x in ha if x}
+    aset = qset & hset
+    attr_ratio = (len(aset) / max(len(qset | hset), 1)) if qset and hset else 0.0
+    attr_bonus = _WEAK_RANKING_WEIGHTS["key_attributes"] * attr_ratio
+    total += attr_bonus
+    details["key_attributes"] = {
+        "main": sorted(qset),
+        "candidate": sorted(hset),
+        "matched": sorted(aset),
+        "overlap_ratio": attr_ratio,
+        "bonus": attr_bonus,
+    }
+
+    r = block.get("color") or _METRIC_DEFAULTS.get("color") or {}
+    smap = _synonym_map(r.get("syn") or [])
+    qc = {_apply_syn(x, smap) for x in split_a_tokens(_g(query_item, (COL_COLOR,))) if x}
+    hc = {_apply_syn(x, smap) for x in split_a_tokens(_g(hit_item, (COL_COLOR,))) if x}
+    cset = {x for x in (qc & hc) if x}
+    color_ratio = (len(cset) / max(len(qc | hc), 1)) if qc and hc else 0.0
+    color_bonus = _WEAK_RANKING_WEIGHTS["color"] * color_ratio
+    total += color_bonus
+    details["color"] = {
+        "main": sorted(qc),
+        "candidate": sorted(hc),
+        "matched": sorted(cset),
+        "overlap_ratio": color_ratio,
+        "bonus": color_bonus,
+    }
+
+    return {"bonus": round(total, 6), "details": details}
+
+
 def _normalize_metric(metric_key: str, raw: Any) -> Dict[str, Any]:
     base = dict(_METRIC_DEFAULTS.get(metric_key, {"en": False}))
     if not isinstance(raw, dict):
         return base
     out = dict(base)
     out["en"] = bool(raw.get("en", base.get("en", False)))
-    if metric_key in ("net", "size"):
+    if metric_key in ("net", "size", "multidim_size"):
         try:
             out["max_rel"] = float(raw.get("max_rel", base.get("max_rel", 0.0)) or 0.0)
         except Exception:
@@ -374,6 +593,13 @@ def _normalize_metric(metric_key: str, raw: Any) -> Dict[str, Any]:
             out["max_diff"] = float(raw.get("max_diff", base.get("max_diff", 0.0)) or 0.0)
         except Exception:
             out["max_diff"] = float(base.get("max_diff", 0.0))
+    elif metric_key in ("cat3", "core_conflict"):
+        pass
+    elif metric_key == "category_gate":
+        out["mode"] = "cat2_or_core"
+        out["syn"] = _normalize_syn_groups(raw.get("syn"))
+    elif metric_key in ("pack", "color", "brand", "model", "core", "product_form", "key_attributes"):
+        out["syn"] = _normalize_syn_groups(raw.get("syn"))
     else:
         out["syn"] = _normalize_syn_groups(raw.get("syn"))
     return out
@@ -489,7 +715,30 @@ def should_accept_post_match(query_item: dict, hit_item: dict, block: Optional[D
     if not block:
         return True
 
-    # 1. net
+    # 1. high-risk core conflict table (V2 guardrail)
+    r = block.get("core_conflict") or {}
+    if r.get("en", False):
+        qc = _g(query_item, (COL_CORE,))
+        hc = _g(hit_item, (COL_CORE,))
+        if core_category_conflict_pair(qc, hc):
+            return False
+
+    # 2. V2 category gate: cat2 OR core category. Missing data avoids hard-blocking.
+    r = block.get("category_gate") or {}
+    if r.get("en", False):
+        passed, _, _ = _category_gate_pass(query_item, hit_item, r)
+        if not passed:
+            return False
+
+    # 3. core category (legacy/advanced optional)
+    r = block.get("core") or {}
+    if r.get("en", False):
+        qc = _g(query_item, (COL_CORE,))
+        hc = _g(hit_item, (COL_CORE,))
+        if qc and hc and not _core_compatible(qc, hc, r.get("syn")):
+            return False
+
+    # 4. cat3
     r = block.get("cat3") or {}
     if r.get("en", False):
         q3 = _norm_str(get_cat3(query_item))
@@ -497,7 +746,7 @@ def should_accept_post_match(query_item: dict, hit_item: dict, block: Optional[D
         if q3 and h3 and q3 != h3:
             return False
 
-    # 2. net
+    # 5. net
     r = block.get("net") or {}
     if r.get("en", False):
         max_rel = float(r.get("max_rel", 0.2) or 0.0)
@@ -506,7 +755,7 @@ def should_accept_post_match(query_item: dict, hit_item: dict, block: Optional[D
         if qn and hn and not _net_values_match(qn, hn, max_rel, query_item, hit_item):
             return False
 
-    # 3. sell
+    # 6. sell
     r = block.get("sell") or {}
     if r.get("en", False):
         md = float(r.get("max_diff", 0.0) or 0.0)
@@ -525,7 +774,7 @@ def should_accept_post_match(query_item: dict, hit_item: dict, block: Optional[D
             if abs(hv - qv) > md + 1e-9:
                 return False
 
-    # 4. pack
+    # 7. pack
     r = block.get("pack") or {}
     if r.get("en", False):
         smap = _synonym_map(r.get("syn") or [])
@@ -534,7 +783,7 @@ def should_accept_post_match(query_item: dict, hit_item: dict, block: Optional[D
         if a and b and a != b:
             return False
 
-    # 5. color
+    # 8. color
     r = block.get("color") or {}
     if r.get("en", False):
         smap = _synonym_map(r.get("syn") or [])
@@ -543,7 +792,7 @@ def should_accept_post_match(query_item: dict, hit_item: dict, block: Optional[D
         if sa and sb and sa != sb:
             return False
 
-    # 6. size
+    # 9. size
     r = block.get("size") or {}
     if r.get("en", False):
         max_rel = float(r.get("max_rel", 0.125) or 0.0)
@@ -554,7 +803,16 @@ def should_accept_post_match(query_item: dict, hit_item: dict, block: Optional[D
             if rel > max_rel + 1e-9:
                 return False
 
-    # 7. model
+    # 10. multidim size
+    r = block.get("multidim_size") or {}
+    if r.get("en", False):
+        max_rel = float(r.get("max_rel", 0.125) or 0.0)
+        qs = _parse_multidim_mm(_g(query_item, (COL_MULTIDIM_SIZE,)))
+        hs = _parse_multidim_mm(_g(hit_item, (COL_MULTIDIM_SIZE,)))
+        if qs is not None and hs is not None and not _multidim_values_match(qs, hs, max_rel):
+            return False
+
+    # 11. model
     r = block.get("model") or {}
     if r.get("en", False):
         smap = _synonym_map(r.get("syn") or [])
@@ -564,6 +822,215 @@ def should_accept_post_match(query_item: dict, hit_item: dict, block: Optional[D
             return False
 
     return True
+
+
+def explain_post_match(query_item: dict, hit_item: dict, block: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Explain the same post-match decision made by should_accept_post_match().
+    The final accepted value must stay equivalent to should_accept_post_match().
+    """
+    metric_order = ("core_conflict", "category_gate", "core", "cat3", "net", "sell", "pack", "size", "multidim_size", "color", "model")
+    if not block:
+        return {
+            "accepted": True,
+            "reason": "未命中规则组，后验规则放过",
+            "metrics": [
+                {"key": k, "enabled": False, "passed": True, "reason": "维度未启用", "config": {}}
+                for k in metric_order
+            ],
+        }
+
+    metrics: List[Dict[str, Any]] = []
+
+    def add(key: str, enabled: bool, passed: bool, reason: str, config: Optional[Dict[str, Any]] = None, values: Optional[Dict[str, Any]] = None):
+        item = {
+            "key": key,
+            "enabled": bool(enabled),
+            "passed": bool(passed),
+            "reason": reason,
+            "config": config or {},
+        }
+        if values is not None:
+            item["values"] = values
+        metrics.append(item)
+
+    r = block.get("core_conflict") or {}
+    if r.get("en", False):
+        qc = _g(query_item, (COL_CORE,))
+        hc = _g(hit_item, (COL_CORE,))
+        pair = core_category_conflict_pair(qc, hc)
+        passed = pair is None
+        add(
+            "core_conflict",
+            True,
+            passed,
+            "未命中高风险冲突表" if passed else "命中高风险核心品类冲突表",
+            r,
+            {"main": qc, "candidate": hc, "conflict_pair": list(pair) if pair else []},
+        )
+    else:
+        add("core_conflict", False, True, "维度未启用", r)
+
+    r = block.get("category_gate") or {}
+    if r.get("en", False):
+        passed, reason, values = _category_gate_pass(query_item, hit_item, r)
+        add("category_gate", True, passed, reason, r, values)
+    else:
+        add("category_gate", False, True, "维度未启用", r)
+
+    r = block.get("core") or {}
+    if r.get("en", False):
+        qc = _g(query_item, (COL_CORE,))
+        hc = _g(hit_item, (COL_CORE,))
+        qn = _core_norm(qc, r.get("syn"))
+        hn = _core_norm(hc, r.get("syn"))
+        passed = _core_compatible(qc, hc, r.get("syn"))
+        add(
+            "core",
+            True,
+            passed,
+            "核心品类一致或缺失放过" if passed else "核心品类不同",
+            r,
+            {"main": qc, "candidate": hc, "main_norm": qn, "candidate_norm": hn},
+        )
+    else:
+        add("core", False, True, "维度未启用", r)
+
+    r = block.get("cat3") or {}
+    if r.get("en", False):
+        q3 = _norm_str(get_cat3(query_item))
+        h3 = _norm_str(get_cat3(hit_item))
+        passed = not (q3 and h3 and q3 != h3)
+        add("cat3", True, passed, "三级类目一致" if passed else "三级类目不同", r, {"main": q3, "candidate": h3})
+    else:
+        add("cat3", False, True, "维度未启用", r)
+
+    r = block.get("net") or {}
+    if r.get("en", False):
+        max_rel = float(r.get("max_rel", 0.2) or 0.0)
+        q_raw = _g(query_item, (COL_NET,))
+        h_raw = _g(hit_item, (COL_NET,))
+        qn = _parse_net(q_raw)
+        hn = _parse_net(h_raw)
+        passed = True
+        reason = "净含量缺失或无法解析，按现有规则放过"
+        if qn and hn:
+            passed = _net_values_match(qn, hn, max_rel, query_item, hit_item)
+            reason = "净含量在阈值内" if passed else "净含量超过阈值"
+        add("net", True, passed, reason, r, {"main": q_raw, "candidate": h_raw, "max_rel": max_rel})
+    else:
+        add("net", False, True, "维度未启用", r)
+
+    r = block.get("sell") or {}
+    if r.get("en", False):
+        md = float(r.get("max_diff", 0.0) or 0.0)
+        qs = _g(query_item, (COL_SELL,))
+        hs = _g(hit_item, (COL_SELL,))
+        qv = _parse_sell_num(qs)
+        hv = _parse_sell_num(hs)
+        has_q, has_h = bool(qs), bool(hs)
+        if not has_q and not has_h:
+            passed, reason = True, "两侧售卖数量均为空，按现有规则放过"
+        elif (has_q and not has_h) or (has_h and not has_q):
+            passed, reason = False, "仅一侧有售卖数量"
+        elif qv is None or hv is None:
+            passed, reason = False, "售卖数量无法解析"
+        else:
+            passed = abs(hv - qv) <= md + 1e-9
+            reason = "售卖数量差值在阈值内" if passed else "售卖数量差值超过阈值"
+        add("sell", True, passed, reason, r, {"main": qs, "candidate": hs, "main_num": qv, "candidate_num": hv, "max_diff": md})
+    else:
+        add("sell", False, True, "维度未启用", r)
+
+    r = block.get("pack") or {}
+    if r.get("en", False):
+        smap = _synonym_map(r.get("syn") or [])
+        qa = _g(query_item, (COL_PACK,))
+        hb = _g(hit_item, (COL_PACK,))
+        a = _apply_syn(qa, smap)
+        b = _apply_syn(hb, smap)
+        passed = not (a and b and a != b)
+        add("pack", True, passed, "包装单位一致或缺失放过" if passed else "包装单位不同", r, {"main": qa, "candidate": hb, "main_norm": a, "candidate_norm": b})
+    else:
+        add("pack", False, True, "维度未启用", r)
+
+    r = block.get("color") or {}
+    if r.get("en", False):
+        smap = _synonym_map(r.get("syn") or [])
+        qa = _g(query_item, (COL_COLOR,))
+        hb = _g(hit_item, (COL_COLOR,))
+        sa = _color_sig(qa, smap)
+        sb = _color_sig(hb, smap)
+        passed = not (sa and sb and sa != sb)
+        add("color", True, passed, "颜色一致或缺失放过" if passed else "颜色不同", r, {"main": qa, "candidate": hb, "main_norm": sa, "candidate_norm": sb})
+    else:
+        add("color", False, True, "维度未启用", r)
+
+    r = block.get("size") or {}
+    if r.get("en", False):
+        max_rel = float(r.get("max_rel", 0.125) or 0.0)
+        qs_raw = _g(query_item, (COL_SIZE,))
+        hs_raw = _g(hit_item, (COL_SIZE,))
+        qs = _parse_size_mm(qs_raw)
+        hs = _parse_size_mm(hs_raw)
+        if qs is not None and qs > 0 and hs is not None and hs > 0:
+            rel = abs(hs - qs) / max(qs, 1e-9)
+            passed = rel <= max_rel + 1e-9
+            reason = "尺寸差异在阈值内" if passed else "尺寸差异超过阈值"
+        else:
+            rel = None
+            passed, reason = True, "尺寸缺失或无法解析，按现有规则放过"
+        add("size", True, passed, reason, r, {"main": qs_raw, "candidate": hs_raw, "relative_diff": rel, "max_rel": max_rel})
+    else:
+        add("size", False, True, "维度未启用", r)
+
+    r = block.get("multidim_size") or {}
+    if r.get("en", False):
+        max_rel = float(r.get("max_rel", 0.125) or 0.0)
+        qs_raw = _g(query_item, (COL_MULTIDIM_SIZE,))
+        hs_raw = _g(hit_item, (COL_MULTIDIM_SIZE,))
+        qs = _parse_multidim_mm(qs_raw)
+        hs = _parse_multidim_mm(hs_raw)
+        if qs is not None and hs is not None:
+            rels = [
+                abs(h - q) / max(q, 1e-9)
+                for q, h in zip(qs, hs)
+            ] if len(qs) == len(hs) else None
+            passed = _multidim_values_match(qs, hs, max_rel)
+            reason = "多维尺寸差异在阈值内" if passed else "多维尺寸差异超过阈值"
+        else:
+            rels = None
+            passed, reason = True, "多维尺寸缺失或无法解析，按现有规则放过"
+        add(
+            "multidim_size",
+            True,
+            passed,
+            reason,
+            r,
+            {"main": qs_raw, "candidate": hs_raw, "main_dims": qs, "candidate_dims": hs, "relative_diffs": rels, "max_rel": max_rel},
+        )
+    else:
+        add("multidim_size", False, True, "维度未启用", r)
+
+    r = block.get("model") or {}
+    if r.get("en", False):
+        smap = _synonym_map(r.get("syn") or [])
+        qa = _g(query_item, (COL_MODEL,))
+        hb = _g(hit_item, (COL_MODEL,))
+        a = _apply_syn(qa, smap)
+        b = _apply_syn(hb, smap)
+        passed = not (a and b and a != b)
+        add("model", True, passed, "型号一致或缺失放过" if passed else "型号不同", r, {"main": qa, "candidate": hb, "main_norm": a, "candidate_norm": b})
+    else:
+        add("model", False, True, "维度未启用", r)
+
+    accepted = all((not m.get("enabled")) or bool(m.get("passed")) for m in metrics)
+    failed = [m for m in metrics if m.get("enabled") and not m.get("passed")]
+    return {
+        "accepted": accepted,
+        "reason": "后验规则放过" if accepted else "；".join(m.get("reason", "") for m in failed if m.get("reason")),
+        "metrics": metrics,
+    }
 
 
 def summarize_template(template: Dict[str, Any]) -> Dict[str, int]:

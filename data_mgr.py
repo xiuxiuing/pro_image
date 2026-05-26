@@ -4,8 +4,17 @@ from data_mgr_query import DataManagerQueryMixin
 from data_mgr_ops import DataManagerOpsMixin
 from data_mgr_export import DataManagerExportMixin
 from data_mgr_rule_templates import DataManagerRuleTemplateMixin
+from data_mgr_match_agent import DataManagerMatchAgentMixin
 
-class DataManager(DataManagerBase, DataManagerImportMixin, DataManagerQueryMixin, DataManagerOpsMixin, DataManagerExportMixin, DataManagerRuleTemplateMixin):
+class DataManager(
+    DataManagerBase,
+    DataManagerImportMixin,
+    DataManagerQueryMixin,
+    DataManagerOpsMixin,
+    DataManagerExportMixin,
+    DataManagerRuleTemplateMixin,
+    DataManagerMatchAgentMixin,
+):
     """
     DataManager handles the project lifecycle, SQLite database operations, 
     Excel data imports/exports, and state management for the ProImage AI application.

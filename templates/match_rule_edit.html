@@ -310,6 +310,43 @@
             overflow: hidden;
             margin-bottom: 14px;
         }
+        .metric-section {
+            margin: 0 0 18px;
+        }
+        .metric-section-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 4px 2px 10px;
+        }
+        .metric-section-title {
+            font-size: 14px;
+            font-weight: 900;
+            color: #0f172a;
+        }
+        .metric-section-note {
+            margin-top: 4px;
+            font-size: 12px;
+            color: #64748b;
+            line-height: 1.5;
+        }
+        .metric-badge {
+            display: inline-flex;
+            align-items: center;
+            min-height: 22px;
+            border-radius: 999px;
+            padding: 2px 8px;
+            font-size: 11px;
+            font-weight: 800;
+            background: #eef2ff;
+            color: #3730a3;
+            white-space: nowrap;
+        }
+        .metric-badge.weak {
+            background: #f1f5f9;
+            color: #475569;
+        }
         .metric-head {
             display: flex;
             align-items: center;
@@ -320,6 +357,12 @@
         .metric-name {
             font-size: 15px;
             font-weight: 800;
+        }
+        .metric-name-sub {
+            margin-top: 3px;
+            color: #94a3b8;
+            font-size: 11px;
+            font-weight: 700;
         }
         .metric-help {
             color: var(--muted);
@@ -391,11 +434,46 @@
             color: #64748b;
         }
         .syn-list { display: flex; flex-direction: column; gap: 8px; }
+        .syn-list-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 10px;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            background: #f8fafc;
+        }
+        .syn-list-summary {
+            min-width: 0;
+            color: #475569;
+            font-size: 12px;
+            line-height: 1.45;
+        }
+        .syn-list-rows {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            overflow: hidden;
+            transition: max-height .18s ease;
+        }
+        .syn-list-rows.is-collapsed {
+            max-height: 188px;
+        }
+        .syn-list-rows.is-expanded {
+            max-height: none;
+        }
         .syn-row {
             display: grid;
             grid-template-columns: 1fr auto;
             gap: 8px;
-            align-items: center;
+            align-items: start;
+        }
+        .syn-row textarea {
+            min-height: 42px;
+            max-height: 120px;
+            resize: vertical;
+            line-height: 1.45;
         }
         .syn-empty {
             color: #94a3b8;
@@ -572,15 +650,50 @@
 
     <script>
         const TEMPLATE_ID = {{ template_id|int }};
-        const METRICS = [
-            { key: 'cat3', title: '三级类目一致', type: 'bool', help: '开启后，竞店候选商品的三级类目必须与主店商品三级类目一致；关闭后允许跨三级类目候选继续由其他维度判断。', note: '建议默认开启，只有明确需要放宽跨三级类目匹配时再关闭。' },
-            { key: 'net', title: '单件净含量', type: 'rel', help: '按 AI 提取的净含量比较；仅在双方都能解析且单位一致时才计算相对偏差。', defaultValue: 20, step: 0.1, note: '填写相对主店可接受的偏差百分比，例如 20 表示约 ±20%。' },
-            { key: 'sell', title: '售卖数量', type: 'diff', help: '从售卖数量文本中取第一个数字比较；差值超过阈值则拦截。', defaultValue: 0, step: 0.1, note: '为 0 时，数量须完全一致。' },
-            { key: 'pack', title: '包装单位', type: 'syn', help: '例如“听 / 罐”“瓶 / 支”可配置为同义词组。', note: '仅在双方都有值时比较。' },
-            { key: 'color', title: '颜色', type: 'syn', help: '多色会先拆分再排序比较；同义词可消除“乳白≈白”这类写法差异。', note: '建议只在该品类颜色信息稳定时启用。' },
-            { key: 'size', title: '尺寸', type: 'rel', help: '从尺寸文本里提取 mm / cm / m 比较；只在双方都能解析时计算相对偏差。', defaultValue: 12.5, step: 0.1, note: '填写相对主店尺寸可接受的偏差百分比，例如 12.5 表示约 ±12.5%。' },
-            { key: 'model', title: '型号', type: 'syn', help: '按型号文本比较，可用同义词组消除型号别名或缩写差异。', note: '适合型号特征明确的商品。' },
+        const METRIC_GROUPS = [
+            {
+                id: 'identity',
+                title: '品类判断',
+                badge: '强约束',
+                note: 'V2 按规则组分层启用品类门禁：二级类目一致或 A核心品类一致即可进入规格判断；高风险冲突表优先拦截。',
+                metrics: [
+                    { key: 'core_conflict', title: '高风险冲突表', type: 'bool', help: '双方 A核心品类 都有值且归一后命中内置冲突对时拦截。', note: '默认开启；只覆盖少量高置信冲突，不替代完整类目规则。' },
+                    { key: 'category_gate', title: '品类门禁', type: 'category_gate', help: '固定模式：二级类目一致 OR A核心品类一致/同义即通过；普通类目信息不足时不硬拦截。', note: '成人用品、医疗器械等敏感一级类目跨类且二级不同会拦截；按规则组启用，不做全量默认开启。' },
+                    { key: 'core', title: 'A核心品类同义组', type: 'syn', help: '兼容旧模板的 A核心品类硬拦截配置；V2 默认关闭。', note: '建议只维护同义归一，不建议作为独立硬拦截。' },
+                    { key: 'cat3', title: '三级类目一致（兼容旧模板）', type: 'bool', help: '开启后，竞店候选商品的三级类目必须与主店商品三级类目一致。', note: 'V2 默认关闭；仅作为高级兼容项。' },
+                ],
+            },
+            {
+                id: 'strong',
+                title: '强约束规格',
+                badge: '强约束',
+                note: '用于净含量、售卖规格和尺寸一致性判断。缺失或无法解析时沿用现有策略尽量放过，避免脏数据误杀。',
+                metrics: [
+                    { key: 'net', title: 'A单件净含量', type: 'rel', help: '按 A单件净含量比较；仅在双方都能解析时计算相对偏差。', defaultValue: 20, step: 0.1, note: '填写相对主店可接受的偏差百分比，例如 20 表示约 ±20%。' },
+                    { key: 'sell_spec', title: 'A售卖规格', type: 'sell_pack', help: '页面合并配置 A售卖数量 + A包装单位；保存时仍分别写入 sell 与 pack。', defaultValue: 0, step: 0.1, note: '数量和单位绑定判断；片装/条装消耗品建议使用总片数/总条数。' },
+                    { key: 'size', title: 'A尺寸', type: 'rel', help: '一维尺寸、长度、尺码等；从 mm / cm / m 中解析可比较数值。', defaultValue: 12.5, step: 0.1, note: '填写相对主店尺寸可接受的偏差百分比，例如 12.5 表示约 ±12.5%。' },
+                    { key: 'multidim_size', title: 'A多维尺寸', type: 'rel', help: '长宽高、宽长等多轴尺寸；支持 17x25x8cm、50mmx20m 这类写法。', defaultValue: 12.5, step: 0.1, note: '默认关闭；适合礼袋、收纳袋、盆桶、床品等尺寸强相关类目。' },
+                ],
+            },
+            {
+                id: 'weak',
+                title: '弱排序字段',
+                badge: '只排序',
+                weak: true,
+                note: '这些字段只沉淀归一/同义配置，不作为硬拦截；保存后 en 固定为 false。品牌对标品排序加分更明显，但不同品牌不拦截。',
+                metrics: [
+                    { key: 'brand', title: 'A品牌', type: 'weak_syn', help: '品牌/商标归一；只作为弱排序加分，尤其适合标品。', note: '不同品牌不拦截；品牌随机、店铺名、系列名和营销词不应作为品牌。' },
+                    { key: 'model', title: 'A型号', type: 'weak_syn', help: '型号/货号归一；不用于硬过滤。', note: '旧模板如启用型号硬过滤，重新保存为 V2 页面后会降级为弱字段。' },
+                    { key: 'product_form', title: 'A商品形态', type: 'weak_syn', help: '液体、片状、卷装、套装等形态归一；不用于硬过滤。', note: '用于后续排序加分和解释。' },
+                    { key: 'key_attributes', title: 'A关键属性词', type: 'weak_syn', help: '一次性、超薄、无糖、长筒等属性归一；不用于硬过滤。', note: '只加分不拦截，避免因为弱属性提取不准导致漏配。' },
+                    { key: 'color', title: 'A颜色', type: 'weak_syn', help: '颜色归一；不用于硬过滤。', note: '颜色对可比价影响弱，默认只作为排序信号。' },
+                ],
+            },
         ];
+        const METRICS = METRIC_GROUPS.flatMap((group) => group.metrics);
+        const STRONG_METRIC_KEYS = ['core_conflict', 'category_gate', 'core', 'cat3', 'net', 'sell', 'pack', 'size', 'multidim_size'];
+        const WEAK_METRIC_KEYS = ['brand', 'model', 'product_form', 'key_attributes', 'color'];
+        const SYN_COLLAPSE_LIMIT = 3;
 
         let categoryTree = { items: [], l1_count: 0, l3_count: 0 };
         let categoryPathMap = new Map();
@@ -590,6 +703,7 @@
         let editingIndex = null;
         let expandedL1 = new Set();
         let expandedL2 = new Set();
+        let expandedSynMetrics = new Set();
 
         function pathKey(path) {
             return [path.l1 || '', path.l2 || '', path.l3 || ''].join('||');
@@ -686,13 +800,27 @@
             }
         }
 
-        function metricEnabledCount(metrics) {
-            return METRICS.reduce((sum, metric) => sum + ((metrics && metrics[metric.key] && metrics[metric.key].en) ? 1 : 0), 0);
+        function strongMetricEnabledCount(metrics) {
+            return STRONG_METRIC_KEYS.reduce((sum, key) => {
+                return sum + ((metrics && metrics[key] && metrics[key].en) ? 1 : 0);
+            }, 0);
+        }
+
+        function weakMetricConfiguredCount(metrics) {
+            return WEAK_METRIC_KEYS.reduce((sum, key) => {
+                const cfg = (metrics || {})[key] || {};
+                const groups = Array.isArray(cfg.syn) ? cfg.syn : [];
+                const hasSyn = groups.some((group) => Array.isArray(group) && group.some((v) => String(v || '').trim()));
+                return sum + (hasSyn ? 1 : 0);
+            }, 0);
         }
 
         function defaultMetrics() {
             return {
-                cat3: { en: true },
+                core: { en: false, syn: [] },
+                core_conflict: { en: true },
+                category_gate: { en: false, mode: 'cat2_or_core', syn: [] },
+                cat3: { en: false },
                 net: { en: true, max_rel: 0.2 },
                 sell: { en: true, max_diff: 0 },
                 pack: {
@@ -701,16 +829,16 @@
                         // 组1：瓶/听/罐/杯等；组2：袋/包/盒及计数单位等（与 post_match_engine._METRIC_DEFAULTS 保持一致）
                         [
                             '瓶', '听', '支', '罐', '小瓶', '玻璃瓶', 'PET瓶', '易拉罐', '铁罐', '易开罐',
-                            '杯', '杯装', '塑杯', '纸杯', '件',
+                            '杯', '碗', '杯装', '碗装', '塑杯', '纸杯', '件', '份',
                         ],
                         [
                             '袋', '包', '小袋', '小包', '真空袋', '自立袋', '盒', '纸盒', '礼盒', '小盒', '方盒',
-                            '根', '条', '棒', '枚', '个', '只', '颗', '粒',
+                            '根', '条', '棒', '枚', '个', '只', '颗', '粒', '团', '把', '本', '台', '床', '顶', '贴', '块', '卡', '对',
                         ],
                     ],
                 },
                 color: {
-                    en: true,
+                    en: false,
                     syn: [
                         [
                             '黑色', '纯黑', '炭黑', '曜石黑', '哑光黑', '墨黑', '酷黑', '深灰', '铁灰', '烟灰', '高级灰', '碳灰', '中灰',
@@ -727,7 +855,11 @@
                     ],
                 },
                 size: { en: true, max_rel: 0.125 },
-                model: { en: true, syn: [] },
+                multidim_size: { en: false, max_rel: 0.125 },
+                brand: { en: false, syn: [] },
+                model: { en: false, syn: [] },
+                product_form: { en: false, syn: [] },
+                key_attributes: { en: false, syn: [] },
             };
         }
 
@@ -747,8 +879,9 @@
             const root = document.querySelector(`.metric-card[data-metric="${metricKey}"]`);
             if (!root) return;
             const checkbox = root.querySelector('.metric-en');
-            checkbox.checked = !!config.en;
-            root.querySelector('.metric-body').style.opacity = config.en ? '1' : '.55';
+            const enabled = !!config.en;
+            if (checkbox) checkbox.checked = enabled;
+            root.querySelector('.metric-body').style.opacity = enabled || root.dataset.weak === 'true' ? '1' : '.55';
             if (root.querySelector('.metric-rel')) {
                 const mr = config.max_rel;
                 root.querySelector('.metric-rel').value = maxRelRatioToPercentInput(mr);
@@ -760,58 +893,91 @@
         function buildMetricCards() {
             const root = document.getElementById('metrics-root');
             root.innerHTML = '';
-            METRICS.forEach((metric, idx) => {
-                const card = document.createElement('div');
-                card.className = 'metric-card';
-                card.dataset.metric = metric.key;
-                let body = '';
-                if (metric.type === 'bool') {
-                    body = `
-                        <div class="metric-inline-note">${metric.note}</div>`;
-                } else if (metric.type === 'rel') {
-                    body = `
-                        <div class="metric-row">
-                            <div>
-                                <label class="label">相对容差（%）</label>
-                                <div class="metric-pct-input">
-                                    <input class="metric-rel" type="number" min="0" max="1000" step="${metric.step}" value="${metric.defaultValue}">
-                                    <span class="metric-pct-suffix">%</span>
-                                </div>
-                                <div class="metric-inline-note">${metric.note}</div>
-                            </div>
-                        </div>`;
-                } else if (metric.type === 'diff') {
-                    body = `
-                        <div class="metric-row">
-                            <div>
-                                <label class="label">最大差值 max_diff</label>
-                                <input class="metric-diff" type="number" step="${metric.step}" value="${metric.defaultValue}">
-                                <div class="metric-inline-note">${metric.note}</div>
-                            </div>
-                        </div>`;
-                } else {
-                    body = `
-                        <div class="field" style="margin-bottom:10px;">
-                            <label class="label">同义词组</label>
-                            <div class="syn-list"></div>
-                            <button type="button" class="btn-mini btn-outline add-syn-group" style="padding:8px 12px; margin-top:8px;">+ 新增同义组</button>
-                            <div class="metric-inline-note">${metric.note}</div>
-                        </div>`;
-                }
-                card.innerHTML = `
-                    <div class="metric-head">
+            METRIC_GROUPS.forEach((group) => {
+                const section = document.createElement('section');
+                section.className = 'metric-section';
+                section.innerHTML = `
+                    <div class="metric-section-head">
                         <div>
-                            <div class="metric-name">${String(idx + 1).padStart(2, '0')} ${metric.title}</div>
+                            <div class="metric-section-title">${group.title}</div>
+                            <div class="metric-section-note">${group.note}</div>
                         </div>
-                        <label class="switch">
+                        <span class="metric-badge ${group.weak ? 'weak' : ''}">${group.badge}</span>
+                    </div>
+                `;
+                group.metrics.forEach((metric) => {
+                    const card = document.createElement('div');
+                    card.className = 'metric-card';
+                    card.dataset.metric = metric.key;
+                    card.dataset.weak = metric.type === 'weak_syn' ? 'true' : 'false';
+                    let body = '';
+                    if (metric.type === 'bool') {
+                        body = `<div class="metric-inline-note">${metric.note}</div>`;
+                    } else if (metric.type === 'rel') {
+                        body = `
+                            <div class="metric-row">
+                                <div>
+                                    <label class="label">相对容差（%）</label>
+                                    <div class="metric-pct-input">
+                                        <input class="metric-rel" type="number" min="0" max="1000" step="${metric.step}" value="${metric.defaultValue}">
+                                        <span class="metric-pct-suffix">%</span>
+                                    </div>
+                                    <div class="metric-inline-note">${metric.note}</div>
+                                </div>
+                            </div>`;
+                    } else if (metric.type === 'sell_pack') {
+                        body = `
+                            <div class="metric-row">
+                                <div>
+                                    <label class="label">售卖数量最大差值</label>
+                                    <input class="metric-diff" type="number" step="${metric.step}" value="${metric.defaultValue}">
+                                    <div class="metric-inline-note">${metric.note}</div>
+                                </div>
+                                <div>
+                                    <label class="label">包装单位同义词组</label>
+                                    <div class="syn-list"></div>
+                                    <button type="button" class="btn-mini btn-outline add-syn-group" style="padding:8px 12px; margin-top:8px;">+ 新增同义组</button>
+                                </div>
+                            </div>`;
+                    } else if (metric.type === 'category_gate') {
+                        body = `
+                            <div class="field" style="margin-bottom:10px;">
+                                <label class="label">门禁模式</label>
+                                <div class="metric-inline-note">二级类目一致 OR A核心品类一致/同义</div>
+                                <label class="label" style="margin-top:12px;">A核心品类同义词组</label>
+                                <div class="syn-list"></div>
+                                <button type="button" class="btn-mini btn-outline add-syn-group" style="padding:8px 12px; margin-top:8px;">+ 新增同义组</button>
+                                <div class="metric-inline-note">${metric.note}</div>
+                            </div>`;
+                    } else {
+                        body = `
+                            <div class="field" style="margin-bottom:10px;">
+                                <label class="label">同义词组</label>
+                                <div class="syn-list"></div>
+                                <button type="button" class="btn-mini btn-outline add-syn-group" style="padding:8px 12px; margin-top:8px;">+ 新增同义组</button>
+                                <div class="metric-inline-note">${metric.note}</div>
+                            </div>`;
+                    }
+                    const switchHtml = metric.type === 'weak_syn'
+                        ? '<span class="metric-badge weak">弱排序</span>'
+                        : `<label class="switch">
                             <input type="checkbox" class="metric-en" checked>
                             <span class="slider"></span>
-                        </label>
-                    </div>
-                    <div class="metric-help">${metric.help}</div>
-                    <div class="metric-body">${body}</div>
-                `;
-                root.appendChild(card);
+                        </label>`;
+                    card.innerHTML = `
+                        <div class="metric-head">
+                            <div>
+                                <div class="metric-name">${metric.title}</div>
+                                <div class="metric-name-sub">${metric.type === 'sell_pack' ? '保存为 sell + pack' : metric.key}</div>
+                            </div>
+                            ${switchHtml}
+                        </div>
+                        <div class="metric-help">${metric.help}</div>
+                        <div class="metric-body">${body}</div>
+                    `;
+                    section.appendChild(card);
+                });
+                root.appendChild(section);
             });
 
             document.querySelectorAll('.metric-en').forEach((el) => {
@@ -825,6 +991,7 @@
                     const metricKey = btn.closest('.metric-card').dataset.metric;
                     const groups = readSynGroups(metricKey);
                     groups.push([]);
+                    expandedSynMetrics.add(metricKey);
                     renderSynRows(metricKey, groups);
                 });
             });
@@ -834,50 +1001,84 @@
             const root = document.querySelector(`.metric-card[data-metric="${metricKey}"] .syn-list`);
             if (!root) return [];
             const rows = [];
-            root.querySelectorAll('.syn-row input').forEach((input) => {
+            root.querySelectorAll('.syn-row textarea, .syn-row input').forEach((input) => {
                 const vals = input.value.split(/[,，]/).map((v) => v.trim()).filter(Boolean);
                 if (vals.length) rows.push(uniqueList(vals));
             });
             return rows;
         }
 
+        function synGroupPreview(group) {
+            const vals = uniqueList(group || []);
+            if (!vals.length) return '空同义组';
+            return vals.slice(0, 8).join('、') + (vals.length > 8 ? ` 等 ${vals.length} 个` : '');
+        }
+
         function renderSynRows(metricKey, groups) {
             const root = document.querySelector(`.metric-card[data-metric="${metricKey}"] .syn-list`);
             if (!root) return;
+            const cleanGroups = (groups || []).map((group) => uniqueList(group || []));
+            const isLong = cleanGroups.length > SYN_COLLAPSE_LIMIT;
+            const expanded = !isLong || expandedSynMetrics.has(metricKey);
             root.innerHTML = '';
-            if (!groups.length) {
+            if (!cleanGroups.length) {
                 const empty = document.createElement('div');
                 empty.className = 'syn-empty';
                 empty.textContent = '暂无同义词组。';
                 root.appendChild(empty);
                 return;
             }
-            groups.forEach((group, idx) => {
+            if (isLong) {
+                const head = document.createElement('div');
+                head.className = 'syn-list-head';
+                head.innerHTML = `
+                    <div class="syn-list-summary">${cleanGroups.length} 组同义词，已显示${expanded ? '全部' : `前 ${SYN_COLLAPSE_LIMIT} 组`}。${expanded ? '' : '展开可查看完整配置。'}</div>
+                    <button type="button" class="btn-mini btn-outline" style="padding:6px 10px; white-space:nowrap;">${expanded ? '收起' : '展开全部'}</button>
+                `;
+                head.querySelector('button').addEventListener('click', () => {
+                    if (expandedSynMetrics.has(metricKey)) expandedSynMetrics.delete(metricKey);
+                    else expandedSynMetrics.add(metricKey);
+                    renderSynRows(metricKey, readSynGroups(metricKey));
+                });
+                root.appendChild(head);
+            }
+            const rowsWrap = document.createElement('div');
+            rowsWrap.className = `syn-list-rows ${expanded ? 'is-expanded' : 'is-collapsed'}`;
+            cleanGroups.forEach((group, idx) => {
                 const row = document.createElement('div');
                 row.className = 'syn-row';
                 row.innerHTML = `
-                    <input type="text" value="${(group || []).join(', ')}" placeholder="例如：听, 罐">
+                    <textarea rows="${group.length > 12 ? 3 : 2}" placeholder="例如：听, 罐" title="${escapeHtml(synGroupPreview(group))}"></textarea>
                     <button type="button" class="btn-mini btn-danger" style="padding:8px 10px;">删除</button>
                 `;
+                row.querySelector('textarea').value = group.join(', ');
                 row.querySelector('button').addEventListener('click', () => {
                     const next = readSynGroups(metricKey).filter((_, i) => i !== idx);
                     renderSynRows(metricKey, next);
                 });
-                root.appendChild(row);
+                rowsWrap.appendChild(row);
             });
+            root.appendChild(rowsWrap);
         }
 
         function readMetricsFromUi() {
             const metrics = {};
             METRICS.forEach((metric) => {
                 const root = document.querySelector(`.metric-card[data-metric="${metric.key}"]`);
-                const en = !!root.querySelector('.metric-en').checked;
+                if (!root) return;
+                const checkbox = root.querySelector('.metric-en');
+                const en = checkbox ? !!checkbox.checked : false;
                 if (metric.type === 'bool') {
                     metrics[metric.key] = { en };
                 } else if (metric.type === 'rel') {
                     metrics[metric.key] = { en, max_rel: percentInputToMaxRelRatio(root.querySelector('.metric-rel').value) };
-                } else if (metric.type === 'diff') {
-                    metrics[metric.key] = { en, max_diff: parseFloat(root.querySelector('.metric-diff').value || '0') || 0 };
+                } else if (metric.type === 'sell_pack') {
+                    metrics.sell = { en, max_diff: parseFloat(root.querySelector('.metric-diff').value || '0') || 0 };
+                    metrics.pack = { en, syn: readSynGroups(metric.key) };
+                } else if (metric.type === 'category_gate') {
+                    metrics[metric.key] = { en, mode: 'cat2_or_core', syn: readSynGroups(metric.key) };
+                } else if (metric.type === 'weak_syn') {
+                    metrics[metric.key] = { en: false, syn: readSynGroups(metric.key) };
                 } else {
                     metrics[metric.key] = { en, syn: readSynGroups(metric.key) };
                 }
@@ -888,8 +1089,21 @@
         function setMetricsToUi(metrics) {
             const merged = Object.assign(defaultMetrics(), metrics || {});
             METRICS.forEach((metric) => {
-                const cfg = Object.assign({}, defaultMetrics()[metric.key], merged[metric.key] || {});
-                setMetricUiState(metric.key, cfg);
+                if (metric.type === 'sell_pack') {
+                    const sell = Object.assign({}, defaultMetrics().sell, merged.sell || {});
+                    const pack = Object.assign({}, defaultMetrics().pack, merged.pack || {});
+                    setMetricUiState(metric.key, {
+                        en: !!(sell.en && pack.en),
+                        max_diff: sell.max_diff,
+                        syn: pack.syn || [],
+                    });
+                } else if (metric.type === 'weak_syn') {
+                    const cfg = Object.assign({}, defaultMetrics()[metric.key], merged[metric.key] || {}, { en: false });
+                    setMetricUiState(metric.key, cfg);
+                } else {
+                    const cfg = Object.assign({}, defaultMetrics()[metric.key], merged[metric.key] || {});
+                    setMetricUiState(metric.key, cfg);
+                }
             });
         }
 
@@ -1185,6 +1399,9 @@
                 card.className = 'side-card';
                 const l1 = (((group || {}).categories || {}).l1 || []).join('、');
                 const l3Count = (((group || {}).categories || {}).l3 || []).length;
+                const metrics = (group || {}).metrics || {};
+                const gateEnabled = metrics.category_gate && metrics.category_gate.en ? '开启' : '关闭';
+                const conflictEnabled = metrics.core_conflict && metrics.core_conflict.en ? '开启' : '关闭';
                 card.innerHTML = `
                     <h3>${escapeHtml(group.name || ('规则组 ' + (idx + 1)))}</h3>
                     <div class="side-meta">${l3Count} 个三级类目${l1 ? ' · ' + escapeHtml(l1) : ''}</div>
@@ -1193,7 +1410,10 @@
                         <tbody>
                             <tr><td>三级类目</td><td>${l3Count}</td></tr>
                             <tr><td>一级类目</td><td>${(((group || {}).categories || {}).l1 || []).length}</td></tr>
-                            <tr><td>已启用维度</td><td>${metricEnabledCount(group.metrics)}/${METRICS.length}</td></tr>
+                            <tr><td>强约束启用</td><td>${strongMetricEnabledCount(metrics)}/${STRONG_METRIC_KEYS.length}</td></tr>
+                            <tr><td>弱字段配置</td><td>${weakMetricConfiguredCount(metrics)}/${WEAK_METRIC_KEYS.length}</td></tr>
+                            <tr><td>品类门禁</td><td>${gateEnabled}</td></tr>
+                            <tr><td>高风险冲突表</td><td>${conflictEnabled}</td></tr>
                         </tbody>
                     </table>
                     <div class="side-actions">

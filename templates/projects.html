@@ -817,7 +817,9 @@
     </div>
 
     <div class="projects-nav">
+        <a href="/market-analysis" title="商圈分析">商圈分析</a>
         <a href="/match-rules" title="类目规则模板">类目规则</a>
+        <a href="/match-agent" title="关联优化 Agent">关联优化Agent</a>
     </div>
 
     <div class="container">
@@ -865,6 +867,8 @@
                         <input type="file" name="comp_files" class="form-control" accept=".xlsx,.xls" multiple required>
                     </div>
                 </div>
+
+
 
                 <div style="margin-top: 48px; display: flex; gap: 16px;">
                     <button type="submit" class="btn btn-new" style="flex: 2; height: 60px;" id="submit-btn">创建项目</button>
@@ -970,6 +974,7 @@
         let _analyzingIds = new Set();
         let _pendingCreates = new Map();
         let _projectListHot = false;
+        let _ruleTemplates = [];
 
         function getProjectList() {
             return document.getElementById('project-list');
@@ -1070,6 +1075,33 @@
             t.textContent = msg;
             t.classList.add('show');
             setTimeout(() => t.classList.remove('show'), duration);
+        }
+
+        async function loadRuleTemplates() {
+            const select = document.getElementById('create-rule-template');
+            if (!select) return;
+            try {
+                const resp = await fetch('/api/rule-templates');
+                const data = await resp.json();
+                if (!resp.ok || data.status !== 'ok') throw new Error(data.message || '规则模板加载失败');
+                _ruleTemplates = Array.isArray(data.items) ? data.items : [];
+                const preferred = _ruleTemplates.find(t => t.name === '生产规则V1') || _ruleTemplates[0];
+                select.innerHTML = '';
+                _ruleTemplates.forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t.id;
+                    opt.textContent = `${t.name}${t.name === '生产规则V2' ? '（V2 十字段）' : ''}`;
+                    if (preferred && t.id === preferred.id) opt.selected = true;
+                    select.appendChild(opt);
+                });
+                if (!_ruleTemplates.length) {
+                    select.innerHTML = '<option value="">无可用规则模板</option>';
+                }
+            } catch (err) {
+                console.error('Rule template load error:', err);
+                select.innerHTML = '<option value="">生产规则V1</option>';
+                showToast('规则模板加载失败，将使用默认模板');
+            }
         }
 
         function updateWarningBanner(projects) {
@@ -1491,6 +1523,7 @@
         setupProjectPagePerformance();
         bindProjectCarouselControls();
         requestNotifyPermission();
+        loadRuleTemplates();
         loadProjects();
         refreshLicenseDaysBadge();
     </script>

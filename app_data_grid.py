@@ -252,6 +252,10 @@ def get_main_products():
 def get_main_product_links(main_sku_id):
     return jsonify(dm.get_main_product_links(main_sku_id))
 
+@grid_bp.route('/api/main_products/<path:main_sku_id>/match-explain/<store_id>')
+def get_main_product_match_explain(main_sku_id, store_id):
+    return jsonify(dm.get_match_explanation(main_sku_id, store_id))
+
 @grid_bp.route('/api/eliminate', methods=['POST'])
 def eliminate():
     d = request.json
@@ -312,7 +316,9 @@ def price_match():
     store_id = d.get('store_id')
     if not main_sku_id or store_id is None:
         return jsonify({"status": "error", "message": "Missing params"}), 400
-    result = dm.price_match(main_sku_id, store_id)
+    match_act = d.get('match_act', True)
+    match_orig = d.get('match_orig', True)
+    result = dm.price_match(main_sku_id, store_id, match_act=match_act, match_orig=match_orig)
     if not result:
         return jsonify({"status": "error", "message": "未找到可跟价的商品"}), 400
     return jsonify({"status": "success", **result})
@@ -370,6 +376,13 @@ def export_data():
 @grid_bp.route('/api/export_new')
 def export_new_data():
     p = dm.export_new_items()
+    resp = send_file(p, as_attachment=True)
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"; resp.headers["Pragma"] = "no-cache"; resp.headers["Expires"] = "0"
+    return resp
+
+@grid_bp.route('/api/export_corrections')
+def export_corrections():
+    p = dm.export_manual_corrections()
     resp = send_file(p, as_attachment=True)
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"; resp.headers["Pragma"] = "no-cache"; resp.headers["Expires"] = "0"
     return resp

@@ -255,13 +255,14 @@ class DataManagerExportMixin:
             }
             if "is_new_add" in comp_cols:
                 ignored_clause = "AND COALESCE(is_ignored, '') != '是'" if "is_ignored" in comp_cols else ""
-                query = f"SELECT * FROM comp_products WHERE project_id = ? AND is_new_add = '是' {ignored_clause}"
+                query = f"SELECT * FROM comp_products WHERE project_id = ? AND is_new_add IN ('是', '新增为SPU', '新增该规格') {ignored_clause}"
                 all_comp_new_df = pd.read_sql(query, conn, params=(self.active_project_id,))
             else:
                 all_comp_new_df = pd.DataFrame()
             if not all_comp_new_df.empty:
                 # Add store name and main store link info if available
                 all_comp_new_df['竞品店铺'] = all_comp_new_df['store_id'].map(store_map)
+                all_comp_new_df['是否新增'] = all_comp_new_df['is_new_add']
                 
                 # Fetch links to get Main Store SKU if linked
                 link_query = "SELECT comp_sku_id, main_sku_id, store_id FROM product_links WHERE project_id = ?"
@@ -278,7 +279,7 @@ class DataManagerExportMixin:
                 merged['来源'] = merged['主店SKU'].apply(lambda v: '已匹配' if str(v).strip() not in ['', 'nan', 'None'] else '未匹配池')
                 
                 # Ensure core columns
-                cols = ['来源', '主店SKU', '竞品店铺', 'skuId', '主图链接', '商品名称', '规格名称', '活动价', '原价', '销售', '条码']
+                cols = ['来源', '主店SKU', '竞品店铺', 'skuId', '主图链接', '商品名称', '规格名称', '活动价', '原价', '销售', '条码', '是否新增']
                 final_new_df = merged[[c for c in cols if c in merged.columns]].copy()
                 for c in cols:
                     if c not in final_new_df.columns: final_new_df[c] = ""
@@ -325,4 +326,104 @@ class DataManagerExportMixin:
             "饿了么商家版-活动价修改": eleme_rows,
         }
         self._write_export_new_workbook(sheet_data, path)
+        return path
+
+    def export_manual_corrections(self):
+        store_map = {str(i): name for i, name in enumerate(self.store_names)}
+        headers = [
+            "订正时间",
+            "错误类型",
+            "竞店店铺",
+            "主店skuId",
+            "主店商品名称",
+            "主店规格名称",
+            "主店主图链接",
+            "主店销售",
+            "主店原价",
+            "主店活动价",
+            "主店采购价",
+            "原竞店skuId",
+            "原竞店商品名称",
+            "原竞店规格名称",
+            "原竞店主图链接",
+            "原竞店销售",
+            "原竞店原价",
+            "原竞店活动价",
+            "原关联方式",
+            "原匹配相似度",
+            "现竞店skuId",
+            "现竞店商品名称",
+            "现竞店规格名称",
+            "现竞店主图链接",
+            "现竞店销售",
+            "现竞店原价",
+            "现竞店活动价",
+            "现关联方式",
+            "现匹配相似度",
+        ]
+        with self._db_lock, self._get_conn() as conn:
+            df = pd.read_sql(
+                """
+                SELECT
+                    mlc.created_at AS 订正时间,
+                    COALESCE(NULLIF(mlc.error_type, ''), CASE WHEN COALESCE(mlc.old_comp_sku_id, '') != '' THEN '错配' ELSE '漏配' END) AS 错误类型,
+                    mlc.store_id AS __store_id,
+                    mp.skuId AS 主店skuId,
+                    mp.`商品名称` AS 主店商品名称,
+                    mp.`规格名称` AS 主店规格名称,
+                    mp.`主图链接` AS 主店主图链接,
+                    mp.`销售` AS 主店销售,
+                    mp.`原价` AS 主店原价,
+                    mp.`活动价` AS 主店活动价,
+                    mp.`采购价` AS 主店采购价,
+                    mlc.old_comp_sku_id AS 原竞店skuId,
+                    old_cp.`商品名称` AS 原竞店商品名称,
+                    old_cp.`规格名称` AS 原竞店规格名称,
+                    old_cp.`主图链接` AS 原竞店主图链接,
+                    old_cp.`销售` AS 原竞店销售,
+                    old_cp.`原价` AS 原竞店原价,
+                    old_cp.`活动价` AS 原竞店活动价,
+                    mlc.old_match_type AS 原关联方式,
+                    mlc.old_similarity AS 原匹配相似度,
+                    mlc.new_comp_sku_id AS 现竞店skuId,
+                    new_cp.`商品名称` AS 现竞店商品名称,
+                    new_cp.`规格名称` AS 现竞店规格名称,
+                    new_cp.`主图链接` AS 现竞店主图链接,
+                    new_cp.`销售` AS 现竞店销售,
+                    new_cp.`原价` AS 现竞店原价,
+                    new_cp.`活动价` AS 现竞店活动价,
+                    mlc.new_match_type AS 现关联方式,
+                    mlc.new_similarity AS 现匹配相似度
+                FROM manual_link_corrections mlc
+                LEFT JOIN main_products mp
+                  ON mp.project_id = mlc.project_id
+                 AND mp.skuId = mlc.main_sku_id
+                LEFT JOIN comp_products old_cp
+                  ON old_cp.project_id = mlc.project_id
+                 AND old_cp.store_id = mlc.store_id
+                 AND old_cp.skuId = mlc.old_comp_sku_id
+                LEFT JOIN comp_products new_cp
+                  ON new_cp.project_id = mlc.project_id
+                 AND new_cp.store_id = mlc.store_id
+                 AND new_cp.skuId = mlc.new_comp_sku_id
+                WHERE mlc.project_id = ?
+                ORDER BY mlc.created_at DESC, mlc.id DESC
+                """,
+                conn,
+                params=(self.active_project_id,),
+            )
+
+        if df.empty:
+            df = pd.DataFrame(columns=headers)
+        else:
+            df["竞店店铺"] = df["__store_id"].fillna("").astype(str).map(lambda v: store_map.get(v, v))
+            df.drop(columns=[c for c in ["__store_id"] if c in df.columns], inplace=True)
+            for col in headers:
+                if col not in df.columns:
+                    df[col] = ""
+            df = df[headers]
+
+        dirs = self._get_project_dirs(self.active_project_id)
+        path = os.path.join(dirs["outputs"], f"订正数据_{time.strftime('%Y%m%d_%H%M%S')}.xlsx")
+        df.fillna("").to_excel(path, index=False)
         return path

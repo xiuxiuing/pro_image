@@ -925,6 +925,158 @@
             box-shadow: 0 4px 10px rgba(239, 68, 68, 0.25);
         }
 
+        .match-explain-btn {
+            border: 1px solid #fed7aa;
+            background: #fff7ed;
+            color: #c2410c;
+            border-radius: 6px;
+            padding: 3px 7px;
+            font-size: 11px;
+            font-weight: 800;
+            cursor: pointer;
+            flex: 0 0 auto;
+        }
+
+        .match-explain-btn:hover {
+            background: #ffedd5;
+            border-color: #fdba74;
+        }
+
+        .explain-modal-content {
+            max-width: 760px;
+        }
+
+        .explain-body {
+            padding: 18px 22px 22px;
+            overflow: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .explain-summary {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .explain-summary-item,
+        .explain-section {
+            border: 1px solid #e2e8f0;
+            background: #fff;
+            border-radius: 8px;
+            padding: 10px 12px;
+        }
+
+        .explain-label {
+            font-size: 11px;
+            color: #64748b;
+            font-weight: 800;
+            margin-bottom: 5px;
+        }
+
+        .explain-value {
+            font-size: 13px;
+            color: #0f172a;
+            font-weight: 800;
+            word-break: break-word;
+        }
+
+        .explain-section-title {
+            font-size: 13px;
+            color: #334155;
+            font-weight: 900;
+            margin-bottom: 8px;
+        }
+
+        .explain-metric {
+            display: grid;
+            grid-template-columns: 92px 64px 1fr;
+            gap: 8px;
+            align-items: start;
+            padding: 8px 0;
+            border-top: 1px solid #f1f5f9;
+            font-size: 12px;
+        }
+
+        .explain-metric:first-of-type {
+            border-top: 0;
+        }
+
+        .explain-pill {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 46px;
+            height: 22px;
+            padding: 0 8px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 900;
+        }
+
+        .explain-pill.pass { background: #dcfce7; color: #166534; }
+        .explain-pill.fail { background: #fee2e2; color: #b91c1c; }
+        .explain-pill.off { background: #f1f5f9; color: #64748b; }
+        .explain-pill.weak { background: #eef2ff; color: #4338ca; }
+        .explain-pill.skip { background: #fef3c7; color: #92400e; }
+
+        .explain-detail {
+            color: #475569;
+            line-height: 1.45;
+            word-break: break-word;
+        }
+
+        .explain-candidate {
+            border-top: 1px solid #f1f5f9;
+            padding: 10px 0;
+        }
+
+        .explain-candidate:first-of-type {
+            border-top: 0;
+            padding-top: 0;
+        }
+
+        .explain-candidate-head {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 10px;
+            align-items: start;
+        }
+
+        .explain-candidate-name {
+            color: #0f172a;
+            font-size: 13px;
+            font-weight: 900;
+            line-height: 1.45;
+            word-break: break-word;
+        }
+
+        .explain-candidate-meta {
+            color: #64748b;
+            font-size: 12px;
+            line-height: 1.45;
+            margin-top: 4px;
+        }
+
+        .explain-candidate details {
+            margin-top: 8px;
+        }
+
+        .explain-candidate summary {
+            cursor: pointer;
+            color: #2563eb;
+            font-size: 12px;
+            font-weight: 800;
+            user-select: none;
+        }
+
+        @media (max-width: 720px) {
+            .explain-summary { grid-template-columns: 1fr; }
+            .explain-metric { grid-template-columns: 78px 56px 1fr; }
+            .explain-candidate-head { grid-template-columns: 1fr; }
+        }
+
         /* Modal Styles */
         .modal {
             display: none;
@@ -1292,11 +1444,11 @@
         }
 
         .link-follow-box {
-            width: min(360px, calc(100vw - 40px));
+            width: min(560px, calc(100vw - 40px));
             background: #fff;
             border-radius: 16px;
             box-shadow: 0 20px 60px rgba(15, 23, 42, 0.25);
-            padding: 22px;
+            padding: 24px;
         }
 
         .link-follow-title {
@@ -1313,29 +1465,60 @@
             line-height: 1.5;
         }
 
-        .link-follow-options {
-            display: grid;
-            gap: 10px;
-            margin-bottom: 18px;
+        .link-follow-columns {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 20px;
         }
 
-        .link-follow-option {
+        .link-follow-column {
+            flex: 1;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 16px;
+            background: #f8fafc;
+        }
+
+        .link-follow-column-title {
+            font-size: 14px;
+            font-weight: 800;
+            color: #1e293b;
+            margin: 0 0 12px 0;
+            border-bottom: 1px solid #e2e8f0;
+            padding-bottom: 8px;
+        }
+
+        .link-follow-column-options {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .link-follow-option-item {
             display: flex;
             align-items: center;
             gap: 10px;
             padding: 10px 12px;
+            background: #ffffff;
             border: 1px solid #e2e8f0;
-            border-radius: 10px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
             color: #334155;
-            font-size: 14px;
-            font-weight: 700;
             cursor: pointer;
+            transition: all 0.2s;
         }
 
-        .link-follow-option input {
-            width: 16px;
-            height: 16px;
+        .link-follow-option-item:hover {
+            border-color: var(--primary-color);
+            background: #f5f3ff;
+        }
+
+        .link-follow-option-item input[type="checkbox"] {
+            width: 15px;
+            height: 15px;
             accent-color: var(--primary-color);
+            cursor: pointer;
         }
 
         .link-follow-actions {
@@ -1745,6 +1928,10 @@
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="M9 15h6"/></svg>
                         <span>修改/新增数据</span>
                     </button>
+                    <button type="button" class="export-menu-item" role="menuitem" onclick="exportCorrections()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                        <span>订正数据</span>
+                    </button>
                 </div>
             </div>
         </div>
@@ -1801,6 +1988,9 @@
                             <div class="modal-main-store-summary__meta">
                                 <span>价格</span><span>原价 <b id="modalMainStoreOriginalPrice"></b> ｜ 活动价 <b id="modalMainStoreActivityPrice"></b></span>
                             </div>
+                            <div class="modal-main-store-summary__meta" id="modalMainStorePurchAndMarginWrap" style="display: none;">
+                                <span>价格说明</span><span>采购价 <b id="modalMainStorePurchasePrice"></b> ｜ 现价毛利 <b id="modalMainStoreMargin"></b></span>
+                            </div>
                             <div class="modal-main-store-summary__meta">
                                 <span>销量</span><span id="modalMainStoreSales"></span>
                             </div>
@@ -1815,24 +2005,62 @@
         </div>
     </div>
 
+    <div class="modal" id="matchExplainModal">
+        <div class="modal-content explain-modal-content">
+            <div class="modal-header">
+                <h3>匹配解释</h3>
+                <button class="btn" onclick="closeMatchExplain()">关闭</button>
+            </div>
+            <div class="explain-body" id="matchExplainBody">
+                <div class="explain-section">加载中...</div>
+            </div>
+        </div>
+    </div>
+
 
     <div class="link-follow-dialog" id="linkFollowDialog">
         <div class="link-follow-box">
             <h3 class="link-follow-title">关联后应用</h3>
             <p class="link-follow-subtitle">选择要同步到主店商品的动作，已有跟进数据会被选中的动作直接覆盖。</p>
-            <div class="link-follow-options">
-                <label class="link-follow-option">
-                    <input type="checkbox" id="linkFollowPrice" checked>
-                    <span>跟价</span>
-                </label>
-                <label class="link-follow-option">
-                    <input type="checkbox" id="linkFollowImage">
-                    <span>跟图</span>
-                </label>
-                <label class="link-follow-option">
-                    <input type="checkbox" id="linkFollowName">
-                    <span>跟名</span>
-                </label>
+            <div class="link-follow-columns">
+                <div class="link-follow-column">
+                    <div class="link-follow-column-title">主店商品</div>
+                    <div class="link-follow-column-options">
+                        <label class="link-follow-option-item">
+                            <input type="checkbox" id="linkFollowPriceRetail" checked>
+                            <span>售卖价跟价</span>
+                        </label>
+                        <label class="link-follow-option-item">
+                            <input type="checkbox" id="linkFollowPriceActivity" checked>
+                            <span>活动价跟价</span>
+                        </label>
+                        <label class="link-follow-option-item">
+                            <input type="checkbox" id="linkFollowName">
+                            <span>跟名</span>
+                        </label>
+                        <label class="link-follow-option-item">
+                            <input type="checkbox" id="linkFollowImage">
+                            <span>跟图</span>
+                        </label>
+                        <label class="link-follow-option-item">
+                            <input type="checkbox" id="linkFollowEliminate">
+                            <span>淘汰</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="link-follow-column">
+                    <div class="link-follow-column-title">竞店商品</div>
+                    <div class="link-follow-column-options">
+                        <label class="link-follow-option-item">
+                            <input type="checkbox" id="linkFollowNewSpu">
+                            <span>新增为SPU</span>
+                        </label>
+                        <label class="link-follow-option-item">
+                            <input type="checkbox" id="linkFollowNewSpec">
+                            <span>新增该规格</span>
+                        </label>
+                    </div>
+                </div>
             </div>
             <div class="link-follow-actions">
                 <button class="btn" type="button" id="linkFollowCancel">取消</button>
@@ -2401,6 +2629,10 @@
             if (popup && (popup.style.display === 'flex' || popup.style.display === 'block') && !elT.closest('.header-actions') && !elT.closest('.filter-popup')) {
                 popup.style.display = 'none';
             }
+            const explainModal = document.getElementById('matchExplainModal');
+            if (explainModal && event.target === explainModal) {
+                closeMatchExplain();
+            }
             if (!elT.closest('.export-menu-wrap')) {
                 closeExportMenu();
             }
@@ -2538,6 +2770,179 @@
         function copyableTextHtml(value) {
             const raw = String(value ?? '');
             return `<span class="copyable-field-value" role="button" tabindex="0" data-copy-b64="${encodeCopyPayload(raw)}" title="点击复制">${escHtml(raw)}</span>`;
+        }
+
+        const MATCH_METRIC_LABELS = {
+            core_conflict: '高风险冲突',
+            category_gate: '类目门槛',
+            core: '核心品类',
+            cat3: '三级类目',
+            net: '净含量',
+            sell: '售卖数量',
+            pack: '包装单位',
+            size: '尺寸',
+            multidim_size: '多维尺寸',
+            brand: '品牌',
+            color: '颜色',
+            model: '型号',
+            product_form: '商品形态',
+            key_attributes: '关键属性词'
+        };
+
+        function closeMatchExplain() {
+            const modal = document.getElementById('matchExplainModal');
+            if (modal) modal.style.display = 'none';
+        }
+
+        function explainValueText(value) {
+            if (Array.isArray(value)) return value.filter(Boolean).join('、') || '-';
+            if (value && typeof value === 'object') {
+                return Object.entries(value)
+                    .filter(([, v]) => v !== '' && v !== null && v !== undefined && !(Array.isArray(v) && !v.length))
+                    .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join('、') : v}`)
+                    .join('；') || '-';
+            }
+            return String(value ?? '').trim() || '-';
+        }
+
+        function renderMetricValues(values) {
+            if (!values || typeof values !== 'object') return '';
+            const main = values.main ?? values.main_norm ?? '';
+            const cand = values.candidate ?? values.candidate_norm ?? '';
+            const extra = Object.entries(values)
+                .filter(([k]) => !['main', 'candidate', 'main_norm', 'candidate_norm'].includes(k))
+                .filter(([, v]) => v !== '' && v !== null && v !== undefined && !(Array.isArray(v) && !v.length))
+                .map(([k, v]) => `${k}: ${explainValueText(v)}`)
+                .join('；');
+            const bits = [];
+            if (main || cand) bits.push(`主: ${explainValueText(main)} ｜ 竞: ${explainValueText(cand)}`);
+            if (extra) bits.push(extra);
+            return bits.length ? `<div class="explain-detail" style="margin-top:4px;">${escHtml(bits.join('；'))}</div>` : '';
+        }
+
+        function renderStrongMetrics(metrics) {
+            const rows = (metrics || []).map(m => {
+                const stateClass = !m.enabled ? 'off' : (m.passed ? 'pass' : 'fail');
+                const stateText = !m.enabled ? '未启用' : (m.passed ? '通过' : '拦截');
+                return `
+                    <div class="explain-metric">
+                        <div class="explain-value">${escHtml(MATCH_METRIC_LABELS[m.key] || m.key)}</div>
+                        <div><span class="explain-pill ${stateClass}">${stateText}</span></div>
+                        <div class="explain-detail">
+                            ${escHtml(m.reason || '')}
+                            ${renderMetricValues(m.values)}
+                        </div>
+                    </div>`;
+            }).join('');
+            return rows || '<div class="explain-detail">无后验规则解释</div>';
+        }
+
+        function renderWeakMetrics(weak) {
+            const details = weak?.details || {};
+            const rows = Object.entries(details).map(([key, item]) => {
+                const bonus = Number(item.bonus || 0);
+                const matched = Array.isArray(item.matched) ? item.matched : (item.matched ? ['一致'] : []);
+                const main = explainValueText(item.main);
+                const cand = explainValueText(item.candidate);
+                const hit = explainValueText(matched);
+                return `
+                    <div class="explain-metric">
+                        <div class="explain-value">${escHtml(MATCH_METRIC_LABELS[key] || key)}</div>
+                        <div><span class="explain-pill weak">+${bonus.toFixed(3)}</span></div>
+                        <div class="explain-detail">${escHtml(`主: ${main} ｜ 竞: ${cand} ｜ 命中: ${hit}`)}</div>
+                    </div>`;
+            }).join('');
+            return rows || '<div class="explain-detail">无弱排序信号</div>';
+        }
+
+        function renderOtherCandidates(candidates) {
+            const list = Array.isArray(candidates) ? candidates : [];
+            if (!list.length) return '<div class="explain-detail">暂无其他候选商品解释</div>';
+            return list.map(c => {
+                const post = c.post_match || {};
+                const weak = c.weak_ranking || {};
+                const accepted = !!c.accepted;
+                const pillClass = accepted ? 'skip' : 'fail';
+                const pillText = accepted ? '放过未选' : '规则拦截';
+                const textScore = Number(c.text_similarity || 0);
+                const weakBonus = Number(c.weak_bonus || weak.bonus || 0);
+                const spec = c.规格名称 ? ` ｜ ${c.规格名称}` : '';
+                return `
+                    <div class="explain-candidate">
+                        <div class="explain-candidate-head">
+                            <div>
+                                <div class="explain-candidate-name">${escHtml(c.商品名称 || '-')}</div>
+                                <div class="explain-candidate-meta">SKU: ${escHtml(c.skuId || '-')}${escHtml(spec)}</div>
+                                <div class="explain-detail" style="margin-top:6px;">${escHtml(c.summary || post.reason || '')}</div>
+                            </div>
+                            <div><span class="explain-pill ${pillClass}">${pillText}</span></div>
+                        </div>
+                        <div class="explain-candidate-meta">文本近似 ${(textScore * 100).toFixed(0)}% ｜ 弱排序 +${weakBonus.toFixed(3)}</div>
+                        <details>
+                            <summary>查看这个商品的规则明细</summary>
+                            <div style="margin-top:8px;">
+                                ${renderStrongMetrics(post.metrics || [])}
+                            </div>
+                        </details>
+                    </div>`;
+            }).join('');
+        }
+
+        async function openMatchExplain(mainSkuId, storeId, event) {
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            const modal = document.getElementById('matchExplainModal');
+            const body = document.getElementById('matchExplainBody');
+            if (!modal || !body) return;
+            body.innerHTML = '<div class="explain-section">加载中...</div>';
+            modal.style.display = 'flex';
+            try {
+                const resp = await fetch(`/api/main_products/${encodeURIComponent(mainSkuId)}/match-explain/${encodeURIComponent(storeId)}`);
+                const data = await resp.json();
+                if (!resp.ok || data.status !== 'ok') throw new Error(data.message || '解释加载失败');
+                const post = data.post_match || {};
+                const weak = data.weak_ranking || {};
+                const sim = data.link?.similarity !== '' && data.link?.similarity != null
+                    ? `${(Number(data.link.similarity) * 100).toFixed(0)}%`
+                    : '-';
+                body.innerHTML = `
+                    <div class="explain-summary">
+                        <div class="explain-summary-item">
+                            <div class="explain-label">规则组</div>
+                            <div class="explain-value">${escHtml(data.rule_group?.name || '未命中规则组')}</div>
+                        </div>
+                        <div class="explain-summary-item">
+                            <div class="explain-label">关联方式</div>
+                            <div class="explain-value">${escHtml(sim)} / ${escHtml(data.link?.match_type || '-')}</div>
+                        </div>
+                        <div class="explain-summary-item">
+                            <div class="explain-label">弱排序加分</div>
+                            <div class="explain-value">+${Number(weak.bonus || 0).toFixed(3)}</div>
+                        </div>
+                    </div>
+                    <div class="explain-section">
+                        <div class="explain-section-title">后验规则结果：${post.accepted ? '放过' : '拦截'} · ${escHtml(post.reason || '')}</div>
+                        ${renderStrongMetrics(post.metrics || [])}
+                    </div>
+                    <div class="explain-section">
+                        <div class="explain-section-title">弱排序字段</div>
+                        ${renderWeakMetrics(weak)}
+                    </div>
+                    <div class="explain-section">
+                        <div class="explain-section-title">其他候选商品为什么没选</div>
+                        <div class="explain-detail" style="margin-bottom:8px;">按当前商品池近似文本相关度展示前 2 个候选；原始向量召回TopK未落库，因此这里用于解释规则拦截和放过状态。</div>
+                        ${renderOtherCandidates(data.other_candidates || [])}
+                    </div>
+                    <div class="explain-section">
+                        <div class="explain-section-title">商品对照</div>
+                        <div class="explain-detail">${escHtml(data.main?.商品名称 || '')}</div>
+                        <div class="explain-detail" style="margin-top:6px;">${escHtml(data.candidate?.商品名称 || '')}</div>
+                    </div>`;
+            } catch (err) {
+                body.innerHTML = `<div class="explain-section" style="color:#b91c1c;font-weight:800;">${escHtml(err.message || '解释加载失败')}</div>`;
+            }
         }
 
         function decodeCopyPayload(b64) {
@@ -2795,7 +3200,7 @@
             const compSkuId = escAttr(row[`${prefix}skuId`] || '');
             const storeNameForComp = !isMain ? ((storeSources.find(x => x.id === storeId) || {}).name || '') : '';
             const compPriceMatched = !isMain && !!(row['跟价店'] && String(row['跟价店']).trim() === storeNameForComp);
-            const compAddMarked = !isMain && row[`${prefix}是否新增`] === '是';
+            const compAddMarked = !isMain && (row[`${prefix}是否新增`] === '是' || row[`${prefix}是否新增`] === '新增为SPU' || row[`${prefix}是否新增`] === '新增该规格');
             const compIgnored = !isMain && row[`${prefix}是否不处理`] === '是';
 
             card.className = `product-card ${isMain ? 'main-card' : 'comp-card'}`;
@@ -2838,6 +3243,7 @@
             const mainNewActPrice = parseFloat(row['新活动价']) || 0;
 
             visibleColumns.forEach(col => {
+                if (!isMain && col === '采购价') return; // Competitor cards never display purchase price!
                 const val = row[`${prefix}${col}`] || "-";
 
                 if (col === '主图链接') {
@@ -2853,7 +3259,6 @@
                 const isSuggestionField = ['新售价', '新活动价'].includes(col);
                 const isSalesField = (col === '销售');
                 const isMarginField = ['现价毛利', '跟价毛利'].includes(col);
-                if (!isMain && isMarginField) return;
 
                 if (isTopIdentityField) {
                     mainTopLeftContent += `
@@ -2871,20 +3276,24 @@
                     let isNegative = false;
                     const mainSellPrice = parseFloat(row['活动价']) || parseFloat(row['原价']) || 0;
                     if (col === '现价毛利') {
-                        const actPrice = parseFloat(row[prefix + '活动价']) || parseFloat(row[prefix + '原价']) || 0;
-                        if (actPrice > 0 && mainPurchPrice > 0) {
-                            const diff = (actPrice - mainPurchPrice).toFixed(2);
-                            const pct = ((actPrice - mainPurchPrice) / actPrice * 100).toFixed(2);
-                            isNegative = parseFloat(diff) < 0 || (mainSellPrice > 9.9 && parseFloat(diff) < 5.5);
-                            displayVal = `${diff}（${pct}%）`;
+                        if (!(!isMain && row[`${prefix}__from_pool`])) {
+                            const actPrice = parseFloat(row[prefix + '活动价']) || parseFloat(row[prefix + '原价']) || 0;
+                            if (actPrice > 0 && mainPurchPrice > 0) {
+                                const diff = (actPrice - mainPurchPrice).toFixed(2);
+                                const pct = ((actPrice - mainPurchPrice) / actPrice * 100).toFixed(2);
+                                isNegative = parseFloat(diff) < 0 || (mainSellPrice > 9.9 && parseFloat(diff) < 5.5);
+                                displayVal = `${diff}（${pct}%）`;
+                            }
                         }
                     } else if (col === '跟价毛利') {
-                        const newAct = mainNewActPrice || parseFloat(row['新售价']) || 0;
-                        if (newAct > 0 && mainPurchPrice > 0) {
-                            const diff = (newAct - mainPurchPrice).toFixed(2);
-                            const pct = ((newAct - mainPurchPrice) / newAct * 100).toFixed(2);
-                            isNegative = parseFloat(diff) < 0 || (newAct > 9.9 && parseFloat(diff) < 5.5);
-                            displayVal = `${diff}（${pct}%）`;
+                        if (!(!isMain && row[`${prefix}__from_pool`])) {
+                            const newAct = mainNewActPrice || parseFloat(row['新售价']) || 0;
+                            if (newAct > 0 && mainPurchPrice > 0) {
+                                const diff = (newAct - mainPurchPrice).toFixed(2);
+                                const pct = ((newAct - mainPurchPrice) / newAct * 100).toFixed(2);
+                                isNegative = parseFloat(diff) < 0 || (newAct > 9.9 && parseFloat(diff) < 5.5);
+                                displayVal = `${diff}（${pct}%）`;
+                            }
                         }
                     }
 
@@ -3018,13 +3427,14 @@
             <div class="info-group" style="background: #fffbeb; margin: 0 -12px; padding: 4px 12px; border-bottom: none; justify-content: flex-start; gap: 8px;">
                 <div class="info-label" style="color: #d97706; width: 70px; flex-shrink:0;">相似/方式</div>
                 <div class="info-stats" style="flex:1; text-align:left; color: #d97706; font-weight:700;">${sim} / ${mode}</div>
+                <button type="button" class="match-explain-btn" onclick="openMatchExplain('${escAttr(mainSkuId)}', '${escAttr(storeId)}', event)" title="查看后验规则和弱排序解释">解释</button>
             </div>`;
             }
 
             card.innerHTML = `
         ${linkedBadgeHtml}
         ${isMain && isEliminatedRow(row) ? `<div class="status-badge badge-eliminated"><div class="stamp-inner"><div class="stamp-text">标记淘汰</div></div></div>` : ''}
-        ${!isMain && row[`${prefix}是否新增`] === '是' ? `<div class="status-badge badge-new"><div class="stamp-inner"><div class="stamp-text">商品新增</div></div></div>` : ''}
+        ${!isMain && (row[`${prefix}是否新增`] === '是' || row[`${prefix}是否新增`] === '新增为SPU' || row[`${prefix}是否新增`] === '新增该规格') ? `<div class="status-badge badge-new"><div class="stamp-inner"><div class="stamp-text">商品新增</div></div></div>` : ''}
         ${!isMain && row[`${prefix}是否不处理`] === '是' ? `<div class="status-badge badge-ignore"><div class="stamp-inner"><div class="stamp-text">不处理</div></div></div>` : ''}
         
         <div class="card-top-section" style="display:flex; justify-content:space-between; padding:10px; gap:10px; border-bottom: 1px solid rgba(0,0,0,0.05); background: rgba(255,255,255,0.2);">
@@ -3136,7 +3546,7 @@
             const prefix = storeId;
             const row = gridData.find(r => String(r[prefix + 'skuId']) === String(compSkuId));
             if (!row) return;
-            const currentIsNew = row[prefix + '是否新增'] === '是';
+            const currentIsNew = ['是', '新增为SPU', '新增该规格'].includes(row[prefix + '是否新增']);
             const newStatus = !currentIsNew;
             
             try {
@@ -3371,14 +3781,29 @@
             const originalPriceEl = document.getElementById('modalMainStoreOriginalPrice');
             const activityPriceEl = document.getElementById('modalMainStoreActivityPrice');
             const salesEl = document.getElementById('modalMainStoreSales');
+            
+            const purchMarginWrap = document.getElementById('modalMainStorePurchAndMarginWrap');
+            const purchasePriceEl = document.getElementById('modalMainStorePurchasePrice');
+            const marginEl = document.getElementById('modalMainStoreMargin');
+
             if (!box || !nameEl || !specEl || !skuEl || !imgEl) return;
             box.hidden = false;
+            
             const titleEl = box.querySelector('.modal-main-store-summary__title');
             if (linkModalMode === 'main_pool') {
                 const ctx = poolCompProductContext;
                 if (!ctx) {
                     box.hidden = true;
                     return;
+                }
+                if (purchMarginWrap) {
+                    if (ctx.hasAssociation) {
+                        purchMarginWrap.style.display = 'flex';
+                        const color = ctx.isNegative ? "#ef4444" : "#1e293b";
+                        purchMarginWrap.innerHTML = `<span>价格说明</span><span>现价毛利 <b id="modalMainStoreMargin" style="color: ${color}">${ctx.margin || '—'}</b></span>`;
+                    } else {
+                        purchMarginWrap.style.display = 'none';
+                    }
                 }
                 if (titleEl) titleEl.textContent = ctx.storeName || '竞店';
                 nameEl.innerHTML = copyableTextHtml(ctx.name || '—');
@@ -3396,6 +3821,27 @@
                 return;
             }
             const row = getRowBySku(mainSkuId);
+            if (purchMarginWrap) {
+                purchMarginWrap.style.display = 'flex';
+                let purch = "—";
+                let marginText = "—";
+                let color = "#1e293b";
+                if (row) {
+                    purch = row['采购价'] || "—";
+                    const actPrice = parseFloat(row['活动价']) || parseFloat(row['原价']) || 0;
+                    const purchPrice = parseFloat(row['采购价']) || 0;
+                    let isNeg = false;
+                    if (actPrice > 0 && purchPrice > 0) {
+                        const diff = (actPrice - purchPrice).toFixed(2);
+                        const pct = ((actPrice - purchPrice) / actPrice * 100).toFixed(2);
+                        marginText = `${diff}（${pct}%）`;
+                        isNeg = parseFloat(diff) < 0 || (actPrice > 9.9 && parseFloat(diff) < 5.5);
+                    }
+                    color = isNeg ? "#ef4444" : "#1e293b";
+                }
+                purchMarginWrap.innerHTML = `<span>价格说明</span><span>采购价 <b id="modalMainStorePurchasePrice">${purch}</b> ｜ 现价毛利 <b id="modalMainStoreMargin" style="color: ${color}">${marginText}</b></span>`;
+            }
+
             if (titleEl) titleEl.textContent = (typeof mainStoreName === 'string' && mainStoreName.trim()) ? mainStoreName.trim() : '主店';
             nameEl.innerHTML = copyableTextHtml(row ? (row['商品名称'] || '—') : '—');
             specEl.innerHTML = copyableTextHtml(row ? (row['规格名称'] || row['规格名'] || row['规格'] || '—') : '—');
@@ -3413,8 +3859,36 @@
             const row = (gridData || []).find(r => String(r[`${sid}skuId`] || '').trim() === sku);
             const storeName = (storeSources.find(s => String(s.id) === sid) || {}).name || '竞店';
             if (!row) {
-                return { storeId: sid, storeName, sku, name: '—', spec: '—', image: '', originalPrice: '—', activityPrice: '—', sales: '—' };
+                return { 
+                    storeId: sid, 
+                    storeName, 
+                    sku, 
+                    name: '—', 
+                    spec: '—', 
+                    image: '', 
+                    originalPrice: '—', 
+                    activityPrice: '—', 
+                    sales: '—',
+                    purchasePrice: '—',
+                    margin: '—',
+                    isNegative: false,
+                    hasAssociation: false
+                };
             }
+            
+            const purchasePrice = row['采购价'] || '—';
+            let marginText = '—';
+            let isNegative = false;
+            const compAct = parseFloat(row[`${sid}活动价`]) || parseFloat(row[`${sid}原价`]) || 0;
+            const mainPurchPrice = parseFloat(row['采购价']) || 0;
+            const mainSellPrice = parseFloat(row['活动价']) || parseFloat(row['原价']) || 0;
+            if (!isUnlinkedMode && compAct > 0 && mainPurchPrice > 0) {
+                const diff = (compAct - mainPurchPrice).toFixed(2);
+                const pct = ((compAct - mainPurchPrice) / compAct * 100).toFixed(2);
+                marginText = `${diff}（${pct}%）`;
+                isNegative = parseFloat(diff) < 0 || (mainSellPrice > 9.9 && parseFloat(diff) < 5.5);
+            }
+            
             return {
                 storeId: sid,
                 storeName,
@@ -3425,6 +3899,10 @@
                 originalPrice: row[`${sid}原价`] || '—',
                 activityPrice: row[`${sid}活动价`] || '—',
                 sales: formatModalSales(row[`${sid}销售`]),
+                purchasePrice: purchasePrice,
+                margin: marginText,
+                isNegative: isNegative,
+                hasAssociation: !isUnlinkedMode
             };
         }
 
@@ -3469,6 +3947,18 @@
                     const activityPrice = p['活动价'] || "-";
                     const purchasePrice = p['采购价'] || "-";
                     const stock = p['库存'] || "-";
+                    
+                    let marginText = "-";
+                    const actPrice = parseFloat(p['活动价']) || parseFloat(p['原价']) || 0;
+                    const purchPrice = parseFloat(p['采购价']) || 0;
+                    if (actPrice > 0 && purchPrice > 0) {
+                        const diff = (actPrice - purchPrice).toFixed(2);
+                        const pct = ((actPrice - purchPrice) / actPrice * 100).toFixed(2);
+                        marginText = `${diff}（${pct}%）`;
+                    }
+                    const isNegative = parseFloat(marginText) < 0 || (actPrice > 9.9 && (actPrice - purchPrice) < 5.5);
+                    const marginColor = isNegative ? "#ef4444" : "#1e293b";
+
                     const imgSrc = p['主图链接'] || 'https://via.placeholder.com/40';
                     const sku = String(p['skuId'] || '');
                     const safeSku = escAttr(sku);
@@ -3483,7 +3973,7 @@
                     <div style="flex:1">
                         <div style="font-weight:600">${copyableTextHtml(p['商品名称'] || '-')}${linkedBadge}</div>
                         <div style="font-size:12px; color:#6b7280; margin-top:2px;">规格: ${p['规格名称'] || '-'}</div>
-                        <div style="font-size:12px; color:#6b7280; margin-top:2px;">原价: ${originalPrice} ｜ 活动价: ${activityPrice} ｜ 销量: ${formatModalSales(p)} ｜ 采购价: ${purchasePrice} ｜ 库存: ${stock}</div>
+                        <div style="font-size:12px; color:#6b7280; margin-top:2px;">原价: ${originalPrice} ｜ 活动价: ${activityPrice} ｜ 现价毛利: <span style="font-weight:700; color:${marginColor}">${marginText}</span> ｜ 销量: ${formatModalSales(p)} ｜ 采购价: ${purchasePrice} ｜ 库存: ${stock}</div>
                         <div style="font-size:12px; color:#94a3b8">SKU: ${p['skuId'] || '-'}</div>
                     </div>
                     <div style="text-align:right">
@@ -3499,6 +3989,12 @@
 
             const products = allStoreProducts[currentLinkAction.storeId];
             if (!products) return;
+            
+            const mainSkuId = currentLinkAction.mainSkuId;
+            const mainRow = getRowBySku(mainSkuId);
+            const mainPurchPrice = mainRow ? parseFloat(mainRow['采购价']) || 0 : 0;
+            const mainSellPrice = mainRow ? parseFloat(mainRow['活动价']) || parseFloat(mainRow['原价']) || 0 : 0;
+
             const tokens = searchTokens(term);
             const filtered = products.filter(p => productMatchesSearchTokens(p, tokens, [
                 'skuId', 'skuid', 'SKUID',
@@ -3514,13 +4010,24 @@
                 const price = p['活动价'] || p['单件折扣价'] || "-";
                 const originalPrice = p['原价'] || p['单件原价'] || "-";
                 const activityPrice = p['活动价'] || p['单件折扣价'] || "-";
-                 const imgSrc = p['主图链接'] || p['图片'] || 'https://via.placeholder.com/40';
-                 item.innerHTML = `
+                const imgSrc = p['主图链接'] || p['图片'] || 'https://via.placeholder.com/40';
+                
+                let marginText = "-";
+                const compAct = parseFloat(p['活动价'] || p['单件折扣价']) || parseFloat(p['原价'] || p['单件原价']) || 0;
+                if (compAct > 0 && mainPurchPrice > 0) {
+                    const diff = (compAct - mainPurchPrice).toFixed(2);
+                    const pct = ((compAct - mainPurchPrice) / compAct * 100).toFixed(2);
+                    marginText = `${diff}（${pct}%）`;
+                }
+                const isNegative = parseFloat(marginText) < 0 || (mainSellPrice > 9.9 && (compAct - mainPurchPrice) < 5.5);
+                const marginColor = isNegative ? "#ef4444" : "#1e293b";
+
+                item.innerHTML = `
              <span class="modal-thumb-zoom"><img src="${imgSrc}" alt=""></span>
              <div style="flex:1">
                  <div style="font-weight:600">${copyableTextHtml(p['商品名称'] || '-')}</div>
                  <div style="font-size:12px; color:#6b7280; margin-top:2px;">规格: ${p['规格名称'] || p['规格名'] || p['规格'] || '-'}</div>
-                 <div style="font-size:12px; color:#6b7280; margin-top:2px;">原价: ${originalPrice} ｜ 活动价: ${activityPrice} ｜ 销量: ${formatModalSales(p)}</div>
+                 <div style="font-size:12px; color:#6b7280; margin-top:2px;">原价: ${originalPrice} ｜ 活动价: ${activityPrice} ｜ 现价毛利: <span style="font-weight:700; color:${marginColor}">${marginText}</span> ｜ 销量: ${formatModalSales(p)}</div>
                  <div style="font-size:12px; color:#94a3b8">SKU: ${p['skuId'] || p['skuid'] || p['SKUID'] || '-'}</div>
              </div>
              <div style="text-align:right">
@@ -3608,7 +4115,7 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ main_sku_id: String(mainSkuId).trim(), store_id: storeId, comp_sku_id: String(compSkuId).trim() })
             });
-            await applyLinkFollowOptions(mainSkuId, storeId, followOptions);
+            await applyLinkFollowOptions(mainSkuId, storeId, followOptions, compSkuId);
             delete linkedDetailsCache[String(mainSkuId)];
             closeModal();
             filterData(false);
@@ -3627,30 +4134,64 @@
 
         function requestLinkFollowOptions() {
             const dialog = document.getElementById('linkFollowDialog');
-            const priceEl = document.getElementById('linkFollowPrice');
+            const priceRetailEl = document.getElementById('linkFollowPriceRetail');
+            const priceActivityEl = document.getElementById('linkFollowPriceActivity');
             const imageEl = document.getElementById('linkFollowImage');
             const nameEl = document.getElementById('linkFollowName');
+            const eliminateEl = document.getElementById('linkFollowEliminate');
+            const newSpuEl = document.getElementById('linkFollowNewSpu');
+            const newSpecEl = document.getElementById('linkFollowNewSpec');
+            
             const confirmBtn = document.getElementById('linkFollowConfirm');
             const cancelBtn = document.getElementById('linkFollowCancel');
-            if (!dialog || !priceEl || !imageEl || !nameEl || !confirmBtn || !cancelBtn) {
-                return Promise.resolve({ price: true, image: false, name: false });
+            if (!dialog || !priceRetailEl || !priceActivityEl || !imageEl || !nameEl || !eliminateEl || !newSpuEl || !newSpecEl || !confirmBtn || !cancelBtn) {
+                return Promise.resolve({
+                    priceRetail: true,
+                    priceActivity: true,
+                    image: false,
+                    name: false,
+                    eliminate: false,
+                    newSpu: false,
+                    newSpec: false
+                });
             }
-            priceEl.checked = true;
+            
+            priceRetailEl.checked = true;
+            priceActivityEl.checked = true;
             imageEl.checked = false;
             nameEl.checked = false;
+            eliminateEl.checked = false;
+            newSpuEl.checked = false;
+            newSpecEl.checked = false;
+            
+            const spuListener = () => {
+                if (newSpuEl.checked) newSpecEl.checked = false;
+            };
+            const specListener = () => {
+                if (newSpecEl.checked) newSpuEl.checked = false;
+            };
+            newSpuEl.addEventListener('change', spuListener);
+            newSpecEl.addEventListener('change', specListener);
+            
             dialog.classList.add('is-open');
             return new Promise(resolve => {
                 const cleanup = () => {
                     confirmBtn.removeEventListener('click', onConfirm);
                     cancelBtn.removeEventListener('click', onCancel);
                     dialog.removeEventListener('click', onBackdrop);
+                    newSpuEl.removeEventListener('change', spuListener);
+                    newSpecEl.removeEventListener('change', specListener);
                     dialog.classList.remove('is-open');
                 };
                 const onConfirm = () => {
                     const result = {
-                        price: !!priceEl.checked,
+                        priceRetail: !!priceRetailEl.checked,
+                        priceActivity: !!priceActivityEl.checked,
                         image: !!imageEl.checked,
                         name: !!nameEl.checked,
+                        eliminate: !!eliminateEl.checked,
+                        newSpu: !!newSpuEl.checked,
+                        newSpec: !!newSpecEl.checked
                     };
                     cleanup();
                     resolve(result);
@@ -3668,14 +4209,20 @@
             });
         }
 
-        async function applyLinkFollowOptions(mainSkuId, storeId, options) {
+        async function applyLinkFollowOptions(mainSkuId, storeId, options, compSkuId) {
             if (!mainSkuId || storeId == null || !options) return;
             const tasks = [];
-            if (options.price) {
+            
+            if (options.priceRetail || options.priceActivity) {
                 tasks.push(fetch('/api/price_match', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ main_sku_id: mainSkuId, store_id: storeId })
+                    body: JSON.stringify({ 
+                        main_sku_id: mainSkuId, 
+                        store_id: storeId,
+                        match_act: !!options.priceActivity,
+                        match_orig: !!options.priceRetail
+                    })
                 }).then(async res => {
                     if (!res.ok) return null;
                     return res.json();
@@ -3695,19 +4242,69 @@
                     body: JSON.stringify({ main_sku_id: mainSkuId, store_id: storeId, field: 'name' })
                 }));
             }
+            if (options.eliminate) {
+                tasks.push(fetch('/api/eliminate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ main_sku_id: mainSkuId, status: 1 })
+                }));
+                tasks.push(fetch('/api/toggle_handled', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ main_sku_id: mainSkuId, handled: true })
+                }));
+            }
+            if (compSkuId) {
+                let isNewVal = '否';
+                if (options.newSpu) isNewVal = '新增为SPU';
+                else if (options.newSpec) isNewVal = '新增该规格';
+                
+                tasks.push(fetch('/api/toggle_add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ store_id: storeId, sku_id: compSkuId, is_new: isNewVal })
+                }));
+            }
+            
             const results = await Promise.all(tasks);
             const row = getRowBySku(mainSkuId);
             if (!row) return;
-            if (options.price) {
+            
+            if (options.priceRetail || options.priceActivity) {
                 const priceResult = results.find(r => r && r.status === 'success');
                 if (priceResult) {
-                    row['新活动价'] = priceResult.new_act;
-                    row['新售价'] = priceResult.new_orig;
+                    if (options.priceActivity && priceResult.new_act !== undefined) {
+                        row['新活动价'] = priceResult.new_act;
+                    }
+                    if (options.priceRetail && priceResult.new_orig !== undefined) {
+                        row['新售价'] = priceResult.new_orig;
+                    }
                     row['跟价店'] = priceResult.store_name;
                 }
             }
             if (options.image) row['ref_image_store'] = String(storeId);
             if (options.name) row['ref_name_store'] = String(storeId);
+            if (options.eliminate) {
+                row['淘汰标记'] = '1';
+                row['是否淘汰'] = '是';
+                row['is_handled'] = '1';
+            }
+            if (compSkuId) {
+                const prefix = storeId;
+                let isNewVal = '否';
+                if (options.newSpu) isNewVal = '新增为SPU';
+                else if (options.newSpec) isNewVal = '新增该规格';
+                gridData.forEach(r => {
+                    if (String(r[prefix + 'skuId']) === String(compSkuId)) {
+                        r[prefix + '是否新增'] = isNewVal;
+                        r[prefix + 'is_new_add'] = isNewVal;
+                        if (isNewVal !== '否') {
+                            r[prefix + '是否不处理'] = '否';
+                            r[prefix + 'is_ignored'] = '否';
+                        }
+                    }
+                });
+            }
         }
 
         async function performLinkFromPoolWithMain(mainProduct) {
@@ -3721,7 +4318,7 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ main_sku_id: String(mainSkuId).trim(), store_id: storeId, comp_sku_id: compSkuId })
             });
-            await applyLinkFollowOptions(mainSkuId, storeId, followOptions);
+            await applyLinkFollowOptions(mainSkuId, storeId, followOptions, compSkuId);
             delete linkedDetailsCache[String(mainSkuId)];
             closeModal();
             await filterData(false);
@@ -3784,6 +4381,10 @@
 
         async function exportNewItems() {
             await downloadExport('/api/export_new', "新增竞品数据_" + new Date().toISOString().slice(0, 10) + ".xlsx");
+        }
+
+        async function exportCorrections() {
+            await downloadExport('/api/export_corrections', "订正数据_" + new Date().toISOString().slice(0, 10) + ".xlsx");
         }
 
         /* 
