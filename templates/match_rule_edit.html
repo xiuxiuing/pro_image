@@ -655,12 +655,12 @@
                 id: 'identity',
                 title: '品类判断',
                 badge: '强约束',
-                note: 'V2 按规则组分层启用品类门禁：二级类目一致或 A核心品类一致即可进入规格判断；高风险冲突表优先拦截。',
+                note: 'V2 按规则组启用品类门槛：三级类目一致，或命中跨类目白名单且 A核心品类一致，才进入规格判断；高风险冲突表优先拦截。',
                 metrics: [
                     { key: 'core_conflict', title: '高风险冲突表', type: 'bool', help: '双方 A核心品类 都有值且归一后命中内置冲突对时拦截。', note: '默认开启；只覆盖少量高置信冲突，不替代完整类目规则。' },
-                    { key: 'category_gate', title: '品类门禁', type: 'category_gate', help: '固定模式：二级类目一致 OR A核心品类一致/同义即通过；普通类目信息不足时不硬拦截。', note: '成人用品、医疗器械等敏感一级类目跨类且二级不同会拦截；按规则组启用，不做全量默认开启。' },
-                    { key: 'core', title: 'A核心品类同义组', type: 'syn', help: '兼容旧模板的 A核心品类硬拦截配置；V2 默认关闭。', note: '建议只维护同义归一，不建议作为独立硬拦截。' },
-                    { key: 'cat3', title: '三级类目一致（兼容旧模板）', type: 'bool', help: '开启后，竞店候选商品的三级类目必须与主店商品三级类目一致。', note: 'V2 默认关闭；仅作为高级兼容项。' },
+                    { key: 'category_gate', title: '品类门禁', type: 'category_gate', help: '固定模式：三级类目一致 OR 命中白名单且 A核心品类一致/同义即通过。', note: '成人用品、医疗器械等敏感一级类目跨类会拦截；跨三级只允许维护白名单，不做核心品类全量放开。' },
+                    { key: 'core', title: 'A核心品类同义组', type: 'syn', help: 'A核心品类归一配置；V2 默认关闭独立硬拦截。', note: '建议只维护同义归一，不建议作为独立硬拦截。' },
+                    { key: 'cat3', title: '三级类目一致', type: 'bool', help: '开启后，竞店候选商品的三级类目必须与主店商品三级类目一致。', note: 'V2 的三级门槛由品类门禁统一处理，通常无需单独开启。' },
                 ],
             },
             {
@@ -683,7 +683,7 @@
                 note: '这些字段只沉淀归一/同义配置，不作为硬拦截；保存后 en 固定为 false。品牌对标品排序加分更明显，但不同品牌不拦截。',
                 metrics: [
                     { key: 'brand', title: 'A品牌', type: 'weak_syn', help: '品牌/商标归一；只作为弱排序加分，尤其适合标品。', note: '不同品牌不拦截；品牌随机、店铺名、系列名和营销词不应作为品牌。' },
-                    { key: 'model', title: 'A型号', type: 'weak_syn', help: '型号/货号归一；不用于硬过滤。', note: '旧模板如启用型号硬过滤，重新保存为 V2 页面后会降级为弱字段。' },
+                    { key: 'model', title: 'A型号', type: 'weak_syn', help: '型号/货号归一；不用于硬过滤。', note: '型号只作为弱排序信号，不作为硬拦截。' },
                     { key: 'product_form', title: 'A商品形态', type: 'weak_syn', help: '液体、片状、卷装、套装等形态归一；不用于硬过滤。', note: '用于后续排序加分和解释。' },
                     { key: 'key_attributes', title: 'A关键属性词', type: 'weak_syn', help: '一次性、超薄、无糖、长筒等属性归一；不用于硬过滤。', note: '只加分不拦截，避免因为弱属性提取不准导致漏配。' },
                     { key: 'color', title: 'A颜色', type: 'weak_syn', help: '颜色归一；不用于硬过滤。', note: '颜色对可比价影响弱，默认只作为排序信号。' },
@@ -819,7 +819,7 @@
             return {
                 core: { en: false, syn: [] },
                 core_conflict: { en: true },
-                category_gate: { en: false, mode: 'cat2_or_core', syn: [] },
+                category_gate: { en: false, syn: [], allow_core_pairs: [] },
                 cat3: { en: false },
                 net: { en: true, max_rel: 0.2 },
                 sell: { en: true, max_diff: 0 },
@@ -943,7 +943,7 @@
                         body = `
                             <div class="field" style="margin-bottom:10px;">
                                 <label class="label">门禁模式</label>
-                                <div class="metric-inline-note">二级类目一致 OR A核心品类一致/同义</div>
+                                <div class="metric-inline-note">三级类目一致 OR 命中白名单且 A核心品类一致/同义</div>
                                 <label class="label" style="margin-top:12px;">A核心品类同义词组</label>
                                 <div class="syn-list"></div>
                                 <button type="button" class="btn-mini btn-outline add-syn-group" style="padding:8px 12px; margin-top:8px;">+ 新增同义组</button>
@@ -1076,7 +1076,12 @@
                     metrics.sell = { en, max_diff: parseFloat(root.querySelector('.metric-diff').value || '0') || 0 };
                     metrics.pack = { en, syn: readSynGroups(metric.key) };
                 } else if (metric.type === 'category_gate') {
-                    metrics[metric.key] = { en, mode: 'cat2_or_core', syn: readSynGroups(metric.key) };
+                    const previous = ((editingIndex >= 0 && ruleGroups[editingIndex] && ruleGroups[editingIndex].metrics) || {})[metric.key] || {};
+                    metrics[metric.key] = {
+                        en,
+                        syn: readSynGroups(metric.key),
+                        allow_core_pairs: Array.isArray(previous.allow_core_pairs) ? previous.allow_core_pairs : []
+                    };
                 } else if (metric.type === 'weak_syn') {
                     metrics[metric.key] = { en: false, syn: readSynGroups(metric.key) };
                 } else {

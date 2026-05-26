@@ -174,6 +174,8 @@ class BuiltinRuleTemplateTests(unittest.TestCase):
                 "V2_general_daily_goods",
             },
         )
+        self.assertTrue(all("mode" not in group["metrics"].get("category_gate", {}) for group in groups))
+        self.assertTrue(all("allow_core_pairs" in group["metrics"].get("category_gate", {}) for group in groups))
         self.assertTrue(all(not group["metrics"].get("model", {}).get("en") for group in groups))
         self.assertTrue(all(not group["metrics"].get("brand", {}).get("en") for group in groups))
         self.assertTrue(all(not group["metrics"].get("color", {}).get("en") for group in groups))

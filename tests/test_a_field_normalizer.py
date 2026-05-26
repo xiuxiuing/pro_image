@@ -58,7 +58,14 @@ CONFLICT_RULE = {
 
 CATEGORY_GATE_RULE = {
     "core_conflict": {"en": False},
-    "category_gate": {"en": True, "mode": "cat2_or_core", "syn": []},
+    "category_gate": {
+        "en": True,
+        "syn": [["含乳饮料", "营养快线"]],
+        "allow_core_pairs": [
+            {"main_l2": "饮料", "candidate_l2": "乳饮冲调", "core": ["含乳饮料"]},
+            {"main_l2": "女鞋", "candidate_l2": "男鞋", "core": ["拖鞋"]},
+        ],
+    },
     "core": {"en": False},
     "cat3": {"en": False},
     "net": {"en": False},
@@ -157,24 +164,34 @@ class AFieldNormalizerTests(unittest.TestCase):
         comp = {"A核心品类": ""}
         self.assertTrue(pme.should_accept_post_match(main, comp, CONFLICT_RULE))
 
-    def test_category_gate_accepts_same_cat2_even_when_core_differs(self):
-        main = {"美团类目二级": "饮料", "A核心品类": "茶饮料"}
-        comp = {"美团类目二级": "饮料", "A核心品类": "果汁饮料"}
+    def test_category_gate_accepts_same_cat3_even_when_core_differs(self):
+        main = {"美团类目二级": "饮料", "美团类目三级": "茶饮料", "A核心品类": "茶饮料"}
+        comp = {"美团类目二级": "饮料", "美团类目三级": "茶饮料", "A核心品类": "果汁饮料"}
         self.assertTrue(pme.should_accept_post_match(main, comp, CATEGORY_GATE_RULE))
 
-    def test_category_gate_accepts_core_synonym_when_cat2_differs(self):
-        main = {"美团类目二级": "饮料", "A核心品类": "营养快线"}
-        comp = {"美团类目二级": "乳饮冲调", "A核心品类": "含乳饮料"}
+    def test_category_gate_accepts_allowlisted_core_synonym_when_cat3_differs(self):
+        main = {"美团类目二级": "饮料", "美团类目三级": "含乳饮料（常温）", "A核心品类": "营养快线"}
+        comp = {"美团类目二级": "乳饮冲调", "美团类目三级": "成人奶粉", "A核心品类": "含乳饮料"}
         self.assertTrue(pme.should_accept_post_match(main, comp, CATEGORY_GATE_RULE))
 
-    def test_category_gate_rejects_when_cat2_and_core_both_differ(self):
-        main = {"美团类目二级": "洗发护发", "A核心品类": "洗发水"}
-        comp = {"美团类目二级": "口腔护理", "A核心品类": "牙膏"}
+    def test_category_gate_rejects_when_cat3_and_core_both_differ(self):
+        main = {"美团类目二级": "洗发护发", "美团类目三级": "洗发水/皂", "A核心品类": "洗发水"}
+        comp = {"美团类目二级": "口腔护理", "美团类目三级": "牙膏", "A核心品类": "牙膏"}
         self.assertFalse(pme.should_accept_post_match(main, comp, CATEGORY_GATE_RULE))
 
-    def test_category_gate_missing_values_do_not_hard_block(self):
+    def test_category_gate_rejects_missing_values_without_same_cat3(self):
         main = {"美团类目二级": "饮料", "A核心品类": "茶饮料"}
         comp = {"美团类目二级": "", "A核心品类": ""}
+        self.assertFalse(pme.should_accept_post_match(main, comp, CATEGORY_GATE_RULE))
+
+    def test_category_gate_rejects_same_cat2_core_match_without_allowlist(self):
+        main = {"美团类目二级": "学习用品", "美团类目三级": "文具盒", "A核心品类": "文具盒"}
+        comp = {"美团类目二级": "学习用品", "美团类目三级": "笔袋", "A核心品类": "文具盒"}
+        self.assertFalse(pme.should_accept_post_match(main, comp, CATEGORY_GATE_RULE))
+
+    def test_category_gate_accepts_bidirectional_allowlisted_core(self):
+        main = {"美团类目二级": "男鞋", "美团类目三级": "男士拖鞋", "A核心品类": "拖鞋"}
+        comp = {"美团类目二级": "女鞋", "美团类目三级": "女士拖鞋", "A核心品类": "拖鞋"}
         self.assertTrue(pme.should_accept_post_match(main, comp, CATEGORY_GATE_RULE))
 
     def test_category_gate_rejects_sensitive_l1_cross_category_when_core_missing(self):
@@ -238,7 +255,7 @@ class AFieldNormalizerTests(unittest.TestCase):
         metric = next(x for x in explanation["metrics"] if x["key"] == "category_gate")
         self.assertFalse(explanation["accepted"])
         self.assertFalse(metric["passed"])
-        self.assertEqual(metric["values"]["main_cat2"], "饮料")
+        self.assertEqual(metric["values"]["main_cat3"], "")
 
     def test_explain_includes_multidim_size_metric(self):
         main = {"A多维尺寸": "17x25x8cm"}

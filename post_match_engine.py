@@ -77,7 +77,7 @@ _SENSITIVE_GATE_L1 = {"成人用品", "医疗器械"}
 
 _METRIC_DEFAULTS: Dict[str, Dict[str, Any]] = {
     "core_conflict": {"en": True},
-    "category_gate": {"en": False, "mode": "cat2_or_core", "syn": CORE_CATEGORY_SYNONYM_GROUPS},
+    "category_gate": {"en": False, "syn": CORE_CATEGORY_SYNONYM_GROUPS, "allow_core_pairs": []},
     "core": {"en": False, "syn": CORE_CATEGORY_SYNONYM_GROUPS},
     "cat3": {"en": True},
     "net": {"en": True, "max_rel": 0.2},
@@ -467,13 +467,84 @@ def _core_compatible(a: str, b: str, custom_syn: Any = None) -> bool:
     return not (na and nb) or na == nb
 
 
+def _normalize_allow_core_pairs(raw: Any) -> List[Dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    out: List[Dict[str, Any]] = []
+    seen = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        pair = {
+            "main_l2": _norm_str(item.get("main_l2")),
+            "candidate_l2": _norm_str(item.get("candidate_l2")),
+            "main_l3": _norm_str(item.get("main_l3")),
+            "candidate_l3": _norm_str(item.get("candidate_l3")),
+            "core": _uniq_text_list(item.get("core")),
+            "bidirectional": bool(item.get("bidirectional", True)),
+        }
+        if not (pair["main_l2"] or pair["candidate_l2"] or pair["main_l3"] or pair["candidate_l3"]):
+            continue
+        key = (
+            pair["main_l2"],
+            pair["candidate_l2"],
+            pair["main_l3"],
+            pair["candidate_l3"],
+            tuple(pair["core"]),
+            pair["bidirectional"],
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(pair)
+    return out
+
+
+def _allow_core_pair_matches(
+    pair: Dict[str, Any],
+    q2: str,
+    h2: str,
+    q3: str,
+    h3: str,
+    core_norm: str,
+    custom_syn: Any = None,
+) -> bool:
+    def _side_matches(main_l2: str, candidate_l2: str, main_l3: str, candidate_l3: str) -> bool:
+        if main_l2 and main_l2 != q2:
+            return False
+        if candidate_l2 and candidate_l2 != h2:
+            return False
+        if main_l3 and main_l3 != q3:
+            return False
+        if candidate_l3 and candidate_l3 != h3:
+            return False
+        return True
+
+    cores = [_core_norm(x, custom_syn) for x in (pair.get("core") or [])]
+    cores = [x for x in cores if x]
+    if cores and core_norm not in cores:
+        return False
+
+    main_l2 = _norm_str(pair.get("main_l2"))
+    candidate_l2 = _norm_str(pair.get("candidate_l2"))
+    main_l3 = _norm_str(pair.get("main_l3"))
+    candidate_l3 = _norm_str(pair.get("candidate_l3"))
+    if _side_matches(main_l2, candidate_l2, main_l3, candidate_l3):
+        return True
+    if pair.get("bidirectional", True) and _side_matches(candidate_l2, main_l2, candidate_l3, main_l3):
+        return True
+    return False
+
+
 def _category_gate_pass(query_item: dict, hit_item: dict, config: Optional[Dict[str, Any]]) -> tuple[bool, str, Dict[str, Any]]:
-    """V2 category gate: same cat2 OR same normalized core category; missing data usually does not hard-block."""
+    """V2 category gate: same cat3 OR allowlisted cross-category pair with same normalized core."""
     config = config or {}
     q1 = _norm_str(get_cat1(query_item))
     h1 = _norm_str(get_cat1(hit_item))
     q2 = _norm_str(get_cat2(query_item))
     h2 = _norm_str(get_cat2(hit_item))
+    q3 = _norm_str(get_cat3(query_item))
+    h3 = _norm_str(get_cat3(hit_item))
     qc = _g(query_item, (COL_CORE,))
     hc = _g(hit_item, (COL_CORE,))
     qn = _core_norm(qc, config.get("syn"))
@@ -483,20 +554,25 @@ def _category_gate_pass(query_item: dict, hit_item: dict, config: Optional[Dict[
         "candidate_cat1": h1,
         "main_cat2": q2,
         "candidate_cat2": h2,
+        "main_cat3": q3,
+        "candidate_cat3": h3,
         "main_core": qc,
         "candidate_core": hc,
         "main_core_norm": qn,
         "candidate_core_norm": hn,
+        "allow_core_pair": None,
     }
-    if q2 and h2 and q2 == h2:
-        return True, "二级类目一致", values
+    if q1 and h1 and q1 != h1 and ({q1, h1} & _SENSITIVE_GATE_L1):
+        return False, "敏感一级类目跨类", values
+    if q3 and h3 and q3 == h3:
+        return True, "三级类目一致", values
     if qn and hn and qn == hn:
-        return True, "二级类目不同但核心品类一致", values
-    if q1 and h1 and q1 != h1 and ({q1, h1} & _SENSITIVE_GATE_L1) and q2 and h2 and q2 != h2:
-        return False, "敏感一级类目跨类且二级类目不同", values
-    if q2 and h2 and q2 != h2 and qn and hn and qn != hn:
-        return False, "二级类目不同且核心品类不同", values
-    return True, "品类信息不足，避免误杀放过", values
+        for pair in _normalize_allow_core_pairs(config.get("allow_core_pairs")):
+            if _allow_core_pair_matches(pair, q2, h2, q3, h3, qn, config.get("syn")):
+                values["allow_core_pair"] = pair
+                return True, "三级不同但命中核心品类白名单", values
+        return False, "三级不同且未命中核心品类白名单", values
+    return False, "三级不同且核心品类不同", values
 
 
 def _norm_with_custom_syn(value: str, syn: Any = None) -> str:
@@ -596,8 +672,8 @@ def _normalize_metric(metric_key: str, raw: Any) -> Dict[str, Any]:
     elif metric_key in ("cat3", "core_conflict"):
         pass
     elif metric_key == "category_gate":
-        out["mode"] = "cat2_or_core"
         out["syn"] = _normalize_syn_groups(raw.get("syn"))
+        out["allow_core_pairs"] = _normalize_allow_core_pairs(raw.get("allow_core_pairs"))
     elif metric_key in ("pack", "color", "brand", "model", "core", "product_form", "key_attributes"):
         out["syn"] = _normalize_syn_groups(raw.get("syn"))
     else:
@@ -723,14 +799,14 @@ def should_accept_post_match(query_item: dict, hit_item: dict, block: Optional[D
         if core_category_conflict_pair(qc, hc):
             return False
 
-    # 2. V2 category gate: cat2 OR core category. Missing data avoids hard-blocking.
+    # 2. V2 category gate: same cat3 OR allowlisted same-core cross-category pair.
     r = block.get("category_gate") or {}
     if r.get("en", False):
         passed, _, _ = _category_gate_pass(query_item, hit_item, r)
         if not passed:
             return False
 
-    # 3. core category (legacy/advanced optional)
+    # 3. core category (advanced optional)
     r = block.get("core") or {}
     if r.get("en", False):
         qc = _g(query_item, (COL_CORE,))

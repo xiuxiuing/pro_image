@@ -416,7 +416,7 @@ class DataManagerMatchAgentMixin:
                 "metric_policy": {
                     "strong_constraints": ["core_conflict", "category_gate", "core", "cat3", "net", "sell", "pack", "size", "multidim_size"],
                     "weak_ranking_only": ["brand", "model", "product_form", "key_attributes", "color"],
-                    "v2_category_policy": "category_gate 只按适合的规则组开启；模式固定为二级类目一致 OR A核心品类一致。不要建议全量开启 cat3 或 core 独立硬拦截。",
+                    "v2_category_policy": "category_gate 只按适合的规则组开启；V2 类目门槛固定为三级类目一致，跨三级只允许维护 allow_core_pairs 白名单且 A核心品类一致。不要建议全量开启 core 独立硬拦截。",
                 },
             },
             "output_schema": {
@@ -426,7 +426,7 @@ class DataManagerMatchAgentMixin:
                     "risk": "low|medium|high",
                     "metrics": {
                         "core_conflict": {"en": True},
-                        "category_gate": {"en": False, "mode": "cat2_or_core", "syn": []},
+                        "category_gate": {"en": False, "syn": [], "allow_core_pairs": []},
                         "core": {"en": False, "syn": []},
                         "cat3": {"en": False},
                         "net": {"en": True, "max_rel": 0.2},
