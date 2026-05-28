@@ -28,6 +28,7 @@ def write_report(path: str, diagnostics: List[Dict[str, Any]], payload: Dict[str
     for item in diagnostics:
         vector = item.get("vector_diff") or {}
         image = item.get("image_vector_diff") or {}
+        topk = item.get("text_topk_comparison") or {}
         trigger = item.get("trigger") or {}
         summary_rows.append({
             "main_sku_id": item.get("main_sku_id"),
@@ -44,6 +45,15 @@ def write_report(path: str, diagnostics: List[Dict[str, Any]], payload: Dict[str
             "错误SKU是否规则拦截": "是" if trigger.get("wrong_rule_blocked") else "否",
             "正确SKU文本向量分": vector.get("main_correct_score"),
             "错误SKU文本向量分": vector.get("main_wrong_score"),
+            "旧BGE正确SKU排名": topk.get("old_rank"),
+            "新BGE正确SKU排名": topk.get("new_rank"),
+            "新BGE是否进TopK": "是" if topk.get("new_in_topk") else "否",
+            "BGE排名变化": topk.get("rank_delta"),
+            "旧BGE正确SKU分": topk.get("old_score"),
+            "新BGE正确SKU分": topk.get("new_score"),
+            "旧BGE错误SKU排名": topk.get("old_wrong_rank"),
+            "新BGE错误SKU排名": topk.get("new_wrong_rank"),
+            "A增强评估结果": topk.get("result") or topk.get("error"),
             "正确SKU图片向量分": image.get("main_correct_score"),
             "错误SKU图片向量分": image.get("main_wrong_score"),
             "规则拦截维度": ",".join(trigger.get("blocked_metrics") or []),
@@ -51,7 +61,41 @@ def write_report(path: str, diagnostics: List[Dict[str, Any]], payload: Dict[str
     _write_sheet(wb, "诊断摘要", summary_rows, [
         "main_sku_id", "store_name", "correct_comp_sku_id", "wrong_comp_sku_id", "category3",
         "诊断类型", "核心未匹配原因", "文本候选排名", "触发规则优化", "触发说明", "正确SKU是否规则拦截", "错误SKU是否规则拦截", "正确SKU文本向量分", "错误SKU文本向量分",
+        "旧BGE正确SKU排名", "新BGE正确SKU排名", "新BGE是否进TopK", "BGE排名变化", "旧BGE正确SKU分", "新BGE正确SKU分", "旧BGE错误SKU排名", "新BGE错误SKU排名", "A增强评估结果",
         "正确SKU图片向量分", "错误SKU图片向量分", "规则拦截维度",
+    ])
+
+    topk_rows = []
+    for item in diagnostics:
+        topk = item.get("text_topk_comparison") or {}
+        topk_rows.append({
+            "main_sku_id": item.get("main_sku_id"),
+            "store_name": item.get("store_name"),
+            "correct_comp_sku_id": item.get("correct_comp_sku_id"),
+            "wrong_comp_sku_id": item.get("current_comp_sku_id"),
+            "状态": topk.get("status"),
+            "TopK": topk.get("topk"),
+            "旧排名": topk.get("old_rank"),
+            "新排名": topk.get("new_rank"),
+            "旧是否进TopK": "是" if topk.get("old_in_topk") else "否",
+            "新是否进TopK": "是" if topk.get("new_in_topk") else "否",
+            "排名变化": topk.get("rank_delta"),
+            "旧正确SKU分": topk.get("old_score"),
+            "新正确SKU分": topk.get("new_score"),
+            "旧错误SKU排名": topk.get("old_wrong_rank"),
+            "新错误SKU排名": topk.get("new_wrong_rank"),
+            "旧错误SKU分": topk.get("old_wrong_score"),
+            "新错误SKU分": topk.get("new_wrong_score"),
+            "评估结果": topk.get("result"),
+            "错误": topk.get("error"),
+            "旧Top10": topk.get("old_top10"),
+            "新Top10": topk.get("new_top10"),
+        })
+    _write_sheet(wb, "A增强TopK评估", topk_rows, [
+        "main_sku_id", "store_name", "correct_comp_sku_id", "wrong_comp_sku_id", "状态", "TopK",
+        "旧排名", "新排名", "旧是否进TopK", "新是否进TopK", "排名变化",
+        "旧正确SKU分", "新正确SKU分", "旧错误SKU排名", "新错误SKU排名", "旧错误SKU分", "新错误SKU分",
+        "评估结果", "错误", "旧Top10", "新Top10",
     ])
 
     a_rows = []

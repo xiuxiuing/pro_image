@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -238,6 +239,129 @@ class DataManagerMatchAgentMixin:
             out["error"] = f"{type(e).__name__}: {e}"
             return out
 
+    def _match_agent_text_topk_comparison(self, conn, project_id: int, store_id: str, main: Optional[dict], correct_sku: str, wrong_sku: str = "") -> Dict[str, Any]:
+        out = {
+            "status": "unavailable",
+            "topk": 0,
+            "old_rank": 0,
+            "new_rank": 0,
+            "old_in_topk": False,
+            "new_in_topk": False,
+            "rank_delta": 0,
+            "old_score": None,
+            "new_score": None,
+            "old_wrong_rank": 0,
+            "new_wrong_rank": 0,
+            "old_wrong_score": None,
+            "new_wrong_score": None,
+            "result": "",
+            "error": "",
+            "old_top10": [],
+            "new_top10": [],
+        }
+        if not main or not correct_sku:
+            out["error"] = "缺少主店或正确SKU"
+            return out
+        main_030822 = sys.modules.get("main_030822")
+        if main_030822 is None:
+            out["error"] = "main_030822 尚未加载，跳过BGE TopK对比"
+            return out
+        try:
+            df = pd.read_sql(
+                "SELECT * FROM comp_products WHERE project_id = ? AND store_id = ?",
+                conn,
+                params=(project_id, str(store_id)),
+            )
+            if df.empty:
+                out["error"] = "竞店商品为空"
+                return out
+            row = conn.execute("SELECT COALESCE(match_config, '') FROM projects WHERE id = ?", (project_id,)).fetchone()
+            raw_cfg = row[0] if row else ""
+            base_cfg = main_030822._load_match_config(raw_cfg)
+            old_cfg = {**base_cfg, "text_astar_enabled": False}
+            new_cfg = {**base_cfg, "text_astar_enabled": True}
+            topk = int(getattr(main_030822, "MATCH_TOPK", 10) or 10)
+            comp_rows = df.fillna("").to_dict("records")
+
+            def _rank_with(cfg: dict) -> Dict[str, Any]:
+                import numpy as np
+
+                texts = [main_030822._build_segmented_text(main, cfg)] + [
+                    main_030822._build_segmented_text(item, cfg) for item in comp_rows
+                ]
+                vecs = main_030822.texts_to_embeddings(texts, batch_size=32)
+                qv = vecs[0] if vecs else None
+                if qv is None:
+                    raise RuntimeError("BGE 主店文本向量生成失败")
+                rows = []
+                for item, vec in zip(comp_rows, vecs[1:]):
+                    if vec is None:
+                        continue
+                    sid = _norm(item.get("skuId"))
+                    rows.append({
+                        "skuId": sid,
+                        "score": round(float(np.dot(qv, vec)), 6),
+                        "name": _norm(item.get("商品名称")),
+                        "spec": _norm(item.get("规格名称")),
+                    })
+                rows.sort(key=lambda x: x["score"], reverse=True)
+                correct_rank = 0
+                correct_score = None
+                wrong_rank = 0
+                wrong_score = None
+                for idx, item in enumerate(rows, 1):
+                    if item["skuId"] == str(correct_sku):
+                        correct_rank = idx
+                        correct_score = item["score"]
+                    if wrong_sku and item["skuId"] == str(wrong_sku):
+                        wrong_rank = idx
+                        wrong_score = item["score"]
+                    if correct_rank and (not wrong_sku or wrong_rank):
+                        break
+                return {
+                    "rank": correct_rank,
+                    "score": correct_score,
+                    "wrong_rank": wrong_rank,
+                    "wrong_score": wrong_score,
+                    "top10": rows[:10],
+                }
+
+            old = _rank_with(old_cfg)
+            new = _rank_with(new_cfg)
+            old_rank = int(old.get("rank") or 0)
+            new_rank = int(new.get("rank") or 0)
+            rank_delta = (old_rank - new_rank) if old_rank and new_rank else 0
+            if new_rank and (not old_rank or new_rank < old_rank):
+                result = "正确SKU排名上升"
+            elif old_rank and new_rank == old_rank:
+                result = "正确SKU排名无变化"
+            elif old_rank and (not new_rank or new_rank > old_rank):
+                result = "正确SKU排名下降"
+            else:
+                result = "正确SKU仍未进入候选排名"
+            out.update({
+                "status": "ok",
+                "topk": topk,
+                "old_rank": old_rank,
+                "new_rank": new_rank,
+                "old_in_topk": bool(old_rank and old_rank <= topk),
+                "new_in_topk": bool(new_rank and new_rank <= topk),
+                "rank_delta": rank_delta,
+                "old_score": old.get("score"),
+                "new_score": new.get("score"),
+                "old_wrong_rank": old.get("wrong_rank") or 0,
+                "new_wrong_rank": new.get("wrong_rank") or 0,
+                "old_wrong_score": old.get("wrong_score"),
+                "new_wrong_score": new.get("wrong_score"),
+                "result": result,
+                "old_top10": old.get("top10") or [],
+                "new_top10": new.get("top10") or [],
+            })
+            return out
+        except Exception as e:
+            out["error"] = f"{type(e).__name__}: {e}"
+            return out
+
     def _match_agent_rule_diagnostics(self, template: dict, main: Optional[dict], wrong: Optional[dict], correct: Optional[dict]) -> Dict[str, Any]:
         block = post_match_engine.rules_for_item(template, main or {})
         group = post_match_engine.get_rule_group_for_item(template, main or {}) or {}
@@ -344,6 +468,8 @@ class DataManagerMatchAgentMixin:
         reason = "当前无匹配" if not current_sku else "当前匹配与反馈正确 SKU 不一致"
         if current and correct and _get(current, "美团类目三级") != _get(correct, "美团类目三级"):
             reason = "当前匹配三级类目不同"
+        vector_diff = self._match_agent_text_vector_diff(main, current, correct, project_id)
+        text_topk_comparison = self._match_agent_text_topk_comparison(conn, project_id, store_id, main, correct_sku, current_sku)
         result = {
             "id": case.get("id"),
             "project_id": project_id,
@@ -359,7 +485,8 @@ class DataManagerMatchAgentMixin:
             "rule_reason": "候选未进入当前匹配结果" if rank == 0 else f"文本候选排名第 {rank}",
             "reason": reason,
             "a_field_diff": self._match_agent_a_field_diff(main, current, correct),
-            "vector_diff": self._match_agent_text_vector_diff(main, current, correct, project_id),
+            "vector_diff": vector_diff,
+            "text_topk_comparison": text_topk_comparison,
             "image_vector_diff": {"status": "unavailable", "reason": "首版未持久化可复用图片向量明细"},
             "rule_diagnostics": self._match_agent_rule_diagnostics(template, main, current, correct),
             "main_item": {k: _get(main, k) for k in ["skuId", "商品名称", "规格名称", "美团类目一级", "美团类目二级", "美团类目三级"] + _A_FIELDS},

@@ -7,6 +7,8 @@
 import os
 import sys
 import re
+import json
+import hashlib
 
 # 必须在 import torch / numpy / faiss 之前（直接运行本文件时无 app.py 预设）
 if sys.platform == "darwin":
@@ -153,24 +155,65 @@ def get_美团类名2(item):
 def get_美团类名1(item):
     return g(item, ["美团类目一级", "美团类目1级", "美团一级类目", "一级类目"])
 
-# 仅 category_level 参与文本向量；文检索由「美团类目 + 规格 + 商品名称」两行构成（见 _build_segmented_text）。
+TEXT_INDEX_SCHEMA_VERSION = "text_astar_v1"
+_TEXT_ASTAR_FIELD_LABELS = {
+    "A核心品类": "CORE",
+    "A商品形态": "FORM",
+    "A关键属性词": "ATTR",
+    "A颜色": "COLOR",
+}
+_DEFAULT_TEXT_ASTAR_FIELDS = ["A核心品类", "A商品形态", "A关键属性词", "A颜色"]
+
+# 文检索由「美团类目 + A*语义锚点 + 规格/商品名称」构成（见 _build_segmented_text）。
 _DEFAULT_MATCH_CONFIG = {
     "category_level": 1,
+    "text_astar_enabled": True,
+    "text_astar_fields": list(_DEFAULT_TEXT_ASTAR_FIELDS),
 }
 
+def default_match_config():
+    """Return a fresh default match_config dict for callers that need to pass it explicitly."""
+    return {
+        **_DEFAULT_MATCH_CONFIG,
+        "text_astar_fields": list(_DEFAULT_MATCH_CONFIG["text_astar_fields"]),
+    }
+
+def _as_bool(value, default=True):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    s = str(value).strip().lower()
+    if s in ("0", "false", "no", "off", "否", "关闭"):
+        return False
+    if s in ("1", "true", "yes", "on", "是", "开启"):
+        return True
+    return default
+
+def _normalize_astar_fields(value):
+    if isinstance(value, (list, tuple)):
+        fields = [str(v).strip() for v in value if str(v).strip()]
+        return fields or list(_DEFAULT_TEXT_ASTAR_FIELDS)
+    return list(_DEFAULT_TEXT_ASTAR_FIELDS)
+
 def _load_match_config(raw):
-    import json
     if not raw:
-        return {**_DEFAULT_MATCH_CONFIG}
+        return default_match_config()
     if isinstance(raw, dict):
-        return {**_DEFAULT_MATCH_CONFIG, **raw}
+        cfg = {**default_match_config(), **raw}
+        cfg["text_astar_fields"] = _normalize_astar_fields(cfg.get("text_astar_fields"))
+        return cfg
     try:
         d = json.loads(raw) if isinstance(raw, str) else {}
         if not isinstance(d, dict):
-            return {**_DEFAULT_MATCH_CONFIG}
-        return {**_DEFAULT_MATCH_CONFIG, **d}
+            return default_match_config()
+        cfg = {**default_match_config(), **d}
+        cfg["text_astar_fields"] = _normalize_astar_fields(cfg.get("text_astar_fields"))
+        return cfg
     except Exception:
-        return {**_DEFAULT_MATCH_CONFIG}
+        return default_match_config()
 
 def _pick_category(item, level: int):
     if level == 2:
@@ -188,15 +231,65 @@ def _norm_val(v):
     return s
 
 def _build_segmented_text(item, match_cfg):
-    """BGE 输入：一行美团类目（由 category_level 选 1/2/3 级）+ 一行「规格, 商品名称」。不读 columns 权重。"""
+    """BGE 输入：美团类目 + A*语义锚点 + 一行「规格, 商品名称」。不读 columns 权重。"""
     cfg = _load_match_config(match_cfg)
     level = int(cfg.get("category_level") or 1)
     cat = _pick_category(item, level)
     parts = [f"[CAT{level}]={_norm_val(cat)}"]
+    if _as_bool(cfg.get("text_astar_enabled"), True):
+        for field in cfg.get("text_astar_fields") or []:
+            value = _norm_val(item.get(field))
+            if not value:
+                continue
+            label = _TEXT_ASTAR_FIELD_LABELS.get(str(field), str(field).replace("A", "A_", 1))
+            parts.append(f"[{label}]={value}")
     base = _norm_val(f"{get_规格(item)}, {item.get('商品名称', '')}")
     if base:
         parts.append(base)
     return "\n".join(parts)
+
+def _text_index_fingerprint(match_cfg):
+    cfg = _load_match_config(match_cfg)
+    payload = {
+        "schema": TEXT_INDEX_SCHEMA_VERSION,
+        "match_config": cfg,
+    }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+def _text_index_meta_path(index_path: str) -> str:
+    return f"{index_path}.meta.json"
+
+def _read_text_index_meta(index_path: str) -> dict:
+    meta_path = _text_index_meta_path(index_path)
+    if not os.path.isfile(meta_path):
+        return {}
+    try:
+        with open(meta_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+def _write_text_index_meta(index_path: str, match_cfg, stats: dict):
+    meta_path = _text_index_meta_path(index_path)
+    data = {
+        "schema": TEXT_INDEX_SCHEMA_VERSION,
+        "fingerprint": _text_index_fingerprint(match_cfg),
+        "match_config": _load_match_config(match_cfg),
+        "stats": stats or {},
+    }
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+def _text_index_cache_valid(index_path: str, match_cfg) -> bool:
+    if not os.path.exists(index_path):
+        return False
+    meta = _read_text_index_meta(index_path)
+    return (
+        meta.get("schema") == TEXT_INDEX_SCHEMA_VERSION
+        and meta.get("fingerprint") == _text_index_fingerprint(match_cfg)
+    )
 
 def get_text(item):
     """
@@ -482,6 +575,9 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
         analysis_metrics = {}
     analysis_metrics.clear()
     analysis_metrics.update({"sources": [], "query": {}, "matching": {"sources": []}})
+    match_config = _load_match_config(match_config)
+    # Inject before source index construction so comp indexes and query vectors use the same text recipe.
+    globals()["_MATCH_CONFIG"] = match_config
     cache_dir = os.path.join(output_dir, "..", "cache") if output_dir != "." else "."
     os.makedirs(cache_dir, exist_ok=True)
 
@@ -526,7 +622,7 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
             progress_cb=lambda done, total, _idx=idx: _emit_progress("source_start", _idx, f"图片AI {done}/{total}"),
         )
         source_metrics["image_index"] = img_index_stats
-        if not os.path.exists(t_path):
+        if not _text_index_cache_valid(t_path, match_config):
             _emit_progress("source_start", idx, f"文本AI 0/{len(data)}")
             text_index_stats = build_index(
                 data,
@@ -535,9 +631,24 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
                 t_path,
                 progress_cb=lambda done, total, _idx=idx: _emit_progress("source_start", _idx, f"文本AI {done}/{total}"),
             )
+            if text_index_stats.get("vectors", 0) > 0 and os.path.exists(t_path):
+                _write_text_index_meta(t_path, match_config, text_index_stats)
+            else:
+                meta_path = _text_index_meta_path(t_path)
+                if os.path.isfile(meta_path):
+                    try:
+                        os.remove(meta_path)
+                    except OSError:
+                        pass
             source_metrics["text_index"] = text_index_stats
         else:
-            source_metrics["text_index"] = {"mode": "text", "reused": True, "index_path": t_path}
+            source_metrics["text_index"] = {
+                "mode": "text",
+                "reused": True,
+                "index_path": t_path,
+                "schema": TEXT_INDEX_SCHEMA_VERSION,
+                "fingerprint": _text_index_fingerprint(match_config),
+            }
         _emit_progress("source_done", idx, "完成")
         sources.append({
             "sku_dict": {get_sku_id(i): i for i in data}, "tiaoma_dict": {get_条码(i): i for i in data if get_条码(i)},
@@ -564,9 +675,6 @@ def run_analysis(target_xlsx, source_xlsxs, output_name="res", output_dir=".", p
     if progress_cb:
         progress_cb("query_progress", 0, f"生成查询AI 0/{total_q}（开始）")
     
-    # Inject match_config for get_text() globally within this module.
-    # (This keeps call sites simple and avoids changing many function signatures.)
-    globals()["_MATCH_CONFIG"] = match_config
     _pm_tmpl = post_match_engine.normalize_template(post_match_template)
 
     # Pre-compute all query embeddings in batches（每批回调节流，减少锁竞争；前端仍按数秒轮询）

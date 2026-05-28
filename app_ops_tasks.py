@@ -662,7 +662,7 @@ def api_ops_output_generate():
                 output_name=out_name,
                 output_dir=outputs_dir,
                 progress_cb=_analysis_cb,
-                match_config=None,
+                match_config=main_030822.default_match_config(),
                 post_match_template=rule_template.get("config"),
                 analysis_metrics=analysis_metrics,
             )
