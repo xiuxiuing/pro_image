@@ -397,6 +397,13 @@ def ops_tools_page():
         return render_template('activate.html', hwid=CURRENT_HWID)
     return render_template('ops_tools.html')
 
+@ops_bp.route('/ops-tools/raw')
+def ops_tools_raw_page():
+    is_valid, _ = check_license()
+    if not is_valid:
+        return render_template('activate.html', hwid=CURRENT_HWID)
+    return render_template('ops_tools_raw.html')
+
 @ops_bp.route('/api/ops/tasks/<task_id>/progress')
 def api_ops_task_progress(task_id):
     license_err = _ops_license_error_response()

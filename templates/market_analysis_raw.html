@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>商圈分析看板</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #BBD2C6;
+            --panel-bg: #FDF9F1;
+            --text-main: #333333;
+            --text-sub: #666666;
+            --border-radius: 16px;
+            --shadow: 0 4px 20px rgba(0,0,0,0.05);
+            --card1-bg: #F3CD95;
+            --card2-bg: #B8D6C9;
+            --card3-bg: #B6BB6D;
+            --card4-bg: #F2A9B8;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            padding: 10px 32px 14px;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .market-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            margin: 0 0 12px;
+            padding: 0 22px;
+            flex: 0 0 auto;
+        }
+
+        .market-title-link {
+            cursor: pointer;
+            display: inline-block;
+            border-radius: 4px;
+        }
+
+        .market-title {
+            margin: 0;
+            font-size: 26px;
+            font-weight: 900;
+            background: linear-gradient(135deg, #0f172a 0%, #4338ca 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.01em;
+            line-height: 1.1;
+        }
+
+        .market-title-link:hover .market-title {
+            opacity: 0.86;
+        }
+
+        .market-project-slogan {
+            margin-top: 2px;
+            color: #64748b;
+            font-size: 13px;
+            font-weight: 500;
+            letter-spacing: 0;
+            line-height: 1.25;
+        }
+
+        .market-project-name {
+            color: #4f46e5;
+            font-weight: 700;
+        }
+
+        .market-snapshot-status {
+            margin-top: 4px;
+            color: #64748b;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .market-snapshot-status.is-building {
+            color: #d97706;
+        }
+
+        .market-snapshot-status.is-error {
+            color: #dc2626;
+        }
+
+        .top-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+        }
+
+        .btn {
+            background: #fff;
+            border: none;
+            padding: 8px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            color: var(--text-main);
+            cursor: pointer;
+            box-shadow: var(--shadow);
+            transition: all 0.2s;
+        }
+
+        .btn:hover {
+            opacity: 0.8;
+            transform: translateY(-1px);
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1.5fr 1fr;
+            grid-template-rows: minmax(0, 1fr) minmax(210px, 0.42fr);
+            gap: 14px;
+            flex: 1 1 0;
+            min-height: 0;
+        }
+
+        .panel {
+            background-color: var(--panel-bg);
+            border-radius: var(--border-radius);
+            padding: 20px 24px;
+            box-shadow: var(--shadow);
+            position: relative;
+        }
+
+        .dashboard-grid > .panel:not(.bottom-panel) {
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .panel-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--text-main);
+            margin-bottom: 12px;
+        }
+
+        .chart-container {
+            width: 100%;
+            height: auto;
+            flex: 1 1 auto;
+            min-height: 0;
+        }
+
+        .donut-wrap {
+            position: relative;
+            display: flex;
+            flex: 1 1 auto;
+            min-height: 0;
+            flex-direction: column;
+        }
+
+        .donut-summary {
+            display: flex;
+            justify-content: center;
+            gap: 18px;
+            margin-top: -4px;
+            color: var(--text-sub);
+            font-size: 12px;
+        }
+
+        .donut-summary span {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
+        }
+
+        .donut-dot {
+            width: 10px;
+            height: 10px;
+            display: inline-block;
+            border-radius: 2px;
+            flex: 0 0 auto;
+        }
+
+        .bottom-panel {
+            grid-column: 1 / -1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .bottom-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 14px;
+        }
+
+        .select-box {
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            background: transparent;
+            color: var(--text-sub);
+            outline: none;
+        }
+
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 16px;
+            flex: 1 1 auto;
+            align-items: stretch;
+            min-height: 0;
+        }
+
+        .metric-card {
+            border-radius: 12px;
+            padding: 20px 24px;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 6px;
+            color: var(--text-main);
+            transition: transform 0.2s;
+            min-height: 0;
+        }
+
+        .metric-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .metric-card.c1 { background-color: var(--card1-bg); }
+        .metric-card.c2 { background-color: var(--card2-bg); }
+        .metric-card.c3 { background-color: var(--card3-bg); }
+        .metric-card.c4 { background-color: var(--card4-bg); color: #fff;}
+        .metric-card.c4 { color: var(--text-main); }
+        .metric-card.c5 { background-color: #E7D9AF; color: var(--text-main); }
+
+        .metric-value {
+            font-size: 26px;
+            font-weight: 500;
+            z-index: 2;
+            word-break: break-word;
+        }
+
+        .metric-label {
+            font-size: 13px;
+            z-index: 2;
+            opacity: 0.9;
+            margin-bottom: 8px;
+        }
+
+        .metric-pill {
+            background: rgba(255, 255, 255, 0.9);
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            width: fit-content;
+            color: var(--text-sub);
+            font-weight: 600;
+            z-index: 2;
+        }
+
+        .metric-card::after {
+            content: '';
+            position: absolute;
+            right: 15px;
+            top: 20px;
+            width: 40px;
+            height: 40px;
+            background-size: contain;
+            background-repeat: no-repeat;
+            opacity: 0.2;
+            z-index: 1;
+        }
+
+        .metric-icon {
+            position: absolute;
+            right: 20px;
+            top: 20px;
+            width: 32px;
+            height: 32px;
+            color: rgba(51, 51, 51, 0.5);
+            z-index: 2;
+        }
+
+        .metric-icon svg {
+            width: 100%;
+            height: 100%;
+            stroke: currentColor;
+            stroke-width: 1.8;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .download-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(51, 51, 51, 0.24);
+            align-items: center;
+            justify-content: center;
+            z-index: 20;
+        }
+
+        .download-modal.open {
+            display: flex;
+        }
+
+        .download-box {
+            width: min(360px, calc(100vw - 48px));
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: var(--shadow);
+            padding: 24px;
+            color: var(--text-main);
+        }
+
+        .download-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+
+        .download-content {
+            color: var(--text-sub);
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+
+        .download-actions {
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        @media (max-width: 1200px) {
+            body {
+                height: auto;
+                min-height: 100vh;
+                overflow: auto;
+                padding: 18px;
+            }
+            .market-head {
+                margin: 0 0 16px;
+                padding: 0;
+            }
+            .dashboard-grid {
+                min-height: auto;
+                grid-template-rows: auto auto;
+                gap: 18px;
+            }
+            .cards-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+            .chart-container {
+                height: 320px;
+                min-height: 320px;
+                flex: initial;
+            }
+        }
+
+        @media (max-width: 1024px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+            .cards-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .metric-card {
+                min-height: 160px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="market-head">
+        <div class="market-title-link" onclick="location.href='/dashboard'">
+            <h1 class="market-title">商圈分析</h1>
+            <div class="market-project-slogan">洞察竞对态势 • 驱动价格决策 <span style="margin-left: 15px; color: #64748b; font-weight: 400;">(当前项目: <span class="market-project-name">{{ active_project }}</span>)</span></div>
+            <div class="market-snapshot-status" id="market-snapshot-status">统计状态读取中...</div>
+        </div>
+        <div class="top-actions">
+            <button class="btn" type="button" onclick="loadMarketAnalysis(true)">刷新</button>
+            <button class="btn" type="button" onclick="openDownloadModal()">下载</button>
+            <button class="btn" type="button" onclick="saveDashboardScreenshot()">分享</button>
+        </div>
+    </div>
+
+    <div class="dashboard-grid" id="market-dashboard">
+        <div class="panel">
+            <h2 class="panel-title">top10类目</h2>
+            <div id="barChart" class="chart-container"></div>
+        </div>
+
+        <div class="panel">
+            <h2 class="panel-title">商圈建议</h2>
+            <div class="donut-wrap">
+                <div id="donutChart" class="chart-container"></div>
+                <div class="donut-summary" id="donut-summary"></div>
+            </div>
+        </div>
+
+        <div class="panel bottom-panel">
+            <div class="bottom-header">
+                <h2 class="panel-title" style="margin-bottom: 0;">关键指标</h2>
+                <select class="select-box" id="market-mode" onchange="renderMetricCards()">
+                    <option value="average">商圈平均值</option>
+                    <option value="top1">商圈Top1</option>
+                </select>
+            </div>
+
+            <div class="cards-grid">
+                <div class="metric-card c1">
+                    <div class="metric-icon"><svg viewBox="0 0 24 24"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16v-5"/><path d="M12 16V8"/><path d="M16 16v-7"/></svg></div>
+                    <div class="metric-value" id="metric-daily-orders">0</div>
+                    <div class="metric-label">日均单量(估算)</div>
+                    <div class="metric-pill" id="diff-daily-orders">0</div>
+                </div>
+                <div class="metric-card c2">
+                    <div class="metric-icon"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4"/><path d="M16 3v4"/><path d="M4 10h16"/></svg></div>
+                    <div class="metric-value" id="metric-monthly-orders">0</div>
+                    <div class="metric-label">月总单量</div>
+                    <div class="metric-pill" id="diff-monthly-orders">0</div>
+                </div>
+                <div class="metric-card c3">
+                    <div class="metric-icon"><svg viewBox="0 0 24 24"><path d="M12 3v18"/><path d="M17 7.5c-1-1-2.7-1.7-5-1.7-2.8 0-4.5 1.2-4.5 3.1 0 4.7 9.5 1.5 9.5 6.2 0 1.9-1.8 3.1-4.9 3.1-2.2 0-4-.7-5.1-1.8"/></svg></div>
+                    <div class="metric-value" id="metric-monthly-sales">0</div>
+                    <div class="metric-label">月销售额</div>
+                    <div class="metric-pill" id="diff-monthly-sales">0</div>
+                </div>
+                <div class="metric-card c4">
+                    <div class="metric-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M8 12h8"/><path d="M12 8v8"/></svg></div>
+                    <div class="metric-value" id="metric-customer-unit">0</div>
+                    <div class="metric-label">客单价(估算)</div>
+                    <div class="metric-pill" id="diff-customer-unit">0</div>
+                </div>
+                <div class="metric-card c5">
+                    <div class="metric-icon"><svg viewBox="0 0 24 24"><path d="M4 17h16"/><path d="M7 17V9"/><path d="M12 17V5"/><path d="M17 17v-7"/><path d="M6 21h12"/></svg></div>
+                    <div class="metric-value" id="metric-gross-profit">0</div>
+                    <div class="metric-label">预计毛利(估算)</div>
+                    <div class="metric-pill" id="diff-gross-profit">0</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="download-modal" id="download-modal" onclick="closeDownloadModal(event)">
+        <div class="download-box">
+            <div class="download-title">下载</div>
+            <div class="download-content">内容待定</div>
+            <div class="download-actions">
+                <button class="btn" type="button" onclick="closeDownloadModal()">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const barChart = echarts.init(document.getElementById('barChart'));
+        const donutChart = echarts.init(document.getElementById('donutChart'));
+        let marketData = null;
+        let marketSnapshotTimer = null;
+
+        function numberText(value) {
+            const n = Number(value || 0);
+            return Math.round(n).toLocaleString('zh-CN');
+        }
+
+        function moneyText(value) {
+            const n = Number(value || 0);
+            return Math.round(n).toLocaleString('zh-CN');
+        }
+
+        function decimalText(value) {
+            const n = Number(value || 0);
+            if (Math.abs(n) >= 1000) return Math.round(n).toLocaleString('zh-CN');
+            return n.toFixed(2).replace(/\\.00$/, '');
+        }
+
+        function diffText(value) {
+            const n = Number(value || 0);
+            return Math.round(n).toLocaleString('zh-CN');
+        }
+
+        function renderMetricCards() {
+            if (!marketData) return;
+            const mode = document.getElementById('market-mode').value === 'top1' ? 'top1' : 'average';
+            const metrics = (marketData.metrics || {})[mode] || {};
+            const diffs = mode === 'top1' ? {} : (marketData.metric_diffs || {});
+            document.getElementById('metric-daily-orders').textContent = numberText(metrics.daily_orders);
+            document.getElementById('metric-monthly-orders').textContent = numberText(metrics.monthly_orders);
+            document.getElementById('metric-monthly-sales').textContent = moneyText(metrics.monthly_sales_amount);
+            document.getElementById('metric-customer-unit').textContent = decimalText(metrics.customer_unit_price);
+            document.getElementById('metric-gross-profit').textContent = moneyText(metrics.estimated_gross_profit);
+            document.getElementById('diff-daily-orders').textContent = diffText(diffs.daily_orders || 0);
+            document.getElementById('diff-monthly-orders').textContent = diffText(diffs.monthly_orders || 0);
+            document.getElementById('diff-monthly-sales').textContent = diffText(diffs.monthly_sales_amount || 0);
+            document.getElementById('diff-customer-unit').textContent = diffText(diffs.customer_unit_price || 0);
+            document.getElementById('diff-gross-profit').textContent = diffText(diffs.estimated_gross_profit || 0);
+        }
+
+        function updateMarketSnapshotStatus(data) {
+            const el = document.getElementById('market-snapshot-status');
+            if (!el) return;
+            const status = data?.snapshot_status || 'missing';
+            const at = data?.snapshot_computed_at || '';
+            const msg = data?.snapshot_message || '';
+            el.classList.toggle('is-building', ['building', 'missing'].includes(status));
+            el.classList.toggle('is-error', status === 'error');
+            if (status === 'ready') {
+                el.textContent = at ? `统计时间：${at}` : '统计数据已更新';
+            } else if (status === 'building') {
+                el.textContent = at ? `数据刷新中... 当前显示：${at}` : '首次生成统计中...';
+            } else if (status === 'stale') {
+                el.textContent = at ? `当前展示旧数据，统计时间：${at}` : '当前展示旧数据';
+            } else if (status === 'error') {
+                el.textContent = msg || '数据刷新失败';
+            } else {
+                el.textContent = msg || '暂无统计快照';
+            }
+        }
+
+        function maybePollMarketSnapshot(status) {
+            if (!['building', 'missing'].includes(status || '')) {
+                if (marketSnapshotTimer) {
+                    clearTimeout(marketSnapshotTimer);
+                    marketSnapshotTimer = null;
+                }
+                return;
+            }
+            if (marketSnapshotTimer) return;
+            const poll = async () => {
+                try {
+                    const resp = await fetch(`/api/statistics/snapshot-status?t=${Date.now()}`);
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const data = await resp.json();
+                    updateMarketSnapshotStatus({
+                        snapshot_status: data.status,
+                        snapshot_computed_at: data.computed_at,
+                        snapshot_message: data.message,
+                    });
+                    if (data.status === 'ready') {
+                        marketSnapshotTimer = null;
+                        await loadMarketAnalysis();
+                        return;
+                    }
+                    if (['building', 'missing'].includes(data.status)) {
+                        marketSnapshotTimer = setTimeout(poll, 1200);
+                        return;
+                    }
+                } catch (err) {
+                    updateMarketSnapshotStatus({ snapshot_status: 'error', snapshot_message: err.message });
+                }
+                marketSnapshotTimer = null;
+            };
+            marketSnapshotTimer = setTimeout(poll, 1200);
+        }
+
+        function renderBarChart() {
+            const rows = (marketData && marketData.top10_categories) || [];
+            const labels = rows.map(item => item.category || '-');
+            const orders = rows.map(item => Number(item.order_count || 0));
+            const amounts = rows.map(item => Number(item.sales_amount || 0));
+            const barOption = {
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: { type: 'shadow' }
+                },
+                legend: {
+                    bottom: 0,
+                    left: 'left',
+                    icon: 'square',
+                    itemWidth: 10,
+                    itemHeight: 10
+                },
+                grid: {
+                    left: '0%',
+                    right: '4%',
+                    bottom: '15%',
+                    top: '10%',
+                    containLabel: true
+                },
+                xAxis: {
+                    type: 'category',
+                    data: labels,
+                    axisLine: { show: false },
+                    axisTick: { show: false },
+                    axisLabel: { color: '#666', fontSize: 12, interval: 0 }
+                },
+                yAxis: {
+                    type: 'value',
+                    axisLine: { show: false },
+                    axisTick: { show: false },
+                    splitLine: {
+                        lineStyle: { type: 'solid', color: '#EAEAEA' }
+                    },
+                    axisLabel: {
+                        formatter: (value) => value === 0 ? '0k' : (value / 1000) + 'k',
+                        color: '#999'
+                    }
+                },
+                series: [
+                    {
+                        name: '商品销量',
+                        type: 'bar',
+                        barWidth: 18,
+                        barGap: '22%',
+                        barCategoryGap: '42%',
+                        itemStyle: { color: '#DE861E', borderRadius: [2, 2, 0, 0] },
+                        data: orders
+                    },
+                    {
+                        name: '销售额',
+                        type: 'bar',
+                        barWidth: 18,
+                        barGap: '22%',
+                        barCategoryGap: '42%',
+                        itemStyle: { color: '#A0C6B8', borderRadius: [2, 2, 0, 0] },
+                        data: amounts
+                    }
+                ]
+            };
+            barChart.setOption(barOption);
+        }
+
+        function renderDonutChart() {
+            const rec = (marketData && marketData.recommendation) || {};
+            const donutRows = [
+                { value: Number(rec.department_store_ratio || 0), name: '百货占比', itemStyle: { color: '#DE861E' } },
+                { value: Number(rec.snack_ratio || 0), name: '休食占比', itemStyle: { color: '#F1D4A7' } },
+                { value: Number(rec.other_ratio || 0), name: '其他占比', itemStyle: { color: '#A0C6B8' } }
+            ];
+            document.getElementById('donut-summary').innerHTML = donutRows.map(item =>
+                `<span><i class="donut-dot" style="background:${item.itemStyle.color}"></i>${item.name} ${Number(item.value || 0).toFixed(2).replace(/\\.00$/, '')}%</span>`
+            ).join('');
+            const donutOption = {
+                tooltip: { trigger: 'item' },
+                legend: { show: false },
+                title: {
+                    text: rec.level || '拉完了',
+                    left: 'center',
+                    top: '38%',
+                    textStyle: {
+                        fontSize: 28,
+                        color: '#333',
+                        fontWeight: 'normal'
+                    }
+                },
+                series: [
+                    {
+                        name: '商圈占比',
+                        type: 'pie',
+                        radius: ['45%', '70%'],
+                        center: ['50%', '45%'],
+                        avoidLabelOverlap: false,
+                        itemStyle: {
+                            borderColor: '#FDF9F1',
+                            borderWidth: 2
+                        },
+                        label: {
+                            show: true,
+                            position: 'outer',
+                            formatter: '{d}%',
+                            color: '#333'
+                        },
+                        labelLine: { show: true, length: 8, length2: 8 },
+                        data: donutRows
+                    }
+                ]
+            };
+            donutChart.setOption(donutOption);
+        }
+
+        async function loadMarketAnalysis(refresh = false) {
+            const resp = await fetch(refresh ? '/api/market-analysis?refresh=1' : '/api/market-analysis');
+            marketData = await resp.json();
+            updateMarketSnapshotStatus(marketData);
+            maybePollMarketSnapshot(marketData.snapshot_status);
+            renderBarChart();
+            renderDonutChart();
+            renderMetricCards();
+        }
+
+        function openDownloadModal() {
+            document.getElementById('download-modal').classList.add('open');
+        }
+
+        function closeDownloadModal(event) {
+            if (event && event.target.id !== 'download-modal') return;
+            document.getElementById('download-modal').classList.remove('open');
+        }
+
+        async function saveDashboardScreenshot() {
+            const target = document.getElementById('market-dashboard');
+            const canvas = await html2canvas(target, { backgroundColor: '#BBD2C6', scale: 2 });
+            const link = document.createElement('a');
+            link.download = '商圈分析看板.png';
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }
+
+        window.addEventListener('resize', () => {
+            barChart.resize();
+            donutChart.resize();
+        });
+
+        loadMarketAnalysis();
+    </script>
+</body>
+</html>

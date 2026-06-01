@@ -1,0 +1,30 @@
+{% extends "admin_base.html" %}
+{% set active_menu = "data" %}
+{% block title %}{{ page_title }} - 运营后台{% endblock %}
+{% block top_title %}{{ page_title }}{% endblock %}
+{% block search_control %}{% endblock %}
+{% block styles %}
+        .main {
+            padding: 0;
+            min-height: calc(100vh - var(--topbar-h));
+            display: grid;
+            place-items: center;
+            background: #f8f9fa;
+        }
+        .developing {
+            margin: 0;
+            transform: translateY(-20px);
+            color: #000;
+            font-size: 18px;
+            line-height: 24px;
+            font-weight: 800;
+            letter-spacing: 0;
+        }
+        @media (max-width: 980px) {
+            .main { min-height: 420px; }
+            .developing { transform: none; }
+        }
+{% endblock %}
+{% block content %}
+            <p class="developing">努力研发中...</p>
+{% endblock %}

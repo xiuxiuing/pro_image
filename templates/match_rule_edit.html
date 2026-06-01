@@ -565,7 +565,7 @@
     <div class="wrap">
         <div class="top">
             <div>
-                <a class="back" href="/match-rules">← 返回规则列表</a>
+                <a class="back" href="/config-management/rules">← 返回规则配置</a>
                 <h1>{% if template_id %}编辑规则模板{% else %}新建规则模板{% endif %}</h1>
             </div>
         </div>
@@ -641,7 +641,7 @@
                     <div id="rule-groups-list" class="rule-groups-scroll"></div>
                     <div class="footer-actions">
                         <button type="button" class="btn btn-primary" id="submit-template-btn" style="flex:1;">提交模板</button>
-                        <a class="btn btn-soft" href="/match-rules" style="text-decoration:none; text-align:center;">取消</a>
+                        <a class="btn btn-soft" href="/config-management/rules" style="text-decoration:none; text-align:center;">取消</a>
                     </div>
                 </div>
             </section>
@@ -1621,7 +1621,7 @@
                 }
                 const j = await resp.json();
                 if (j.status === 'ok') {
-                    location.href = '/match-rules';
+                    location.href = '/config-management/rules';
                     return;
                 }
                 alert(j.message || '提交失败');

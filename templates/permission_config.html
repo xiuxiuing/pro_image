@@ -1,0 +1,217 @@
+{% extends "admin_base.html" %}
+{% set active_menu = "config" %}
+{% set active_config_child = "permissions" %}
+{% block title %}权限配置 - 运营后台{% endblock %}
+{% block top_title %}配置管理{% endblock %}
+{% block search_placeholder %}搜索权限...{% endblock %}
+{% block styles %}
+        .main { padding: 20px; }
+        .permission-page {
+            display: grid;
+            grid-template-columns: minmax(480px, 1.45fr) minmax(350px, 1fr);
+            gap: 20px;
+        }
+        .panel {
+            border-radius: 8px;
+            background: #fff;
+            box-shadow: 0 16px 40px rgba(15, 23, 42, 0.07);
+            overflow: hidden;
+        }
+        .panel-head {
+            padding: 20px;
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 18px;
+            border-bottom: 1px solid #eef0f3;
+        }
+        .panel-title { margin: 0; color: #20242c; font-size: 20px; line-height: 26px; font-weight: 800; }
+        .panel-sub { margin: 2px 0 0; color: #4b5563; font-size: 11px; line-height: 16px; font-weight: 500; }
+        .text-action { border: 0; color: var(--blue); background: transparent; font-size: 14px; line-height: 20px; font-weight: 700; }
+        .more-btn { width: 28px; height: 28px; border: 0; display: grid; place-items: center; color: #c0c7d2; background: transparent; }
+        .role-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        .role-table th {
+            height: 58px;
+            padding: 0 20px;
+            color: #536079;
+            background: #fafafa;
+            font-size: 14px;
+            line-height: 20px;
+            font-weight: 800;
+            text-align: left;
+        }
+        .role-table td {
+            height: 77px;
+            padding: 0 20px;
+            border-top: 1px solid #eef0f3;
+            color: #20242c;
+            font-size: 14px;
+            vertical-align: middle;
+        }
+        .role-name { color: #242832; font-size: 15px; line-height: 18px; font-weight: 800; }
+        .role-desc { margin-top: 2px; color: #59657a; font-size: 11px; line-height: 13px; }
+        .security-bars { display: flex; gap: 5px; align-items: center; }
+        .security-bars span { width: 14px; height: 6px; border-radius: 999px; background: #c9cfdb; }
+        .security-bars span.on { background: var(--blue); }
+        .status {
+            display: inline-flex;
+            min-width: 34px;
+            height: 20px;
+            padding: 0 8px;
+            border-radius: 999px;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            line-height: 20px;
+            font-weight: 700;
+        }
+        .status.on { color: #16833a; background: #d8f8df; }
+        .status.off { color: #d03b1f; background: #ffe8d7; }
+        .edit-btn { width: 24px; height: 24px; border: 0; color: #6b7280; background: transparent; padding: 0; }
+        .permission-tree { padding: 20px 20px 0; }
+        .tree-row {
+            min-height: 40px;
+            display: grid;
+            grid-template-columns: 20px 22px minmax(0, 1fr) 20px;
+            align-items: center;
+            column-gap: 8px;
+            color: #222733;
+            font-size: 15px;
+            line-height: 20px;
+            font-weight: 700;
+        }
+        .tree-row.child {
+            grid-template-columns: 20px minmax(0, 1fr) 20px;
+            margin-left: 44px;
+            padding-left: 22px;
+            border-left: 1px solid #eef0f3;
+            color: #424957;
+            font-weight: 500;
+        }
+        .tree-icon, .chev { color: #536882; }
+        .check {
+            width: 16px;
+            height: 16px;
+            border: 1px solid #aeb6c4;
+            border-radius: 4px;
+            display: grid;
+            place-items: center;
+            color: #fff;
+            background: #fff;
+        }
+        .check.on { border-color: var(--blue); background: var(--blue); }
+        .panel-footer {
+            margin-top: 24px;
+            padding: 20px;
+            border-top: 1px solid #eef0f3;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 16px;
+        }
+        @media (max-width: 1080px) {
+            .permission-page { grid-template-columns: 1fr; }
+        }
+{% endblock %}
+{% block content %}
+            <section class="permission-page" aria-label="权限配置">
+                <div class="panel">
+                    <div class="panel-head">
+                        <div>
+                            <h1 class="panel-title">角色配置</h1>
+                            <p class="panel-sub">如果没有角色请先去用户管理配置角色信息</p>
+                        </div>
+                        <button class="text-action" type="button">+ 选择角色</button>
+                    </div>
+                    <table class="role-table" aria-label="角色配置列表">
+                        <thead>
+                            <tr>
+                                <th style="width:26%;">角色</th>
+                                <th style="width:18%;">用户</th>
+                                <th style="width:26%;">安全级别</th>
+                                <th style="width:20%;">状态</th>
+                                <th style="width:10%;"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><div class="role-name">Admin</div><div class="role-desc">Full system<br>access</div></td>
+                                <td>12</td>
+                                <td><div class="security-bars"><span class="on"></span><span class="on"></span><span class="on"></span></div></td>
+                                <td><span class="status on">开启</span></td>
+                                <td><button class="edit-btn" type="button" aria-label="编辑 Admin"><svg viewBox="0 0 24 24" fill="none"><path d="m4 16.5-.5 4 4-.5L19 8.5 15.5 5 4 16.5Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></button></td>
+                            </tr>
+                            <tr>
+                                <td><div class="role-name">Editor</div><div class="role-desc">Can modify<br>content</div></td>
+                                <td>48</td>
+                                <td><div class="security-bars"><span class="on"></span><span class="on"></span><span></span></div></td>
+                                <td><span class="status on">开启</span></td>
+                                <td><button class="edit-btn" type="button" aria-label="编辑 Editor"><svg viewBox="0 0 24 24" fill="none"><path d="m4 16.5-.5 4 4-.5L19 8.5 15.5 5 4 16.5Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></button></td>
+                            </tr>
+                            <tr>
+                                <td><div class="role-name">Viewer</div><div class="role-desc">Read-only<br>permissions</div></td>
+                                <td>156</td>
+                                <td><div class="security-bars"><span class="on"></span><span></span><span></span></div></td>
+                                <td><span class="status on">开启</span></td>
+                                <td><button class="edit-btn" type="button" aria-label="编辑 Viewer"><svg viewBox="0 0 24 24" fill="none"><path d="m4 16.5-.5 4 4-.5L19 8.5 15.5 5 4 16.5Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></button></td>
+                            </tr>
+                            <tr>
+                                <td><div class="role-name">External<br>Auditor</div><div class="role-desc">Temporary<br>review<br>access</div></td>
+                                <td>2</td>
+                                <td><div class="security-bars"><span class="on"></span><span></span><span></span></div></td>
+                                <td><span class="status off">关闭</span></td>
+                                <td><button class="edit-btn" type="button" aria-label="编辑 External Auditor"><svg viewBox="0 0 24 24" fill="none"><path d="m4 16.5-.5 4 4-.5L19 8.5 15.5 5 4 16.5Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></button></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="panel">
+                    <div class="panel-head">
+                        <div>
+                            <h1 class="panel-title">菜单权限</h1>
+                            <p class="panel-sub">根据角色选择可查看的菜单权限</p>
+                        </div>
+                        <button class="more-btn" type="button" aria-label="更多"><svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="4" r="1.5" fill="currentColor"/><circle cx="9" cy="9" r="1.5" fill="currentColor"/><circle cx="9" cy="14" r="1.5" fill="currentColor"/></svg></button>
+                    </div>
+                    <div class="permission-tree">
+                        <div class="tree-row">
+                            <svg class="chev" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="m5 6 3 3 3-3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+                            <svg class="tree-icon" viewBox="0 0 24 24" fill="none"><path d="M4 4h6v6H4V4Zm10 0h6v6h-6V4ZM4 14h6v6H4v-6Zm10 0h6v6h-6v-6Z" stroke="currentColor" stroke-width="2"/></svg>
+                            <span>Dashboard Overview</span>
+                            <span class="check on">✓</span>
+                        </div>
+                        <div class="tree-row child"><span></span><span>Real-time Metrics</span><span class="check on">✓</span></div>
+                        <div class="tree-row child"><span></span><span>System Health Logs</span><span class="check"></span></div>
+                        <div class="tree-row">
+                            <svg class="chev" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="m6 4 4 4-4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+                            <svg class="tree-icon" viewBox="0 0 24 24" fill="none"><path d="M3 7h7l2 2h9v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" stroke="currentColor" stroke-width="2"/><path d="M15 13h4m-2-2v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                            <span>Project Management</span>
+                            <span class="check on">✓</span>
+                        </div>
+                        <div class="tree-row">
+                            <svg class="chev" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="m5 6 3 3 3-3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+                            <svg class="tree-icon" viewBox="0 0 24 24" fill="none"><path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z" stroke="currentColor" stroke-width="2"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.5-2.4 1a7.3 7.3 0 0 0-2-1.1L14.2 3h-4.4l-.4 2.7a7.3 7.3 0 0 0-2 1.1l-2.4-1-2 3.5 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.5 2.4-1a7.3 7.3 0 0 0 2 1.1l.4 2.7h4.4l.4-2.7a7.3 7.3 0 0 0 2-1.1l2.4 1 2-3.5-2-1.5c.1-.4.1-.8.1-1.2Z" stroke="currentColor" stroke-width="1.6"/></svg>
+                            <span>Configuration</span>
+                            <span class="check on">✓</span>
+                        </div>
+                        <div class="tree-row child"><span></span><span>Permission Config</span><span class="check on">✓</span></div>
+                        <div class="tree-row child"><span></span><span>System Rules</span><span class="check on">✓</span></div>
+                        <div class="tree-row">
+                            <svg class="chev" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="m6 4 4 4-4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+                            <svg class="tree-icon" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="5" rx="7" ry="3" stroke="currentColor" stroke-width="2"/><path d="M5 5v6c0 1.7 3.1 3 7 3s7-1.3 7-3V5M5 11v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6" stroke="currentColor" stroke-width="2"/></svg>
+                            <span>Data Management</span>
+                            <span class="check"></span>
+                        </div>
+                    </div>
+                    <div class="panel-footer">
+                        <button class="btn btn-secondary" type="button">取消</button>
+                        <button class="btn" type="button" id="savePermissionBtn">保存</button>
+                    </div>
+                </div>
+            </section>
+{% endblock %}
+{% block scripts %}
+    <script>
+        document.getElementById('savePermissionBtn').addEventListener('click', () => showToast('权限配置已保存'));
+    </script>
+{% endblock %}

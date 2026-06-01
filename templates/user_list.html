@@ -1,0 +1,232 @@
+{% extends "admin_base.html" %}
+{% set active_menu = "users" %}
+{% set active_user_child = "users" %}
+{% block title %}用户列表 - 运营后台{% endblock %}
+{% block top_title %}用户管理{% endblock %}
+{% block search_control %}<label class="search"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m21 21-4.3-4.3M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg><input id="userSearch" type="search" placeholder="搜索用户..." aria-label="搜索用户"></label>{% endblock %}
+{% block top_actions %}<button class="create-btn" type="button" data-toast="新增用户功能暂未接入">新增用户</button>{% endblock %}
+{% block styles %}
+        .main {
+            padding: 20px;
+            min-height: calc(100vh - var(--topbar-h));
+            display: flex;
+            flex-direction: column;
+        }
+        .user-card {
+            width: 100%;
+            flex: 1 1 auto;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid rgba(195, 198, 215, 0.48);
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.86);
+            box-shadow: 0 10px 28px rgba(15, 23, 42, 0.04);
+            overflow: hidden;
+        }
+        .list-tabs {
+            height: 58px;
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            border-bottom: 1px solid #e8ebf0;
+        }
+        .tab-pill {
+            min-width: 76px;
+            height: 30px;
+            padding: 0 16px;
+            border: 0;
+            border-radius: 999px;
+            color: #536079;
+            background: transparent;
+            font-size: 12px;
+            line-height: 30px;
+            font-weight: 700;
+        }
+        .tab-pill.active { color: #536079; background: #e8f1ff; }
+        .table-wrap { flex: 1 1 auto; min-height: 0; overflow: auto; }
+        .data-table { width: 100%; min-width: 100%; border-collapse: collapse; table-layout: fixed; }
+        .data-table th {
+            height: 52px;
+            padding: 0 20px;
+            color: #536079;
+            background: #fafafa;
+            font-size: 14px;
+            line-height: 20px;
+            font-weight: 800;
+            text-align: left;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+        .data-table td {
+            height: 70px;
+            padding: 0 20px;
+            border-top: 1px solid #eef0f3;
+            color: #364153;
+            font-size: 14px;
+            vertical-align: middle;
+        }
+        .person { display: flex; align-items: center; gap: 12px; min-width: 0; }
+        .avatar-initials {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: grid;
+            place-items: center;
+            color: #0f5480;
+            background: #bfe2ff;
+            font-size: 12px;
+            line-height: 16px;
+            font-weight: 800;
+            flex: 0 0 36px;
+        }
+        .avatar-initials.blue { color: #fff; background: #087dad; }
+        .avatar-initials.gray { color: #5f6678; background: #c9cedc; }
+        .name { color: #20242c; font-size: 16px; line-height: 20px; font-weight: 800; }
+        .handle { color: #536079; font-size: 11px; line-height: 15px; font-weight: 600; }
+        .role-badge {
+            display: inline-flex;
+            min-width: 46px;
+            height: 22px;
+            padding: 0 10px;
+            border-radius: 999px;
+            align-items: center;
+            justify-content: center;
+            color: #1558bd;
+            background: #dbe8ff;
+            font-size: 11px;
+            line-height: 22px;
+            font-weight: 800;
+        }
+        .role-badge.gray { color: #4b5563; background: #e5e7eb; }
+        .status-dot { display: inline-flex; align-items: center; gap: 8px; color: #1f2937; font-weight: 600; }
+        .status-dot::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #0b79a8; }
+        .status-dot.frozen { color: #d00000; }
+        .status-dot.frozen::before { background: #d00000; }
+        .action-group { display: flex; align-items: center; gap: 10px; }
+        .action-btn {
+            height: 30px;
+            padding: 0 12px;
+            border: 1px solid #d9e4ff;
+            border-radius: 8px;
+            color: #1558bd;
+            background: #f4f8ff;
+            font-size: 12px;
+            line-height: 28px;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+        .action-btn:hover { border-color: #b8ccff; background: #e8f1ff; }
+        .action-btn.freeze { border-color: #fee2e2; color: #ba1a1a; background: #fff7f7; }
+        .action-btn.freeze:hover { border-color: #fecaca; background: #fef2f2; }
+        .table-foot {
+            flex: 0 0 62px;
+            height: 62px;
+            padding: 0 20px;
+            border-top: 1px solid #eef0f3;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 20px;
+            color: #536079;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .pager { display: flex; align-items: center; gap: 18px; color: #111827; }
+        .page-btn {
+            width: 32px;
+            height: 32px;
+            border: 0;
+            border-radius: 8px;
+            display: grid;
+            place-items: center;
+            color: #111827;
+            background: transparent;
+            font-size: 13px;
+            font-weight: 700;
+        }
+        .page-btn.active { color: #fff; background: #0057d9; }
+        .page-btn.muted { color: #a7afbd; }
+        @media (max-width: 900px) {
+            .main { padding: 12px; }
+            .user-card { border-radius: 8px; }
+        }
+{% endblock %}
+{% block content %}
+            <section class="user-card" aria-label="用户列表">
+                <div class="list-tabs">
+                    <button class="tab-pill active" type="button">所有用户</button>
+                    <button class="tab-pill" type="button">冻结用户</button>
+                </div>
+                <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th style="width:25%;">用户名</th>
+                            <th style="width:26%;">邮箱</th>
+                            <th style="width:18%;">角色</th>
+                            <th style="width:16%;">状态</th>
+                            <th style="width:15%;">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><div class="person"><span class="avatar-initials">JD</span><div><div class="name">Jane Doe</div><div class="handle">@janedoe</div></div></div></td>
+                            <td>jane.doe@adminconsole.io</td>
+                            <td><span class="role-badge">超级管理员</span></td>
+                            <td><span class="status-dot">正常</span></td>
+                            <td><div class="action-group"><button class="action-btn freeze" type="button" data-toast="已点击冻结用户">冻结</button><button class="action-btn" type="button" data-toast="已点击用户详情">详情</button></div></td>
+                        </tr>
+                        <tr>
+                            <td><div class="person"><span class="avatar-initials">MS</span><div><div class="name">Marcus Sterling</div><div class="handle">@msterling</div></div></div></td>
+                            <td>m.sterling@ops-team.com</td>
+                            <td><span class="role-badge">运营</span></td>
+                            <td><span class="status-dot frozen">冻结</span></td>
+                            <td><div class="action-group"><button class="action-btn freeze" type="button" data-toast="已点击冻结用户">冻结</button><button class="action-btn" type="button" data-toast="已点击用户详情">详情</button></div></td>
+                        </tr>
+                        <tr>
+                            <td><div class="person"><span class="avatar-initials blue">LY</span><div><div class="name">Linda Yang</div><div class="handle">@lyang_dev</div></div></div></td>
+                            <td>linda.y@cloud-arch.net</td>
+                            <td><span class="role-badge">采购</span></td>
+                            <td><span class="status-dot">正常</span></td>
+                            <td><div class="action-group"><button class="action-btn freeze" type="button" data-toast="已点击冻结用户">冻结</button><button class="action-btn" type="button" data-toast="已点击用户详情">详情</button></div></td>
+                        </tr>
+                        <tr>
+                            <td><div class="person"><span class="avatar-initials gray">AH</span><div><div class="name">Alex Hoffman</div><div class="handle">@ahoffman</div></div></div></td>
+                            <td>alex.h@consultancy.com</td>
+                            <td><span class="role-badge gray">管理员</span></td>
+                            <td><span class="status-dot frozen">冻结</span></td>
+                            <td><div class="action-group"><button class="action-btn freeze" type="button" data-toast="已点击冻结用户">冻结</button><button class="action-btn" type="button" data-toast="已点击用户详情">详情</button></div></td>
+                        </tr>
+                    </tbody>
+                </table>
+                </div>
+                <div class="table-foot">
+                    <span>Showing 1 to 4 of 1,284 users</span>
+                    <div class="pager" aria-label="分页">
+                        <button class="page-btn muted" type="button">‹</button>
+                        <button class="page-btn active" type="button">1</button>
+                        <button class="page-btn" type="button">2</button>
+                        <button class="page-btn" type="button">3</button>
+                        <span>...</span>
+                        <button class="page-btn" type="button">32</button>
+                        <button class="page-btn" type="button">›</button>
+                    </div>
+                </div>
+            </section>
+{% endblock %}
+{% block scripts %}
+<script>
+    const userSearch = document.getElementById('userSearch');
+    if (userSearch) {
+        userSearch.addEventListener('input', () => {
+            const keyword = userSearch.value.trim().toLowerCase();
+            document.querySelectorAll('.data-table tbody tr').forEach((row) => {
+                row.hidden = keyword && !row.textContent.toLowerCase().includes(keyword);
+            });
+        });
+    }
+</script>
+{% endblock %}

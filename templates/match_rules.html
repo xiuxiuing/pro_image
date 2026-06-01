@@ -1,60 +1,114 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <title>类目规则模板 - 商品分析平台</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --primary-accent: #FFD500;
-            --text-main: #000;
-            --text-muted: #64748b;
-            --glass-border: rgba(255, 255, 255, 0.3);
-            --radius-lg: 20px;
+{% extends "admin_base.html" %}
+{% set active_menu = "config" %}
+{% set active_config_child = "rules" %}
+{% block title %}规则配置 - 商品竞对分析平台{% endblock %}
+{% block top_title %}配置管理{% endblock %}
+{% block search_placeholder %}搜索规则模板...{% endblock %}
+{% block top_actions %}<a class="create-btn" href="/match-rules/new">新建模板</a>{% endblock %}
+{% block styles %}
+        .main {
+            padding: clamp(28px, 3vw, 52px) clamp(24px, 4vw, 56px);
         }
-        body { font-family: 'Inter', sans-serif; background: #f8fafc; color: var(--text-main); margin: 0; min-height: 100vh; }
-        .dynamic-bg { position: fixed; inset: 0; z-index: -1; background: #f8fafc; }
-        .wrap { max-width: 1100px; margin: 0 auto; padding: 32px 24px 80px; }
-        .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; flex-wrap: wrap; gap: 16px; }
-        h1 { font-family: 'Outfit', sans-serif; font-size: 32px; font-weight: 800; margin: 0; letter-spacing: -0.02em; }
-        .sub { color: var(--text-muted); font-size: 14px; margin-top: 6px; font-weight: 500; }
-        .btn { display: inline-flex; align-items: center; justify-content: center; padding: 12px 22px; border-radius: 14px; font-weight: 700; font-size: 14px; cursor: pointer; border: none; text-decoration: none; transition: .2s; }
-        .btn-back { background: #f1f5f9; color: #475569; }
-        .btn-back:hover { background: #e2e8f0; }
-        .btn-primary { background: #000; color: #fff; }
-        .btn-primary:hover { background: #1e293b; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
+        .rules-head {
+            width: 100%;
+            max-width: 1328px;
+            margin: 0 auto 28px;
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 16px;
+        }
+        .rules-title { margin: 0; color: #20242c; font-size: 20px; line-height: 26px; font-weight: 800; }
+        .rules-sub { margin: 4px 0 0; color: #59657a; font-size: 12px; line-height: 18px; }
+        .rules-grid {
+            width: 100%;
+            max-width: 1328px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            grid-auto-rows: 1fr;
+            gap: clamp(18px, 1.8vw, 28px);
+            align-items: stretch;
+        }
         .card {
-            background: rgba(255,255,255,0.92); border: 1.5px solid var(--glass-border); border-radius: var(--radius-lg);
-            padding: 22px; box-shadow: 0 10px 30px rgba(0,0,0,.06); transition: .25s;
+            min-width: 0;
+            min-height: 100%;
+            background: rgba(255,255,255,.86);
+            border: 1px solid rgba(195,198,215,.54);
+            border-radius: 8px;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 10px 28px rgba(15,23,42,.05);
+            transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
         }
-        .card:hover { border-color: var(--primary-accent); transform: translateY(-4px); box-shadow: 0 16px 36px rgba(255,213,0,.12); }
-        .card h3 { font-family: 'Outfit', sans-serif; font-size: 18px; font-weight: 800; margin: 0 0 8px; }
-        .card p { font-size: 13px; color: var(--text-muted); line-height: 1.5; margin: 0 0 16px; min-height: 40px; }
-        .card-actions { display: flex; gap: 10px; }
-        .card-actions a, .card-actions button { flex: 1; text-align: center; padding: 10px; border-radius: 12px; font-weight: 700; font-size: 13px; cursor: pointer; border: none; text-decoration: none; }
-        .edit { background: #000; color: #fff; }
-        .edit:hover { opacity: .9; }
+        .card:hover { border-color: rgba(118,111,242,.45); transform: translateY(-2px); box-shadow: 0 14px 30px rgba(118,111,242,.1); }
+        .card h3 { margin: 0 0 8px; color: #111827; font-size: 17px; line-height: 24px; font-weight: 800; }
+        .card p { margin: 0; color: var(--muted); font-size: 13px; line-height: 20px; flex: 1 1 auto; }
+        .rule-meta {
+            margin-top: 20px;
+            min-height: 82px;
+            padding: 12px 14px;
+            border-radius: 8px;
+            display: flex;
+            align-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px 16px;
+            color: #475569;
+            background: #f8fafc;
+            font-size: 12px;
+            line-height: 20px;
+            font-weight: 700;
+        }
+        .card-actions {
+            margin-top: auto;
+            padding-top: 20px;
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+        .card-actions a, .card-actions button {
+            width: 100%;
+            min-width: 0;
+            min-height: 44px;
+            padding: 11px 14px;
+            border: 0;
+            border-radius: 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            font-weight: 700;
+            font-size: 13px;
+            line-height: 18px;
+            cursor: pointer;
+            text-decoration: none;
+        }
+        .edit { background: var(--blue); color: #fff; }
         .del { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca !important; }
-        .empty { text-align: center; padding: 48px 20px; color: var(--text-muted); font-size: 15px; }
-    </style>
-</head>
-<body>
-    <div class="dynamic-bg"></div>
-    <div class="wrap">
-        <div class="top-bar">
-            <div>
-                <h1>类目规则模板</h1>
-                <div class="sub">先导入美团一二三级类目树，再按三级类目分组配置类目规则。未被规则组选中的三级类目，不做后验过滤。</div>
-            </div>
-            <div style="display:flex; gap:12px; align-items:center;">
-                <a class="btn btn-back" href="/">← 返回项目</a>
-                <a class="btn btn-primary" href="/match-rules/new">+ 新建模板</a>
-            </div>
-        </div>
-        <div id="list" class="grid"></div>
-        <div id="empty" class="empty" style="display:none;">暂无规则，请点击「新建模板」</div>
-    </div>
+        .empty { width: 100%; max-width: 1328px; margin: 24px auto 0; padding: 46px 20px; border: 1px dashed #cbd5e1; border-radius: 8px; color: var(--muted); background: rgba(255,255,255,.65); text-align: center; font-size: 14px; }
+        @media (max-width: 1180px) {
+            .rules-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        @media (max-width: 720px) {
+            .main { padding: 20px 16px; }
+            .rules-head { margin-bottom: 18px; }
+            .rules-grid { grid-template-columns: 1fr; }
+            .card { padding: 18px; }
+        }
+{% endblock %}
+{% block content %}
+            <section class="rules-head">
+                <div>
+                    <h1 class="rules-title">规则配置</h1>
+                    <p class="rules-sub">先导入美团一二三级类目树，再按三级类目分组配置类目规则。</p>
+                </div>
+            </section>
+            <div id="list" class="rules-grid"></div>
+            <div id="empty" class="empty" style="display:none;">暂无规则，请点击「新建模板」</div>
+{% endblock %}
+{% block scripts %}
     <script>
         async function load() {
             const list = document.getElementById('list');
@@ -71,8 +125,12 @@
                     d.className = 'card';
                     d.innerHTML = `
                         <h3>${escapeHtml(t.name)}</h3>
-                        <p>${escapeHtml((t.description || '').slice(0, 120))}${(t.description || '').length > 120 ? '…' : ''}</p>
-                        <p style="font-size:12px;color:#475569;margin:-4px 0 16px;">规则组 ${t.group_count || 0} 条 · 三级类目 ${(t.category3_count || 0)} 个 · 已启用维度 ${(t.enabled_metric_total || 0)} 项</p>
+                        <p>${escapeHtml((t.description || '未填写模板说明').slice(0, 120))}${(t.description || '').length > 120 ? '...' : ''}</p>
+                        <div class="rule-meta">
+                            <span>规则组 ${t.group_count || 0} 条</span>
+                            <span>三级类目 ${(t.category3_count || 0)} 个</span>
+                            <span>启用维度 ${(t.enabled_metric_total || 0)} 项</span>
+                        </div>
                         <div class="card-actions">
                             <a class="edit" href="/match-rules/${t.id}">编辑</a>
                             <button type="button" class="del" data-id="${t.id}">删除</button>
@@ -98,5 +156,4 @@
         }
         load();
     </script>
-</body>
-</html>
+{% endblock %}

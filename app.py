@@ -12,7 +12,7 @@ if sys.platform == "darwin":
     ):
         os.environ.setdefault(_k, _v)
 
-from flask import Flask, render_template, request, jsonify, send_file
+from flask import Flask, render_template, request, jsonify, send_file, redirect
 from data_mgr import DataManager
 from license_utils import LicenseManager
 import signal
@@ -270,6 +270,12 @@ def market_analysis_page():
     if not is_valid: return render_template('activate.html', hwid=CURRENT_HWID)
     return render_template('market_analysis.html', active_project=dm.active_project_name)
 
+@app.route('/market-analysis/raw')
+def market_analysis_raw_page():
+    is_valid, _ = check_license()
+    if not is_valid: return render_template('activate.html', hwid=CURRENT_HWID)
+    return render_template('market_analysis_raw.html', active_project=dm.active_project_name)
+
 @app.route("/match-agent")
 def match_agent_page():
     is_valid, _ = check_license()
@@ -281,6 +287,60 @@ def match_rules_page():
     is_valid, _ = check_license()
     if not is_valid: return render_template("activate.html", hwid=CURRENT_HWID)
     return render_template("match_rules.html")
+
+@app.route("/config-management")
+def config_management_page():
+    is_valid, _ = check_license()
+    if not is_valid: return render_template("activate.html", hwid=CURRENT_HWID)
+    return redirect("/config-management/permissions")
+
+@app.route("/config-management/permissions")
+def permission_config_page():
+    is_valid, _ = check_license()
+    if not is_valid: return render_template("activate.html", hwid=CURRENT_HWID)
+    return render_template("permission_config.html")
+
+@app.route("/config-management/rules")
+def rule_config_page():
+    is_valid, _ = check_license()
+    if not is_valid: return render_template("activate.html", hwid=CURRENT_HWID)
+    return render_template("match_rules.html")
+
+@app.route("/user-management")
+def user_management_page():
+    is_valid, _ = check_license()
+    if not is_valid: return render_template("activate.html", hwid=CURRENT_HWID)
+    return redirect("/user-management/users")
+
+@app.route("/user-management/users")
+def user_list_page():
+    is_valid, _ = check_license()
+    if not is_valid: return render_template("activate.html", hwid=CURRENT_HWID)
+    return render_template("user_list.html")
+
+@app.route("/user-management/roles")
+def role_list_page():
+    is_valid, _ = check_license()
+    if not is_valid: return render_template("activate.html", hwid=CURRENT_HWID)
+    return render_template("role_list.html")
+
+@app.route("/data-management")
+def data_management_page():
+    is_valid, _ = check_license()
+    if not is_valid: return render_template("activate.html", hwid=CURRENT_HWID)
+    return redirect("/data-management/operations")
+
+@app.route("/data-management/operations")
+def operation_data_page():
+    is_valid, _ = check_license()
+    if not is_valid: return render_template("activate.html", hwid=CURRENT_HWID)
+    return render_template("data_management.html", page_title="运营数据", active_data_child="operations")
+
+@app.route("/data-management/stores")
+def store_data_page():
+    is_valid, _ = check_license()
+    if not is_valid: return render_template("activate.html", hwid=CURRENT_HWID)
+    return render_template("data_management.html", page_title="门店数据", active_data_child="stores")
 
 @app.route("/match-rules/new")
 def match_rule_new_page():

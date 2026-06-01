@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Pi Pai{% endblock %}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --blue: #766ff2;
+            --blue-deep: #4f46c7;
+            --bg: #f8f9fa;
+            --text: #191c1d;
+            --text-2: #434655;
+            --muted: #737686;
+            --nav: #505f76;
+            --line: rgba(195, 198, 215, 0.5);
+            --line-soft: rgba(229, 231, 235, 0.5);
+            --panel: rgba(255, 255, 255, 0.72);
+            --sidebar-w: 230px;
+            --topbar-h: 64px;
+            --primary-accent: #FFD500;
+            --text-main: #000;
+            --text-muted: #64748b;
+            --glass-bg: rgba(255, 255, 255, 0.5);
+            --glass-border: rgba(255, 255, 255, 0.3);
+            --radius-xl: 32px;
+            --radius-lg: 20px;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: var(--bg);
+            color: var(--text);
+            font-family: Inter, Arial, sans-serif;
+            overflow-x: hidden;
+        }
+        button, input, select { font: inherit; }
+        button { cursor: pointer; }
+        .app { min-height: 100vh; background: var(--bg); }
+        .sidebar {
+            position: fixed;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            z-index: 20;
+            width: var(--sidebar-w);
+            padding: 24px 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            background: var(--panel);
+            border-right: 1px solid var(--line);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+            backdrop-filter: blur(12px);
+            transition: width 0.2s ease;
+        }
+        .brand-row {
+            position: relative;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 0 56px 40px 24px;
+        }
+        .brand-logo {
+            width: 0;
+            height: 48px;
+            border-radius: 10px;
+            object-fit: cover;
+            flex: 0 0 0;
+            opacity: 0;
+            pointer-events: none;
+            overflow: hidden;
+            box-shadow: 0 6px 18px rgba(118, 111, 242, 0.14);
+        }
+        .brand-copy { min-width: 0; flex: 1; transition: opacity 0.16s ease; }
+        .brand-title { margin: 0; color: var(--blue); font-size: 20px; line-height: 28px; font-weight: 700; white-space: nowrap; }
+        .brand-subtitle { margin: 0; color: #505f76; font-size: 14px; line-height: 20px; white-space: nowrap; }
+        .sidebar-toggle {
+            position: absolute;
+            top: calc(50vh - 32px);
+            right: -10px;
+            width: 20px;
+            height: 64px;
+            padding: 0;
+            border: 1px solid rgba(195, 198, 215, 0.8);
+            border-radius: 8px;
+            display: grid;
+            place-items: center;
+            color: var(--nav);
+            background: rgba(255, 255, 255, 0.92);
+            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+        }
+        .sidebar-toggle svg { transition: transform 0.2s ease; }
+        .nav { flex: 1; padding: 0 8px; display: flex; flex-direction: column; gap: 4px; }
+        .nav-item {
+            position: relative;
+            width: 100%;
+            min-width: 0;
+            height: 44px;
+            padding: 12px 16px;
+            border: 0;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: var(--nav);
+            background: transparent;
+            font-size: 14px;
+            line-height: 20px;
+            text-align: left;
+        }
+        .nav-item.active { color: var(--blue); background: rgba(208, 225, 251, 0.5); }
+        .nav-item.active::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 12px;
+            width: 4px;
+            height: 24px;
+            border-radius: 999px;
+            background: var(--blue);
+        }
+        .nav-icon { width: 22px; height: 20px; color: currentColor; flex: 0 0 22px; }
+        .nav-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: opacity 0.16s ease; }
+        .nav-arrow { width: 14px; height: 14px; color: currentColor; flex: 0 0 14px; transition: transform 0.16s ease; }
+        .nav-group { display: grid; gap: 4px; }
+        .nav-group.is-open .nav-arrow { transform: rotate(180deg); }
+        .nav-group .nav-item.active { border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; }
+        .subnav {
+            display: none;
+            gap: 2px;
+            margin: -2px 10px 8px 40px;
+            padding: 2px 0 2px 13px;
+            border-left: 2px solid rgba(118, 111, 242, 0.22);
+        }
+        .nav-group.is-open .subnav { display: grid; }
+        .subnav a {
+            min-height: 30px;
+            padding: 7px 10px;
+            border-radius: 6px;
+            color: #64748b;
+            font-size: 12px;
+            line-height: 16px;
+            font-weight: 600;
+            text-decoration: none;
+        }
+        .subnav a:hover { color: var(--blue); background: rgba(208, 225, 251, 0.24); }
+        .subnav a.active { color: var(--blue); background: rgba(208, 225, 251, 0.58); font-weight: 700; }
+        .logout { width: 100%; padding: 17px 8px 0; border-top: 1px solid rgba(195, 198, 215, 0.3); }
+        .logout .nav-item { color: #ba1a1a; }
+        .topbar {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            height: var(--topbar-h);
+            margin-left: var(--sidebar-w);
+            padding: 0 clamp(16px, 2vw, 24px);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--panel);
+            border-bottom: 1px solid var(--line);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+            backdrop-filter: blur(12px);
+            transition: margin-left 0.2s ease;
+        }
+        .top-title { margin: 0; color: var(--blue); font-size: 18px; line-height: 24px; font-weight: 700; }
+        .top-actions { display: flex; align-items: center; gap: 16px; min-width: 0; margin-left: auto; }
+        .search { position: relative; width: min(256px, 28vw); min-width: 180px; height: 36px; }
+        .search svg { position: absolute; left: 12px; top: 9px; width: 18px; height: 18px; color: #6b7280; pointer-events: none; }
+        .search input {
+            width: 100%;
+            height: 36px;
+            border: 0;
+            outline: none;
+            border-radius: 8px;
+            background: #f3f4f5;
+            color: var(--blue);
+            padding: 9px 16px 10px 40px;
+            font-size: 14px;
+            line-height: 17px;
+        }
+        .create-btn {
+            height: 32px;
+            padding: 8px 16px;
+            border: 0;
+            border-radius: 8px;
+            background: var(--blue);
+            color: #fff;
+            font-size: 12px;
+            line-height: 16px;
+            font-weight: 500;
+            white-space: nowrap;
+            text-decoration: none;
+        }
+        .create-btn:hover { background: var(--blue-deep); }
+        .icon-btn { width: 32px; height: 36px; border: 0; border-radius: 999px; display: grid; place-items: center; color: #344054; background: transparent; }
+        .avatar { width: 32px; height: 32px; border: 1px solid var(--line); border-radius: 50%; background: radial-gradient(circle at 34% 28%, #f6c36a 0 13%, #0d9488 14% 42%, #d8f6ff 43% 62%, #0f172a 63% 100%); }
+        .main {
+            margin-left: var(--sidebar-w);
+            min-height: calc(100vh - var(--topbar-h));
+            padding: 44px 32px 28px 40px;
+            transition: margin-left 0.2s ease;
+        }
+        .btn {
+            min-height: 36px;
+            padding: 9px 16px;
+            border: 0;
+            border-radius: 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            color: #fff;
+            background: var(--blue);
+            font-size: 13px;
+            line-height: 18px;
+            font-weight: 600;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+        .btn:hover { background: var(--blue-deep); }
+        .btn-secondary { color: #334155; background: #eef2f7; }
+        .btn-secondary:hover { background: #e2e8f0; }
+        .toast {
+            position: fixed;
+            right: 24px;
+            bottom: 24px;
+            z-index: 50;
+            transform: translateY(16px);
+            opacity: 0;
+            pointer-events: none;
+            padding: 12px 16px;
+            border-radius: 8px;
+            color: #fff;
+            background: #111827;
+            font-size: 13px;
+            font-weight: 700;
+            box-shadow: 0 16px 32px rgba(15,23,42,.18);
+            transition: .18s;
+        }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        .app.is-collapsed { --sidebar-w: 76px; }
+        .app.is-collapsed .brand-row { padding-left: 14px; padding-right: 14px; justify-content: center; }
+        .app.is-collapsed .brand-copy,
+        .app.is-collapsed .nav-label,
+        .app.is-collapsed .nav-arrow,
+        .app.is-collapsed .subnav { width: 0; opacity: 0; pointer-events: none; overflow: hidden; }
+        .app.is-collapsed .subnav { display: none; }
+        .app.is-collapsed .brand-logo { width: 48px; flex-basis: 48px; opacity: 1; pointer-events: auto; }
+        .app.is-collapsed .sidebar-toggle svg { transform: rotate(180deg); }
+        .app.is-collapsed .nav { padding: 0 20px; align-items: center; }
+        .app.is-collapsed .nav-group { width: 36px; justify-items: center; }
+        .app.is-collapsed .nav-item {
+            width: 36px;
+            height: 36px;
+            padding: 0;
+            display: grid;
+            place-items: center;
+        }
+        .app.is-collapsed .nav-icon {
+            width: 24px;
+            height: 24px;
+            flex: none;
+        }
+        .app.is-collapsed .nav-item.active::before { left: 0; }
+        @media (max-width: 760px) {
+            .sidebar { position: static; width: 100%; }
+            .topbar, .main { margin-left: 0; }
+            .sidebar-toggle { display: none; }
+        }
+        {% block styles %}{% endblock %}
+    </style>
+</head>
+<body>
+    <div class="app" id="app">
+        <aside class="sidebar">
+            <div>
+                <div class="brand-row">
+                    <img class="brand-logo" src="/static/pi-pai-logo.png" alt="Pi Pai logo">
+                    <div class="brand-copy">
+                        <h1 class="brand-title">Pi Pai</h1>
+                        <p class="brand-subtitle">科技-让复杂的世界变简单</p>
+                    </div>
+                    <button class="sidebar-toggle" id="sidebarToggle" type="button" aria-label="收缩侧边栏" aria-expanded="true">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M10 3 5 8l5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                    </button>
+                </div>
+                <nav class="nav" aria-label="后台菜单">
+                    <button class="nav-item" type="button" data-toast="概览暂未接入"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 4h6v6H4V4Zm10 0h6v6h-6V4ZM4 14h6v6H4v-6Zm10 0h6v6h-6v-6Z" stroke="currentColor" stroke-width="2" /></svg><span class="nav-label">概览</span></button>
+                    <button class="nav-item {% if active_menu == 'projects' %}active{% endif %}" type="button" data-href="/"><svg class="nav-icon" viewBox="0 0 1024 1024" aria-hidden="true"><path d="M731.735 230.989c60.948 0 110.356 49.414 110.356 110.37V796.63c0 60.955-49.408 110.369-110.356 110.369H175.356C114.408 907 65 857.586 65 796.63V341.359c0-60.955 49.408-110.37 110.356-110.37z m50.58 264.426H124.776v301.216c0 27.658 22.195 50.132 49.744 50.579l0.836 0.007h556.38c27.934 0 50.58-22.648 50.58-50.586l-0.001-301.216zM845.644 105c60.338 0 109.367 48.43 110.341 108.544l0.015 1.825v576.663c0 16.509-13.381 29.892-29.888 29.892-16.271 0-29.505-13.004-29.88-29.186l-0.008-0.706V215.37c0-27.658-22.195-50.132-49.744-50.579l-0.836-0.007H278.815c-16.507 0-29.888-13.383-29.888-29.891 0-16.273 13.002-29.509 29.183-29.884l0.705-0.008h566.829zM731.735 290.772H175.356c-27.934 0-50.58 22.648-50.58 50.586v94.273h657.539v-94.273c0-27.658-22.195-50.132-49.743-50.579l-0.837-0.007z m-128.749 34.49c16.507 0 29.889 13.384 29.889 29.892 0 16.273-13.002 29.509-29.183 29.884l-0.706 0.008H191.45c-16.507 0-29.888-13.383-29.888-29.892 0-16.273 13.001-29.508 29.182-29.883l0.706-0.008h411.536z m98.861 0c16.507 0 29.888 13.384 29.888 29.892 0 16.509-13.381 29.892-29.888 29.892s-29.888-13.383-29.888-29.892c0-16.508 13.381-29.891 29.888-29.891z" fill="currentColor" /></svg><span class="nav-label">项目管理</span></button>
+                    <div class="nav-group {% if active_menu == 'config' %}is-open{% endif %}">
+                        <button class="nav-item {% if active_menu == 'config' %}active{% endif %}" type="button" data-toggle="nav-group" aria-expanded="{% if active_menu == 'config' %}true{% else %}false{% endif %}"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z" stroke="currentColor" stroke-width="2" /><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.5-2.4 1a7.3 7.3 0 0 0-2-1.1L14.2 3h-4.4l-.4 2.7a7.3 7.3 0 0 0-2 1.1l-2.4-1-2 3.5 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.5 2.4-1a7.3 7.3 0 0 0 2 1.1l.4 2.7h4.4l.4-2.7a7.3 7.3 0 0 0 2-1.1l2.4 1 2-3.5-2-1.5c.1-.4.1-.8.1-1.2Z" stroke="currentColor" stroke-width="1.6" /></svg><span class="nav-label">配置管理</span><svg class="nav-arrow" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+                        <div class="subnav" aria-label="配置管理子菜单">
+                            <a class="{% if active_config_child == 'permissions' %}active{% endif %}" href="/config-management/permissions">权限配置</a>
+                            <a class="{% if active_config_child == 'rules' %}active{% endif %}" href="/config-management/rules">规则配置</a>
+                        </div>
+                    </div>
+                    <div class="nav-group {% if active_menu == 'users' %}is-open{% endif %}">
+                        <button class="nav-item {% if active_menu == 'users' %}active{% endif %}" type="button" data-toggle="nav-group" aria-expanded="{% if active_menu == 'users' %}true{% else %}false{% endif %}"><svg class="nav-icon" viewBox="0 0 1024 1024" aria-hidden="true"><path d="M664.512 180.992a204.48 204.48 0 0 1 3.392 408.96h-3.392v-64a140.48 140.48 0 1 0-56.32-269.184l-0.96 0.384-26.176-58.432a203.904 203.904 0 0 1 83.456-17.728z" fill="currentColor" /><path d="M664 526.016a286.528 286.528 0 0 1 286.976 281.28v4.672h-64a222.464 222.464 0 0 0-219.264-221.952h-3.712v-64z" fill="currentColor" /><path d="M427.008 118.016a240.768 240.768 0 0 0-241.024 240.512 240.768 240.768 0 0 0 241.024 240.448 240.768 240.768 0 0 0 241.024-240.448 240.768 240.768 0 0 0-241.024-240.512z m0 64a176.768 176.768 0 0 1 177.024 176.512 176.768 176.768 0 0 1-177.024 176.448 176.768 176.768 0 0 1-177.024-176.448 176.768 176.768 0 0 1 177.024-176.512z" fill="currentColor" /><path d="M427.008 535.04a340.032 340.032 0 0 1 339.968 334.336v5.632h-64A276.032 276.032 0 0 0 151.04 870.4v4.48h-64A340.032 340.032 0 0 1 426.944 535.04z" fill="currentColor" /></svg><span class="nav-label">用户管理</span><svg class="nav-arrow" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+                        <div class="subnav" aria-label="用户管理子菜单">
+                            <a class="{% if active_user_child == 'users' %}active{% endif %}" href="/user-management/users">用户列表</a>
+                            <a class="{% if active_user_child == 'roles' %}active{% endif %}" href="/user-management/roles">角色列表</a>
+                        </div>
+                    </div>
+                    <div class="nav-group {% if active_menu == 'data' %}is-open{% endif %}">
+                        <button class="nav-item {% if active_menu == 'data' %}active{% endif %}" type="button" data-toggle="nav-group" aria-expanded="{% if active_menu == 'data' %}true{% else %}false{% endif %}"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><ellipse cx="12" cy="5" rx="7" ry="3" stroke="currentColor" stroke-width="2" /><path d="M5 5v6c0 1.7 3.1 3 7 3s7-1.3 7-3V5M5 11v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6" stroke="currentColor" stroke-width="2" /></svg><span class="nav-label">数据管理</span><svg class="nav-arrow" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+                        <div class="subnav" aria-label="数据管理子菜单">
+                            <a class="{% if active_data_child == 'operations' %}active{% endif %}" href="/data-management/operations">运营数据</a>
+                            <a class="{% if active_data_child == 'stores' %}active{% endif %}" href="/data-management/stores">门店数据</a>
+                        </div>
+                    </div>
+                    <div class="nav-group {% if active_menu == 'ops' %}is-open{% endif %}">
+                        <button class="nav-item {% if active_menu == 'ops' %}active{% endif %}" type="button" data-toggle="nav-group" aria-expanded="{% if active_menu == 'ops' %}true{% else %}false{% endif %}"><svg class="nav-icon" viewBox="0 0 1024 1024" aria-hidden="true"><path d="M42.667 682.667v256C42.667 985.77 80.896 1024 128 1024h85.333c47.104 0 85.334-38.23 85.334-85.333v-256c0-47.104-38.23-85.334-85.334-85.334h85.334V512h-85.334V141.312c0-58.965 40.022-61.355 40.022-61.355C253.355 56.405 194.219 0 170.667 0S98.645 48.384 98.645 72.021c0 0 29.355 4.438 29.355 55.979v384H42.667v85.333H128c-47.104 0-85.333 38.23-85.333 85.334z m938.666-512c0-47.104-38.144-85.334-85.333-85.334h-85.333C810.667 38.23 772.523 0 725.333 0H554.667c-47.104 0-85.334 38.144-85.334 85.333H384V0h-85.333v256H384v-85.333h85.333c0 47.104 38.23 85.333 85.334 85.333v682.667c0 47.104 38.229 85.333 85.333 85.333 47.19 0 85.333-38.23 85.333-85.333V256H896c47.19 0 85.333-38.144 85.333-85.333z" fill="currentColor" /></svg><span class="nav-label">运营工具</span><svg class="nav-arrow" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+                        <div class="subnav" aria-label="运营工具子菜单">
+                            <a class="{% if active_ops_child == 'market' %}active{% endif %}" href="/market-analysis">商圈分析</a>
+                            <a class="{% if active_ops_child == 'tools' %}active{% endif %}" href="/ops-tools">工具页面</a>
+                        </div>
+                    </div>
+                </nav>
+            </div>
+            <div class="logout"><button class="nav-item" type="button" data-toast="已点击退出登录"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M10 17v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v2m4 10 5-5-5-5m5 5H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg><span class="nav-label">退出登录</span></button></div>
+        </aside>
+        <header class="topbar">
+            <h2 class="top-title">{% block top_title %}{% endblock %}</h2>
+            <div class="top-actions">
+                {% block search_control %}<label class="search"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m21 21-4.3-4.3M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg><input type="search" placeholder="{% block search_placeholder %}搜索...{% endblock %}" aria-label="搜索"></label>{% endblock %}
+                {% block top_actions %}{% endblock %}
+                <button class="icon-btn" type="button" data-toast="暂无新通知" aria-label="通知"><svg width="18" height="20" viewBox="0 0 18 20" fill="none" aria-hidden="true"><path d="M14 7a5 5 0 0 0-10 0c0 5-2 6-2 6h14s-2-1-2-6ZM10.5 17a1.7 1.7 0 0 1-3 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+                <button class="icon-btn" type="button" data-toast="帮助中心暂未接入" aria-label="帮助"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="1.8" /><path d="M8.3 8a1.8 1.8 0 1 1 3 1.4c-.7.5-1.3 1-1.3 2.1M10 14.5h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg></button>
+                <button class="avatar" type="button" data-toast="Admin User Profile" aria-label="用户资料"></button>
+            </div>
+        </header>
+        <main class="main">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+    <div class="toast" id="toast"></div>
+    <script>
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.classList.add('show');
+            clearTimeout(showToast.timer);
+            showToast.timer = setTimeout(() => toast.classList.remove('show'), 1800);
+        }
+        function setSidebarCollapsed(collapsed) {
+            if (!app || !sidebarToggle) return;
+            app.classList.toggle('is-collapsed', collapsed);
+            sidebarToggle.setAttribute('aria-expanded', String(!collapsed));
+            sidebarToggle.setAttribute('aria-label', collapsed ? '展开侧边栏' : '收缩侧边栏');
+            window.dispatchEvent(new CustomEvent('sidebar:toggle', { detail: { collapsed } }));
+        }
+        document.querySelectorAll('[data-href]').forEach((button) => {
+            button.addEventListener('click', () => {
+                if (app?.classList.contains('is-collapsed')) setSidebarCollapsed(false);
+                window.location.href = button.dataset.href;
+            });
+        });
+        document.querySelectorAll('[data-toggle="nav-group"]').forEach((button) => {
+            button.addEventListener('click', () => {
+                const group = button.closest('.nav-group');
+                if (app?.classList.contains('is-collapsed')) {
+                    setSidebarCollapsed(false);
+                    const firstChildLink = group?.querySelector('.subnav a[href]');
+                    if (firstChildLink) {
+                        window.location.href = firstChildLink.href;
+                        return;
+                    }
+                }
+                const isOpen = group.classList.toggle('is-open');
+                button.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+            });
+        });
+        document.querySelectorAll('[data-toast]').forEach((button) => {
+            button.addEventListener('click', () => showToast(button.dataset.toast));
+        });
+        const app = document.getElementById('app');
+        const sidebarToggle = document.getElementById('sidebarToggle');
+        if (app && sidebarToggle) {
+            sidebarToggle.addEventListener('click', () => {
+                setSidebarCollapsed(!app.classList.contains('is-collapsed'));
+            });
+        }
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>
