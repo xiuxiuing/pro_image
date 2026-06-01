@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - Pi Pai</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-image: url('/static/bj.jpg');
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        /* Overlay for contrast */
+        body::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, rgba(13, 15, 30, 0.3) 0%, rgba(30, 15, 45, 0.1) 100%);
+            z-index: 1;
+        }
+
+        .login-wrapper {
+            position: relative;
+            z-index: 2;
+            width: 100%;
+            max-width: 1200px;
+            padding: 0 40px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 60px;
+        }
+
+        /* Right Side Glassmorphic Box */
+        .login-section {
+            flex: 1;
+            display: flex;
+            justify-content: flex-end;
+            transform: translateX(30px);
+        }
+
+        .login-box {
+            background: rgba(30, 27, 45, 0.4);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border: 1px solid rgba(167, 139, 250, 0.24);
+            box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45), 
+                        inset 0 1px 1px rgba(255, 255, 255, 0.15);
+            border-radius: 28px;
+            padding: 56px 48px;
+            width: 100%;
+            max-width: 480px;
+            display: flex;
+            flex-direction: column;
+            gap: 28px;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .login-box:hover {
+            border-color: rgba(167, 139, 250, 0.4);
+            box-shadow: 0 32px 96px rgba(0, 0, 0, 0.55), 
+                        inset 0 1px 1px rgba(255, 255, 255, 0.25);
+        }
+
+        /* Error/Info Alert Banner */
+        .alert-banner {
+            background: rgba(239, 68, 68, 0.18);
+            border: 1px solid rgba(239, 68, 68, 0.35);
+            color: #fecaca;
+            border-radius: 14px;
+            padding: 14px 18px;
+            font-size: 13.5px;
+            line-height: 1.4;
+            display: none;
+            align-items: flex-start;
+            gap: 10px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .alert-banner svg {
+            width: 18px;
+            height: 18px;
+            color: #f87171;
+            flex-shrink: 0;
+            margin-top: 1px;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Form Controls */
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .form-label {
+            color: rgba(255, 255, 255, 0.9);
+            font-family: 'Outfit', sans-serif;
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .form-input {
+            width: 100%;
+            height: 52px;
+            padding: 0 24px;
+            border-radius: 999px; /* Pill shaped input */
+            background: rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #ffffff;
+            font-size: 14px;
+            font-family: inherit;
+            outline: none;
+            transition: all 0.25s ease;
+        }
+
+        .form-input::placeholder {
+            color: rgba(255, 255, 255, 0.45);
+        }
+
+        .form-input:focus {
+            background: rgba(255, 255, 255, 0.18);
+            border-color: rgba(167, 139, 250, 0.65);
+            box-shadow: 0 0 0 4px rgba(167, 139, 250, 0.2);
+        }
+
+        .forgot-link {
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 13px;
+            text-decoration: none;
+            align-self: flex-end;
+            margin-top: -6px;
+            transition: color 0.2s ease;
+            cursor: pointer;
+            border: none;
+            background: transparent;
+            font-family: inherit;
+        }
+
+        .forgot-link:hover {
+            color: #9089d8;
+        }
+
+        .password-toggle-btn:hover {
+            color: #9089d8 !important;
+        }
+
+        /* Action Button */
+        .login-btn {
+            width: 100%;
+            height: 52px;
+            border-radius: 999px;
+            background: #9089d8; /* Perfect color match to screenshot */
+            color: #1a1b2f;
+            border: none;
+            font-family: 'Outfit', sans-serif;
+            font-size: 15px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 8px 24px rgba(144, 137, 216, 0.25);
+        }
+
+        .login-btn:hover {
+            background: #a29be6;
+            transform: translateY(-2px);
+            box-shadow: 0 12px 28px rgba(144, 137, 216, 0.4);
+        }
+
+        .login-btn:active {
+            transform: translateY(0);
+        }
+
+        .login-btn:disabled {
+            background: rgba(144, 137, 216, 0.4);
+            color: rgba(26, 27, 47, 0.5);
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        /* Contact Admin Glass Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(10, 11, 20, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .modal-overlay.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal-content {
+            background: rgba(30, 27, 45, 0.7);
+            border: 1px solid rgba(167, 139, 250, 0.3);
+            box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+            border-radius: 24px;
+            width: 90%;
+            max-width: 420px;
+            padding: 36px;
+            text-align: center;
+            color: #ffffff;
+            transform: scale(0.9);
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .modal-overlay.show .modal-content {
+            transform: scale(1);
+        }
+
+        .modal-icon {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: rgba(144, 137, 216, 0.15);
+            color: #9089d8;
+            display: grid;
+            place-items: center;
+            margin: 0 auto 20px;
+        }
+
+        .modal-icon svg {
+            width: 28px;
+            height: 28px;
+        }
+
+        .modal-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 12px;
+        }
+
+        .modal-text {
+            color: rgba(255, 255, 255, 0.75);
+            font-size: 14px;
+            line-height: 1.6;
+            margin-bottom: 24px;
+        }
+
+        .modal-btn {
+            padding: 10px 28px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: #ffffff;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .modal-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+
+        /* Responsive Design */
+        @media (max-width: 992px) {
+            .login-wrapper {
+                flex-direction: column;
+                justify-content: center;
+                gap: 40px;
+                padding: 40px 24px;
+            }
+
+            .login-section {
+                justify-content: center;
+                width: 100%;
+                transform: none;
+            }
+
+            .login-box {
+                padding: 40px 32px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="login-wrapper">
+        <!-- Right Login Form -->
+        <div class="login-section">
+            <form class="login-box" id="loginForm">
+                <!-- Top error indicator -->
+                <div class="alert-banner" id="alertBanner">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3Z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    <span id="alertMsg"></span>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="account">E-Mail</label>
+                    <input class="form-input" type="text" id="account" name="account" placeholder="E.g. coursecrates@gmail.com" required autocomplete="username">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="password">Password</label>
+                    <div class="password-wrapper" style="position: relative; width: 100%;">
+                        <input class="form-input" type="password" id="password" name="password" placeholder="E.g. coursecrates@gmail.com" required autocomplete="current-password" style="padding-right: 58px;">
+                        <button type="button" id="togglePassword" class="password-toggle-btn" aria-label="切换密码显示" style="position: absolute; right: 18px; top: 50%; transform: translateY(-50%); background: transparent; border: none; outline: none; cursor: pointer; display: flex; align-items: center; justify-content: center; color: rgba(255, 255, 255, 0.45); transition: color 0.2s;">
+                            <!-- Eye Icon Closed (Show slash over eye) -->
+                            <svg class="eye-icon-closed" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: block;">
+                                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                                <line x1="1" y1="1" x2="23" y2="23"></line>
+                            </svg>
+                            <!-- Eye Icon Open -->
+                            <svg class="eye-icon-open" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                <circle cx="12" cy="12" r="3"></circle>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <button class="forgot-link" type="button" id="forgotLink">Forgot Password?</button>
+
+                <button class="login-btn" type="submit" id="submitBtn">LOGIN</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal for contact administrator -->
+    <div class="modal-overlay" id="forgotModal">
+        <div class="modal-content">
+            <div class="modal-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <h3 class="modal-title">忘记密码</h3>
+            <p class="modal-text">忘记密码请联系系统管理员重置您的凭证。</p>
+            <button class="modal-btn" type="button" id="modalClose">我知道了</button>
+        </div>
+    </div>
+
+    <script>
+        // Custom RC4 Client-side Encryption (PiPaiSmartOpsKey2026)
+        function rc4Encrypt(key, str) {
+            var utf8Str = unescape(encodeURIComponent(str));
+            var s = [], j = 0, x, res = '';
+            for (var i = 0; i < 256; i++) {
+                s[i] = i;
+            }
+            for (var i = 0; i < 256; i++) {
+                j = (j + s[i] + key.charCodeAt(i % key.length)) % 256;
+                x = s[i]; s[i] = s[j]; s[j] = x;
+            }
+            var i = 0;
+            j = 0;
+            for (var y = 0; y < utf8Str.length; y++) {
+                i = (i + 1) % 256;
+                j = (j + s[i]) % 256;
+                x = s[i]; s[i] = s[j]; s[j] = x;
+                res += String.fromCharCode(utf8Str.charCodeAt(y) ^ s[(s[i] + s[j]) % 256]);
+            }
+            return btoa(res);
+        }
+
+        const loginForm = document.getElementById('loginForm');
+        const accountInput = document.getElementById('account');
+        const passwordInput = document.getElementById('password');
+        const alertBanner = document.getElementById('alertBanner');
+        const alertMsg = document.getElementById('alertMsg');
+        const submitBtn = document.getElementById('submitBtn');
+
+        const forgotLink = document.getElementById('forgotLink');
+        const forgotModal = document.getElementById('forgotModal');
+        const modalClose = document.getElementById('modalClose');
+
+        // Password Show/Hide Toggle
+        const togglePassword = document.getElementById('togglePassword');
+        const eyeIconClosed = togglePassword.querySelector('.eye-icon-closed');
+        const eyeIconOpen = togglePassword.querySelector('.eye-icon-open');
+
+        togglePassword.addEventListener('click', () => {
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                eyeIconClosed.style.display = 'none';
+                eyeIconOpen.style.display = 'block';
+            } else {
+                passwordInput.type = 'password';
+                eyeIconClosed.style.display = 'block';
+                eyeIconOpen.style.display = 'none';
+            }
+        });
+
+        // Alert helper
+        function showAlert(msg) {
+            alertMsg.textContent = msg;
+            alertBanner.style.display = 'flex';
+        }
+
+        function hideAlert() {
+            alertBanner.style.display = 'none';
+        }
+
+        // Modal Controls
+        forgotLink.addEventListener('click', () => {
+            forgotModal.classList.add('show');
+        });
+
+        modalClose.addEventListener('click', () => {
+            forgotModal.classList.remove('show');
+        });
+
+        forgotModal.addEventListener('click', (e) => {
+            if (e.target === forgotModal) {
+                forgotModal.classList.remove('show');
+            }
+        });
+
+        // Form Submit
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            hideAlert();
+
+            const account = accountInput.value.trim();
+            const rawPassword = passwordInput.value;
+
+            if (!account || !rawPassword) {
+                showAlert('请输入账号和密码！');
+                return;
+            }
+
+            // Transit Encryption with transit key
+            const encryptedPassword = rc4Encrypt('PiPaiSmartOpsKey2026', rawPassword);
+
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'LOGGING IN...';
+
+            try {
+                const response = await fetch('/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        account: account,
+                        password: encryptedPassword
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.status === 'success') {
+                    // Success redirection
+                    window.location.href = '/';
+                } else {
+                    showAlert(data.message || '登录失败，请重试');
+                }
+            } catch (err) {
+                console.error(err);
+                showAlert('网络连接失败，请稍后重试');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'LOGIN';
+            }
+        });
+    </script>
+</body>
+</html>

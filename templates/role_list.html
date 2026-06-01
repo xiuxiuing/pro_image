@@ -4,7 +4,7 @@
 {% block title %}角色列表 - 运营后台{% endblock %}
 {% block top_title %}用户管理{% endblock %}
 {% block search_control %}<label class="search"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m21 21-4.3-4.3M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg><input id="roleSearch" type="search" placeholder="搜索角色..." aria-label="搜索角色"></label>{% endblock %}
-{% block top_actions %}<button class="create-btn" type="button" data-toast="新增角色功能暂未接入">新增角色</button>{% endblock %}
+{% block top_actions %}<button class="create-btn" id="openRoleModal" type="button">新增角色</button>{% endblock %}
 {% block styles %}
         .main {
             padding: 20px;
@@ -44,9 +44,9 @@
             line-height: 30px;
             font-weight: 700;
         }
-        .tab-pill.active { color: #536079; background: #e8f1ff; }
+        .tab-pill.active { color: #1558bd; background: #e8f1ff; }
         .table-wrap { flex: 1 1 auto; min-height: 0; overflow: auto; }
-        .data-table { width: 100%; min-width: 100%; border-collapse: collapse; table-layout: fixed; }
+        .data-table { width: 100%; min-width: 900px; border-collapse: collapse; table-layout: fixed; }
         .data-table th {
             height: 52px;
             padding: 0 20px;
@@ -67,6 +67,9 @@
             color: #364153;
             font-size: 14px;
             vertical-align: middle;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            overflow: hidden;
         }
         .role-person { display: flex; align-items: center; gap: 14px; min-width: 0; }
         .avatar-initials {
@@ -82,14 +85,9 @@
             font-weight: 800;
             flex: 0 0 36px;
         }
-        .avatar-initials.blue { color: #fff; background: #087dad; }
-        .avatar-initials.gray { color: #5f6678; background: #c9cedc; }
-        .name { color: #20242c; font-size: 16px; line-height: 20px; font-weight: 800; }
-        .handle { color: #536079; font-size: 11px; line-height: 15px; font-weight: 600; }
-        .status-dot { display: inline-flex; align-items: center; gap: 8px; color: #1f2937; font-weight: 500; }
-        .status-dot::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #0b79a8; }
-        .status-dot.offline { color: #6b7280; }
-        .status-dot.offline::before { background: #c3c9d6; }
+        .name { color: #20242c; font-size: 15px; line-height: 20px; font-weight: 800; }
+        .status-dot { display: inline-flex; align-items: center; gap: 8px; color: #1f2937; font-weight: 600; }
+        .status-dot::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #0b79a8; flex: 0 0 8px; }
         .status-dot.suspended { color: #d00000; }
         .status-dot.suspended::before { background: #d00000; }
         .action-group { display: flex; align-items: center; gap: 10px; }
@@ -108,6 +106,39 @@
         .action-btn:hover { border-color: #b8ccff; background: #e8f1ff; }
         .action-btn.freeze { border-color: #fee2e2; color: #ba1a1a; background: #fff7f7; }
         .action-btn.freeze:hover { border-color: #fecaca; background: #fef2f2; }
+        .action-btn.unfreeze { border-color: #d1fae5; color: #065f46; background: #ecfdf5; }
+        .action-btn.unfreeze:hover { border-color: #a7f3d0; background: #d1fae5; }
+        .action-btn:disabled { cursor: not-allowed; opacity: 0.48; }
+        .empty-state {
+            height: 220px;
+            text-align: center;
+            color: #8a94a6;
+            font-weight: 700;
+        }
+        .user-count-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 24px;
+            height: 24px;
+            padding: 0 8px;
+            border-radius: 999px;
+            font-size: 13px;
+            font-weight: 700;
+            background: #f1f5f9;
+            color: #475569;
+        }
+        .user-count-badge.clickable {
+            background: #e0f2fe;
+            color: #0284c7;
+            cursor: pointer;
+            text-decoration: underline;
+            transition: all 0.2s;
+        }
+        .user-count-badge.clickable:hover {
+            background: #bae6fd;
+            color: #0369a1;
+        }
         .table-foot {
             flex: 0 0 62px;
             height: 62px;
@@ -115,16 +146,17 @@
             border-top: 1px solid #eef0f3;
             display: flex;
             align-items: center;
-            justify-content: flex-end;
+            justify-content: space-between;
             gap: 20px;
             color: #536079;
             font-size: 12px;
             font-weight: 600;
         }
-        .pager { display: flex; align-items: center; gap: 18px; color: #111827; }
+        .pager { display: flex; align-items: center; gap: 8px; color: #111827; }
         .page-btn {
-            width: 32px;
+            min-width: 32px;
             height: 32px;
+            padding: 0 10px;
             border: 0;
             border-radius: 8px;
             display: grid;
@@ -136,78 +168,709 @@
         }
         .page-btn.active { color: #fff; background: #0057d9; }
         .page-btn.muted { color: #a7afbd; }
+        .page-btn:disabled { color: #c3c9d6; cursor: not-allowed; }
+        
+        /* Modal and Form Styles */
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 50;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            background: rgba(15, 23, 42, 0.42);
+        }
+        .modal-backdrop.show { display: flex; }
+        .modal-panel {
+            width: min(620px, 100%);
+            border-radius: 8px;
+            background: #fff;
+            box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
+            overflow: hidden;
+        }
+        .modal-head {
+            height: 58px;
+            padding: 0 22px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid #edf0f5;
+        }
+        .modal-title { color: #20242c; font-size: 17px; font-weight: 800; }
+        .icon-btn {
+            width: 32px;
+            height: 32px;
+            border: 0;
+            border-radius: 8px;
+            color: #536079;
+            background: transparent;
+            font-size: 24px;
+            line-height: 30px;
+        }
+        .icon-btn:hover { background: #f3f6fb; }
+        .role-form {
+            padding: 20px 22px 22px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .field { display: flex; flex-direction: column; gap: 7px; }
+        .field label { color: #364153; font-size: 13px; font-weight: 800; }
+        .field input,
+        .field textarea {
+            width: 100%;
+            border: 1px solid #d8deea;
+            border-radius: 8px;
+            padding: 10px 12px;
+            color: #20242c;
+            background: #fff;
+            font-size: 14px;
+            outline: none;
+            font-family: inherit;
+        }
+        .field input { height: 40px; }
+        .field textarea { height: 72px; resize: none; }
+        .field input:focus,
+        .field textarea:focus { border-color: #79a7ff; box-shadow: 0 0 0 3px rgba(0, 87, 217, 0.12); }
+        
+        .menu-tree {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            padding: 8px 12px;
+            border: 1px solid #d8deea;
+            border-radius: 12px;
+            background: #fdfdfd;
+            max-height: 220px;
+            overflow-y: auto;
+        }
+        .tree-node {
+            display: flex;
+            flex-direction: column;
+        }
+        .node-row {
+            display: flex;
+            align-items: center;
+            height: 40px;
+            padding: 0 12px;
+            border-radius: 8px;
+            transition: all 0.2s ease;
+        }
+        .parent-row {
+            font-weight: 700;
+            color: #1e293b;
+            font-size: 14px;
+        }
+        .child-row {
+            font-size: 13px;
+            color: #475569;
+            font-weight: 600;
+            height: 36px;
+        }
+        .node-row:hover {
+            background: #f1f5f9;
+        }
+        .node-toggle {
+            width: 16px;
+            height: 16px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: #64748b;
+            margin-right: 6px;
+            flex-shrink: 0;
+        }
+        .node-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: #64748b;
+            margin-right: 10px;
+            flex-shrink: 0;
+        }
+        .node-title, .child-title {
+            flex-grow: 1;
+        }
+        .child-title {
+            margin-left: 10px;
+        }
+        .node-children {
+            border-left: 1.5px solid #e2e8f0;
+            margin-left: 20px;
+            padding-left: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            margin-bottom: 4px;
+        }
+        .node-row input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            border-radius: 4px;
+            border: 1px solid #cbd5e1;
+            cursor: pointer;
+            margin: 0;
+            flex-shrink: 0;
+            accent-color: #0057d9;
+        }
+        
+        .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #edf0f5;
+            margin-top: 6px;
+        }
+        .secondary-btn,
+        .primary-btn {
+            height: 38px;
+            padding: 0 18px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 800;
+        }
+        .secondary-btn { border: 1px solid #d8deea; color: #536079; background: #fff; }
+        .primary-btn { border: 1px solid #0057d9; color: #fff; background: #0057d9; }
+        .primary-btn:hover { background: #0046b0; border-color: #0046b0; }
+        .secondary-btn:hover { background: #f3f6fb; }
+        
+        .username-badge {
+            display: inline-flex;
+            align-items: center;
+            height: 30px;
+            padding: 0 14px;
+            border-radius: 999px;
+            background: #e0f2fe;
+            color: #0369a1;
+            font-size: 13px;
+            font-weight: 700;
+            margin: 5px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+        }
+        .no-users-hint {
+            text-align: center;
+            color: #64748b;
+            padding: 24px 0;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        
         @media (max-width: 900px) {
             .main { padding: 12px; }
             .role-card { border-radius: 8px; }
+            .table-foot { align-items: flex-start; flex-direction: column; height: auto; padding: 14px 16px; gap: 12px; }
+            .perms-grid { grid-template-columns: 1fr; }
         }
 {% endblock %}
 {% block content %}
             <section class="role-card" aria-label="角色列表">
                 <div class="list-tabs">
-                    <button class="tab-pill active" type="button">所有角色</button>
-                    <button class="tab-pill" type="button">冻结角色</button>
+                    <button class="tab-pill active" type="button" data-status="">所有角色</button>
+                    <button class="tab-pill" type="button" data-status="2">冻结角色</button>
                 </div>
                 <div class="table-wrap">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th style="width:25%;">角色名</th>
-                            <th style="width:28%;">角色描述</th>
-                            <th style="width:16%;">状态</th>
-                            <th style="width:31%;">操作</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td><div class="role-person"><span class="avatar-initials">JD</span><div><div class="name">Jane Doe</div><div class="handle">@janedoe</div></div></div></td>
-                            <td>jane.doe@adminconsole.io</td>
-                            <td><span class="status-dot">Active</span></td>
-                            <td><div class="action-group"><button class="action-btn freeze" type="button" data-toast="已点击冻结角色">冻结</button><button class="action-btn" type="button" data-toast="已点击角色详情">详情</button></div></td>
-                        </tr>
-                        <tr>
-                            <td><div class="role-person"><span class="avatar-initials">MS</span><div><div class="name">Marcus Sterling</div><div class="handle">@msterling</div></div></div></td>
-                            <td>m.sterling@ops-team.com</td>
-                            <td><span class="status-dot offline">Offline</span></td>
-                            <td><div class="action-group"><button class="action-btn freeze" type="button" data-toast="已点击冻结角色">冻结</button><button class="action-btn" type="button" data-toast="已点击角色详情">详情</button></div></td>
-                        </tr>
-                        <tr>
-                            <td><div class="role-person"><span class="avatar-initials blue">LY</span><div><div class="name">Linda Yang</div><div class="handle">@lyang_dev</div></div></div></td>
-                            <td>linda.y@cloud-arch.net</td>
-                            <td><span class="status-dot">Active</span></td>
-                            <td><div class="action-group"><button class="action-btn freeze" type="button" data-toast="已点击冻结角色">冻结</button><button class="action-btn" type="button" data-toast="已点击角色详情">详情</button></div></td>
-                        </tr>
-                        <tr>
-                            <td><div class="role-person"><span class="avatar-initials gray">AH</span><div><div class="name">Alex Hoffman</div><div class="handle">@ahoffman</div></div></div></td>
-                            <td>alex.h@consultancy.com</td>
-                            <td><span class="status-dot suspended">Suspended</span></td>
-                            <td><div class="action-group"><button class="action-btn freeze" type="button" data-toast="已点击冻结角色">冻结</button><button class="action-btn" type="button" data-toast="已点击角色详情">详情</button></div></td>
-                        </tr>
-                    </tbody>
-                </table>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th style="width:23%;">角色名</th>
+                                <th style="width:17%;">用户数量</th>
+                                <th style="width:30%;">角色描述</th>
+                                <th style="width:13%;">状态</th>
+                                <th style="width:17%;">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="roleTableBody">
+                            <tr><td class="empty-state" colspan="5">加载中...</td></tr>
+                        </tbody>
+                    </table>
                 </div>
                 <div class="table-foot">
-                    <div class="pager" aria-label="分页">
-                        <button class="page-btn muted" type="button">‹</button>
-                        <button class="page-btn active" type="button">1</button>
-                        <button class="page-btn" type="button">2</button>
-                        <button class="page-btn" type="button">3</button>
-                        <span>...</span>
-                        <button class="page-btn" type="button">32</button>
-                        <button class="page-btn" type="button">›</button>
-                    </div>
+                    <span id="paginationSummary">显示 0-0 条，共 0 条</span>
+                    <div class="pager" id="pager" aria-label="分页"></div>
                 </div>
             </section>
+
+            <!-- Role Add/Edit Modal -->
+            <div class="modal-backdrop" id="roleModal" aria-hidden="true">
+                <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="roleModalTitle">
+                    <div class="modal-head">
+                        <div class="modal-title" id="roleModalTitle">新增角色</div>
+                        <button class="icon-btn" type="button" id="closeRoleModal" aria-label="关闭">×</button>
+                    </div>
+                    <form class="role-form" id="roleForm">
+                        <input type="hidden" id="characterid">
+                        <div class="field">
+                            <label for="roleName">角色名 *</label>
+                            <input id="roleName" name="name" type="text" required placeholder="例如：高级运营人员" autocomplete="off">
+                        </div>
+                        <div class="field">
+                            <label for="roleDesc">角色描述</label>
+                            <textarea id="roleDesc" name="description" placeholder="用于描述该角色在系统中的职责和操作边界..."></textarea>
+                        </div>
+                        <div class="field">
+                            <label>权限菜单选择 (可勾选多个页面访问权限)</label>
+                            <div class="menu-tree">
+                                 <!-- Category 1: 项目管理 -->
+                                 <div class="tree-node">
+                                     <div class="node-row parent-row">
+                                         <span class="node-toggle">&nbsp;</span>
+                                         <span class="node-icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg></span>
+                                         <span class="node-title">项目管理 Overview</span>
+                                         <input type="checkbox" name="permissions" value="/" class="node-check">
+                                     </div>
+                                 </div>
+                                 
+                                 <!-- Category 2: 配置管理 -->
+                                 <div class="tree-node">
+                                     <div class="node-row parent-row">
+                                         <span class="node-toggle"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg></span>
+                                         <span class="node-icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></span>
+                                         <span class="node-title">Configuration 配置</span>
+                                         <input type="checkbox" class="parent-check" data-group="config">
+                                     </div>
+                                     <div class="node-children">
+                                         <div class="node-row child-row">
+                                             <span class="child-title">权限配置 (Permission Config)</span>
+                                             <input type="checkbox" name="permissions" value="/config-management/permissions" class="node-check" data-group="config">
+                                         </div>
+                                         <div class="node-row child-row">
+                                             <span class="child-title">规则配置 (System Rules)</span>
+                                             <input type="checkbox" name="permissions" value="/config-management/rules" class="node-check" data-group="config">
+                                         </div>
+                                     </div>
+                                 </div>
+                                 
+                                 <!-- Category 3: 用户管理 -->
+                                 <div class="tree-node">
+                                     <div class="node-row parent-row">
+                                         <span class="node-toggle"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg></span>
+                                         <span class="node-icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></span>
+                                         <span class="node-title">User Management 用户管理</span>
+                                         <input type="checkbox" class="parent-check" data-group="users">
+                                     </div>
+                                     <div class="node-children">
+                                         <div class="node-row child-row">
+                                             <span class="child-title">用户列表 (User List)</span>
+                                             <input type="checkbox" name="permissions" value="/user-management/users" class="node-check" data-group="users">
+                                         </div>
+                                         <div class="node-row child-row">
+                                             <span class="child-title">角色列表 (Role List)</span>
+                                             <input type="checkbox" name="permissions" value="/user-management/roles" class="node-check" data-group="users">
+                                         </div>
+                                     </div>
+                                 </div>
+                                 
+                                 <!-- Category 4: 数据管理 -->
+                                 <div class="tree-node">
+                                     <div class="node-row parent-row">
+                                         <span class="node-toggle"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg></span>
+                                         <span class="node-icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"></path></svg></span>
+                                         <span class="node-title">Data Management 数据管理</span>
+                                         <input type="checkbox" class="parent-check" data-group="data">
+                                     </div>
+                                     <div class="node-children">
+                                         <div class="node-row child-row">
+                                             <span class="child-title">运营数据 (Operations Data)</span>
+                                             <input type="checkbox" name="permissions" value="/data-management/operations" class="node-check" data-group="data">
+                                         </div>
+                                         <div class="node-row child-row">
+                                             <span class="child-title">门店数据 (Stores Data)</span>
+                                             <input type="checkbox" name="permissions" value="/data-management/stores" class="node-check" data-group="data">
+                                         </div>
+                                     </div>
+                                 </div>
+                                 
+                                 <!-- Category 5: 运营工具 -->
+                                 <div class="tree-node">
+                                     <div class="node-row parent-row">
+                                         <span class="node-toggle"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg></span>
+                                         <span class="node-icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg></span>
+                                         <span class="node-title">Operations Tools 运营工具</span>
+                                         <input type="checkbox" class="parent-check" data-group="tools">
+                                     </div>
+                                     <div class="node-children">
+                                         <div class="node-row child-row">
+                                             <span class="child-title">商圈分析 (Market Analysis)</span>
+                                             <input type="checkbox" name="permissions" value="/market-analysis" class="node-check" data-group="tools">
+                                         </div>
+                                         <div class="node-row child-row">
+                                             <span class="child-title">工具页面 (Tools Overview)</span>
+                                             <input type="checkbox" name="permissions" value="/ops-tools" class="node-check" data-group="tools">
+                                         </div>
+                                     </div>
+                                 </div>
+                             </div>
+                        </div>
+                        <div class="modal-actions">
+                            <button class="secondary-btn" type="button" id="cancelRoleModal">取消</button>
+                            <button class="primary-btn" type="submit" id="saveRoleBtn">保存</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- View Usernames Modal -->
+            <div class="modal-backdrop" id="usernamesModal" aria-hidden="true">
+                <div class="modal-panel" role="dialog" aria-modal="true" style="width: min(440px, 100%);">
+                    <div class="modal-head">
+                        <div class="modal-title" id="usernamesModalTitle">归属用户列表</div>
+                        <button class="icon-btn" type="button" id="closeUsernamesModal" aria-label="关闭">×</button>
+                    </div>
+                    <div style="padding: 20px 22px 22px; max-height: 320px; overflow-y: auto;" id="usernamesListContainer">
+                        <!-- Render username badges dynamically -->
+                    </div>
+                </div>
+            </div>
 {% endblock %}
 {% block scripts %}
 <script>
+    const state = {
+        page: 1,
+        pageSize: 10,
+        total: 0,
+        pages: 1,
+        status: '',
+        keyword: '',
+        characters: []
+    };
+
     const roleSearch = document.getElementById('roleSearch');
-    if (roleSearch) {
-        roleSearch.addEventListener('input', () => {
-            const keyword = roleSearch.value.trim().toLowerCase();
-            document.querySelectorAll('.data-table tbody tr').forEach((row) => {
-                row.hidden = keyword && !row.textContent.toLowerCase().includes(keyword);
-            });
-        });
+    const tableBody = document.getElementById('roleTableBody');
+    const pager = document.getElementById('pager');
+    const paginationSummary = document.getElementById('paginationSummary');
+    const roleModal = document.getElementById('roleModal');
+    const roleForm = document.getElementById('roleForm');
+    const modalTitle = document.getElementById('roleModalTitle');
+    const saveRoleBtn = document.getElementById('saveRoleBtn');
+    
+    const usernamesModal = document.getElementById('usernamesModal');
+    const usernamesListContainer = document.getElementById('usernamesListContainer');
+    const usernamesModalTitle = document.getElementById('usernamesModalTitle');
+
+    function esc(value) {
+        return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;',
+        }[ch]));
     }
+
+    function getAvatarColor(str) {
+        const colors = [
+            { bg: '#e0f2fe', color: '#0369a1' },
+            { bg: '#dcfce7', color: '#15803d' },
+            { bg: '#fef9c3', color: '#a16207' },
+            { bg: '#fee2e2', color: '#b91c1c' },
+            { bg: '#f3e8ff', color: '#6b21a8' },
+            { bg: '#ffedd5', color: '#9a3412' },
+            { bg: '#e0e7ff', color: '#3730a3' },
+            { bg: '#fae8ff', color: '#86198f' },
+            { bg: '#ffe4e6', color: '#9f1239' }
+        ];
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            hash = str.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        const index = Math.abs(hash) % colors.length;
+        return colors[index];
+    }
+
+    function renderCharacters() {
+        if (!state.characters.length) {
+            tableBody.innerHTML = '<tr><td class="empty-state" colspan="5">暂无角色数据</td></tr>';
+            return;
+        }
+        tableBody.innerHTML = state.characters.map((char) => {
+            const frozen = Number(char.status) === 2;
+            const initials = esc(char.name.slice(0, 2).toUpperCase());
+            const hasUsers = char.user_count > 0;
+            const color = getAvatarColor(char.characterid);
+            
+            return `
+                <tr>
+                    <td>
+                        <div class="role-person">
+                            <span class="avatar-initials" style="background: ${color.bg}; color: ${color.color};">${initials}</span>
+                            <div class="name" title="${esc(char.name)}">${esc(char.name)}</div>
+                        </div>
+                    </td>
+                    <td>
+                        <span class="user-count-badge ${hasUsers ? 'clickable' : ''}" 
+                              data-action="view-users" 
+                              data-id="${esc(char.characterid)}">
+                            ${char.user_count}
+                        </span>
+                    </td>
+                    <td title="${esc(char.description || '-')}">${char.description ? esc(char.description) : '<span style="color:#9aa3b2">-</span>'}</td>
+                    <td>
+                        <span class="status-dot ${frozen ? 'suspended' : ''}">
+                            ${frozen ? '冻结' : '正常'}
+                        </span>
+                    </td>
+                    <td>
+                        <div class="action-group">
+                            <button class="action-btn ${frozen ? 'unfreeze' : 'freeze'}" 
+                                    type="button" 
+                                    data-action="${frozen ? 'unfreeze' : 'freeze'}" 
+                                    data-id="${esc(char.characterid)}">
+                                ${frozen ? '解冻' : '冻结'}
+                            </button>
+                            <button class="action-btn" 
+                                    type="button" 
+                                    data-action="detail" 
+                                    data-id="${esc(char.characterid)}" 
+                                    ${frozen ? 'disabled' : ''}>
+                                详情
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    function pageNumbers() {
+        const pages = Math.max(1, state.pages);
+        const current = Math.min(state.page, pages);
+        const nums = new Set([1, pages, current, current - 1, current + 1]);
+        return [...nums].filter((n) => n >= 1 && n <= pages).sort((a, b) => a - b);
+    }
+
+    function renderPagination() {
+        const start = state.total ? (state.page - 1) * state.pageSize + 1 : 0;
+        const end = Math.min(state.total, state.page * state.pageSize);
+        paginationSummary.textContent = `显示 ${start}-${end} 条，共 ${state.total} 条`;
+        const nums = pageNumbers();
+        let html = `<button class="page-btn muted" type="button" data-page="${state.page - 1}" ${state.page <= 1 ? 'disabled' : ''}>‹</button>`;
+        nums.forEach((num, index) => {
+            if (index > 0 && num - nums[index - 1] > 1) html += '<span style="color:#9aa3b2; padding:0 4px;">...</span>';
+            html += `<button class="page-btn ${num === state.page ? 'active' : ''}" type="button" data-page="${num}">${num}</button>`;
+        });
+        html += `<button class="page-btn muted" type="button" data-page="${state.page + 1}" ${state.page >= state.pages ? 'disabled' : ''}>›</button>`;
+        pager.innerHTML = html;
+    }
+
+    async function fetchJson(url, options = {}) {
+        const res = await fetch(url, {
+            headers: { 'Content-Type': 'application/json' },
+            ...options,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.status === 'error') throw new Error(data.message || '请求失败');
+        return data;
+    }
+
+    async function loadCharacters() {
+        tableBody.innerHTML = '<tr><td class="empty-state" colspan="5">加载中...</td></tr>';
+        const params = new URLSearchParams({
+            page: state.page,
+            page_size: state.pageSize,
+            keyword: state.keyword,
+        });
+        if (state.status) params.set('status', state.status);
+        
+        try {
+            const data = await fetchJson(`/api/characters?${params.toString()}`);
+            state.characters = data.characters || [];
+            state.total = data.pagination?.total || 0;
+            state.pages = data.pagination?.pages || 1;
+            state.page = data.pagination?.page || 1;
+            renderCharacters();
+            renderPagination();
+        } catch (err) {
+            tableBody.innerHTML = `<tr><td class="empty-state" colspan="5">${esc(err.message)}</td></tr>`;
+            showToast(err.message);
+        }
+    }
+
+    function openModal(char = null) {
+        roleForm.reset();
+        document.getElementById('characterid').value = char?.characterid || '';
+        modalTitle.textContent = char ? '角色详情' : '新增角色';
+        document.getElementById('roleName').value = char?.name || '';
+        document.getElementById('roleDesc').value = char?.description || '';
+        
+        // Handle permissions checkboxes
+        const perms = char?.permissions || [];
+        document.querySelectorAll('input[name="permissions"]').forEach((checkbox) => {
+            checkbox.checked = perms.includes(checkbox.value);
+        });
+        
+        // Update parent checkboxes checked states based on children checked states
+        document.querySelectorAll('.parent-check').forEach((parent) => {
+            const group = parent.dataset.group;
+            const children = Array.from(document.querySelectorAll(`input.node-check[data-group="${group}"]`));
+            parent.checked = children.length > 0 && children.every((child) => child.checked);
+        });
+        
+        roleModal.classList.add('show');
+        roleModal.setAttribute('aria-hidden', 'false');
+        document.getElementById('roleName').focus();
+    }
+
+    function closeModal() {
+        roleModal.classList.remove('show');
+        roleModal.setAttribute('aria-hidden', 'true');
+    }
+
+    function openUsernamesModal(char) {
+        usernamesModalTitle.textContent = `角色「${char.name}」归属用户`;
+        const list = char.usernames || [];
+        if (!list.length) {
+            usernamesListContainer.innerHTML = '<div class="no-users-hint">暂无关联用户</div>';
+        } else {
+            usernamesListContainer.innerHTML = list.map((username) => (
+                `<span class="username-badge">${esc(username)}</span>`
+            )).join('');
+        }
+        usernamesModal.classList.add('show');
+        usernamesModal.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeUsernamesModal() {
+        usernamesModal.classList.remove('show');
+        usernamesModal.setAttribute('aria-hidden', 'true');
+    }
+
+    document.getElementById('openRoleModal').addEventListener('click', () => openModal());
+    document.getElementById('closeRoleModal').addEventListener('click', closeModal);
+    document.getElementById('cancelRoleModal').addEventListener('click', closeModal);
+    roleModal.addEventListener('click', (event) => {
+        if (event.target === roleModal) closeModal();
+    });
+
+    document.getElementById('closeUsernamesModal').addEventListener('click', closeUsernamesModal);
+    usernamesModal.addEventListener('click', (event) => {
+        if (event.target === usernamesModal) closeUsernamesModal();
+    });
+
+    document.querySelectorAll('.tab-pill').forEach((button) => {
+        button.addEventListener('click', () => {
+            document.querySelectorAll('.tab-pill').forEach((item) => item.classList.remove('active'));
+            button.classList.add('active');
+            state.status = button.dataset.status || '';
+            state.page = 1;
+            loadCharacters();
+        });
+    });
+
+    let searchTimer = null;
+    roleSearch.addEventListener('input', () => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => {
+            state.keyword = roleSearch.value.trim();
+            state.page = 1;
+            loadCharacters();
+        }, 250);
+    });
+
+    pager.addEventListener('click', (event) => {
+        const button = event.target.closest('button[data-page]');
+        if (!button || button.disabled) return;
+        const page = Number(button.dataset.page);
+        if (!page || page === state.page) return;
+        state.page = page;
+        loadCharacters();
+    });
+
+    tableBody.addEventListener('click', async (event) => {
+        const badge = event.target.closest('.user-count-badge.clickable');
+        if (badge) {
+            const char = state.characters.find((item) => item.characterid === badge.dataset.id);
+            if (char) openUsernamesModal(char);
+            return;
+        }
+
+        const button = event.target.closest('button[data-action]');
+        if (!button) return;
+        const char = state.characters.find((item) => item.characterid === button.dataset.id);
+        if (!char) return;
+
+        if (button.dataset.action === 'detail') {
+            openModal(char);
+            return;
+        }
+        if (button.dataset.action === 'freeze') {
+            if (!window.confirm(`确认冻结角色「${char.name}」吗？`)) return;
+            try {
+                await fetchJson(`/api/characters/${encodeURIComponent(char.characterid)}/freeze`, { method: 'POST' });
+                showToast('角色已冻结');
+                loadCharacters();
+            } catch (err) {
+                showToast(err.message);
+            }
+        }
+        if (button.dataset.action === 'unfreeze') {
+            try {
+                await fetchJson(`/api/characters/${encodeURIComponent(char.characterid)}/unfreeze`, { method: 'POST' });
+                showToast('角色已解冻');
+                loadCharacters();
+            } catch (err) {
+                showToast(err.message);
+            }
+        }
+    });
+
+    // Parent and child check handler
+    document.addEventListener('change', (event) => {
+        const parentCheck = event.target.closest('.parent-check');
+        if (parentCheck) {
+            const groupName = parentCheck.dataset.group;
+            const children = document.querySelectorAll(`input.node-check[data-group="${groupName}"]`);
+            children.forEach((child) => {
+                child.checked = parentCheck.checked;
+            });
+            return;
+        }
+
+        const childCheck = event.target.closest('input.node-check[data-group]');
+        if (childCheck) {
+            const groupName = childCheck.dataset.group;
+            const parent = document.querySelector(`.parent-check[data-group="${groupName}"]`);
+            if (parent) {
+                const allChecked = Array.from(document.querySelectorAll(`input.node-check[data-group="${groupName}"]`))
+                                        .every((child) => child.checked);
+                parent.checked = allChecked;
+            }
+        }
+    });
+
+    roleForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const characterid = document.getElementById('characterid').value;
+        const checkedCheckboxes = document.querySelectorAll('input[name="permissions"]:checked');
+        const permissions = Array.from(checkedCheckboxes).map((cb) => cb.value);
+        
+        const payload = {
+            name: document.getElementById('roleName').value.trim(),
+            description: document.getElementById('roleDesc').value.trim(),
+            permissions: permissions
+        };
+
+        saveRoleBtn.disabled = true;
+        try {
+            await fetchJson(characterid ? `/api/characters/${encodeURIComponent(characterid)}` : '/api/characters', {
+                method: characterid ? 'PUT' : 'POST',
+                body: JSON.stringify(payload),
+            });
+            showToast(characterid ? '角色更新成功' : '角色创建成功');
+            closeModal();
+            loadCharacters();
+        } catch (err) {
+            showToast(err.message);
+        } finally {
+            saveRoleBtn.disabled = false;
+        }
+    });
+
+    // Initial Load
+    loadCharacters().catch((err) => {
+        showToast(err.message);
+        tableBody.innerHTML = `<tr><td class="empty-state" colspan="5">${esc(err.message)}</td></tr>`;
+    });
 </script>
 {% endblock %}

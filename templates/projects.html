@@ -320,24 +320,6 @@
             font-weight: 700;
             text-align: center;
         }
-        .license-days-badge-fixed {
-            position: fixed;
-            right: 24px;
-            bottom: 24px;
-            z-index: 3100;
-            padding: 8px 14px;
-            border: 1px solid #bbf7d0;
-            border-radius: 999px;
-            color: #047857;
-            background: rgba(236, 253, 245, 0.98);
-            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
-            font-size: 12px;
-            font-weight: 700;
-            white-space: nowrap;
-        }
-        .license-days-badge-fixed.warn { border-color: #fecaca; color: #b91c1c; background: rgba(254, 242, 242, 0.95); }
-        .license-days-badge-fixed.caution { border-color: #fde68a; color: #b45309; background: rgba(255, 251, 235, 0.95); }
-
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
@@ -352,7 +334,6 @@
             .progress-modal-backdrop { padding: 12px; }
             .modal-content,
             .progress-modal { max-height: calc(100dvh - 24px); padding: 28px; }
-            .license-days-badge-fixed { right: 12px; bottom: 12px; }
         }
         @media (min-width: 761px) and (max-width: 1180px) {
             .project-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -366,7 +347,6 @@
     <div id="warning-banner" class="warning-banner">
         本地分析任务运行中，请保持电脑运行状态，避免断网或锁屏
     </div>
-    <div id="licenseDaysBadge" class="license-days-badge-fixed" title="" hidden></div>
 
     <div id="progressModal" class="progress-modal-backdrop">
         <div class="progress-modal">
@@ -387,7 +367,7 @@
         </div>
     </div>
 
-    <section class="hero"><h2>Roland，你好</h2><p>欢迎探索Pi Pai智能运营平台</p></section>
+    <section class="hero"><h2>{{ session.get('username', 'Guest') }}，你好</h2><p>欢迎探索Pi Pai智能运营平台</p></section>
     <section class="projects" aria-labelledby="projectTitle">
         <div class="section-head"><h3 id="projectTitle">项目列表</h3></div>
         <div class="project-section">

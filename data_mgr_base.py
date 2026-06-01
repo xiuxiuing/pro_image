@@ -424,6 +424,112 @@ class DataManagerBase:
                         print("Created default rule_templates row.")
                     self._ensure_builtin_rule_templates(conn)
 
+                    # --- users / roles (运营后台用户管理) ---
+                    conn.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS roles (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            name TEXT NOT NULL UNIQUE,
+                            description TEXT DEFAULT '',
+                            status INTEGER NOT NULL DEFAULT 1,
+                            created_at TEXT
+                        )
+                        """
+                    )
+                    role_count = conn.execute("SELECT COUNT(*) FROM roles").fetchone()[0]
+                    if role_count == 0:
+                        _role_now = __import__("time").strftime("%Y-%m-%d %H:%M:%S")
+                        conn.executemany(
+                            "INSERT INTO roles (name, description, status, created_at) VALUES (?, ?, 1, ?)",
+                            [
+                                ("超级管理员", "系统默认角色", _role_now),
+                                ("管理员", "系统默认角色", _role_now),
+                                ("运营", "系统默认角色", _role_now),
+                                ("采购", "系统默认角色", _role_now),
+                            ],
+                        )
+                    conn.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS user (
+                            userid TEXT PRIMARY KEY,
+                            username TEXT NOT NULL,
+                            phone TEXT NOT NULL UNIQUE,
+                            email TEXT DEFAULT '',
+                            password TEXT NOT NULL,
+                            brand TEXT DEFAULT '',
+                            status INTEGER NOT NULL DEFAULT 1,
+                            created_at TEXT NOT NULL,
+                            role_id INTEGER NOT NULL,
+                            role_name TEXT NOT NULL
+                        )
+                        """
+                    )
+                    cursor = conn.execute("PRAGMA table_info(user)")
+                    user_cols = [c[1] for c in cursor.fetchall()]
+                    for col, ddl in (
+                        ("email", "ALTER TABLE user ADD COLUMN email TEXT DEFAULT ''"),
+                        ("password", "ALTER TABLE user ADD COLUMN password TEXT DEFAULT ''"),
+                        ("brand", "ALTER TABLE user ADD COLUMN brand TEXT DEFAULT ''"),
+                        ("status", "ALTER TABLE user ADD COLUMN status INTEGER NOT NULL DEFAULT 1"),
+                        ("created_at", "ALTER TABLE user ADD COLUMN created_at TEXT"),
+                        ("role_id", "ALTER TABLE user ADD COLUMN role_id INTEGER"),
+                        ("role_name", "ALTER TABLE user ADD COLUMN role_name TEXT DEFAULT ''"),
+                        ("avatar", "ALTER TABLE user ADD COLUMN avatar TEXT DEFAULT ''"),
+                    ):
+                        if col not in user_cols:
+                            conn.execute(ddl)
+                    conn.execute("CREATE INDEX IF NOT EXISTS idx_user_status ON user(status)")
+                    conn.execute("CREATE INDEX IF NOT EXISTS idx_user_created_at ON user(created_at)")
+
+                    # --- characters (运营后台角色管理) ---
+                    conn.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS characters (
+                            characterid TEXT PRIMARY KEY,
+                            name TEXT NOT NULL UNIQUE,
+                            userids TEXT DEFAULT '[]',
+                            description TEXT DEFAULT '',
+                            permissions TEXT DEFAULT '[]',
+                            status INTEGER NOT NULL DEFAULT 1,
+                            created_at TEXT NOT NULL
+                        )
+                        """
+                    )
+                    conn.execute("CREATE INDEX IF NOT EXISTS idx_characters_status ON characters(status)")
+
+                    # Migration: if characters table is empty, initialize it from roles table or defaults.
+                    char_count = conn.execute("SELECT COUNT(*) FROM characters").fetchone()[0]
+                    if char_count == 0:
+                        import uuid
+                        _char_now = time.strftime("%Y-%m-%d %H:%M:%S")
+                        
+                        # Fetch existing roles to migrate, or default to standard ones
+                        existing_roles = conn.execute("SELECT id, name, description, status, created_at FROM roles").fetchall()
+                        if not existing_roles:
+                            existing_roles = [
+                                (1, "超级管理员", "系统默认角色", 1, _char_now),
+                                (2, "管理员", "系统默认角色", 1, _char_now),
+                                (3, "运营", "系统默认角色", 1, _char_now),
+                                (4, "采购", "系统默认角色", 1, _char_now),
+                            ]
+                        
+                        for r_id, r_name, r_desc, r_status, r_created in existing_roles:
+                            new_char_id = uuid.uuid4().hex
+                            # Insert into characters
+                            conn.execute(
+                                """
+                                INSERT INTO characters (characterid, name, description, permissions, status, created_at)
+                                VALUES (?, ?, ?, '[]', ?, ?)
+                                """,
+                                (new_char_id, r_name, r_desc, r_status or 1, r_created or _char_now)
+                            )
+                            
+                            # Migrate existing users from this old role ID to the new 32-character characterid
+                            conn.execute(
+                                "UPDATE user SET role_id = ?, role_name = ? WHERE role_id = ?",
+                                (new_char_id, r_name, str(r_id))
+                            )
+
                     # Performance indexes for unlinked-pool / grid queries
                     conn.execute("CREATE INDEX IF NOT EXISTS idx_product_links_lookup ON product_links(project_id, store_id, comp_sku_id)")
                     conn.execute("CREATE INDEX IF NOT EXISTS idx_comp_products_store ON comp_products(project_id, store_id)")
@@ -458,5 +564,66 @@ class DataManagerBase:
                         conn.execute("UPDATE projects SET status = ?, analysis_started_at = NULL WHERE id = ?",
                                      (new_status, orphan_pid))
                         print(f"Startup recovery: project {orphan_pid} → {new_status}")
+                    
+                    # Bootstrap default 'admin' user if not exists
+                    admin_exists = conn.execute("SELECT COUNT(*) FROM user WHERE username = ?", ("admin",)).fetchone()[0]
+                    if admin_exists == 0:
+                        import uuid
+                        super_admin_row = conn.execute("SELECT characterid FROM characters WHERE name = ?", ("超级管理员",)).fetchone()
+                        if super_admin_row:
+                            super_admin_char_id = super_admin_row[0]
+                        else:
+                            super_admin_char_id = uuid.uuid4().hex
+                            _char_now = time.strftime("%Y-%m-%d %H:%M:%S")
+                            conn.execute(
+                                """
+                                INSERT INTO characters (characterid, name, description, permissions, status, created_at)
+                                VALUES (?, '超级管理员', '系统默认角色', '[]', 1, ?)
+                                """,
+                                (super_admin_char_id, _char_now)
+                            )
+                        
+                        _user_now = time.strftime("%Y-%m-%d %H:%M:%S")
+                        new_user_id = uuid.uuid4().hex
+                        conn.execute(
+                            """
+                            INSERT INTO user (userid, username, phone, email, password, brand, status, created_at, role_id, role_name)
+                            VALUES (?, ?, ?, '', ?, '', 1, ?, ?, ?)
+                            """,
+                            (new_user_id, "admin", "10000000000", "admin", _user_now, super_admin_char_id, "超级管理员")
+                        )
+                        print("Bootstrapped default 'admin' user with '超级管理员' role.")
+                    
+                    # Run initial userids sync to characters table
+                    chars = conn.execute("SELECT characterid FROM characters").fetchall()
+                    for (char_id,) in chars:
+                        users = conn.execute("SELECT userid FROM user WHERE role_id = ?", (char_id,)).fetchall()
+                        user_list = [u[0] for u in users]
+                        import json
+                        conn.execute(
+                            "UPDATE characters SET userids = ? WHERE characterid = ?",
+                            (json.dumps(user_list, ensure_ascii=False), char_id),
+                        )
             finally:
                 conn.close()
+
+    def sync_character_userids(self, conn=None):
+        import json
+        with_conn = conn is not None
+        if not with_conn:
+            conn = self._get_conn()
+        try:
+            chars = conn.execute("SELECT characterid FROM characters").fetchall()
+            for (char_id,) in chars:
+                users = conn.execute("SELECT userid FROM user WHERE role_id = ?", (char_id,)).fetchall()
+                user_list = [u[0] for u in users]
+                conn.execute(
+                    "UPDATE characters SET userids = ? WHERE characterid = ?",
+                    (json.dumps(user_list, ensure_ascii=False), char_id),
+                )
+            if not with_conn:
+                conn.commit()
+        finally:
+            if not with_conn:
+                conn.close()
+

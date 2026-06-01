@@ -197,7 +197,8 @@
         }
         .create-btn:hover { background: var(--blue-deep); }
         .icon-btn { width: 32px; height: 36px; border: 0; border-radius: 999px; display: grid; place-items: center; color: #344054; background: transparent; }
-        .avatar { width: 32px; height: 32px; border: 1px solid var(--line); border-radius: 50%; background: radial-gradient(circle at 34% 28%, #f6c36a 0 13%, #0d9488 14% 42%, #d8f6ff 43% 62%, #0f172a 63% 100%); }
+        .avatar { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; cursor: pointer; border: none; outline: none; transition: transform 0.2s ease; }
+        .avatar:hover { transform: scale(1.05); }
         .main {
             margin-left: var(--sidebar-w);
             min-height: calc(100vh - var(--topbar-h));
@@ -228,18 +229,21 @@
             position: fixed;
             right: 24px;
             bottom: 24px;
-            z-index: 50;
+            z-index: 9999; /* Set above modal overlay z-index 999 */
             transform: translateY(16px);
             opacity: 0;
             pointer-events: none;
-            padding: 12px 16px;
-            border-radius: 8px;
-            color: #fff;
-            background: #111827;
-            font-size: 13px;
-            font-weight: 700;
-            box-shadow: 0 16px 32px rgba(15,23,42,.18);
-            transition: .18s;
+            padding: 14px 22px;
+            border-radius: 10px;
+            color: #ffffff;
+            background: rgba(15, 23, 42, 0.92); /* Elegant dark satin bg */
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            font-size: 13.5px;
+            font-weight: 600;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+            transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
         }
         .toast.show { transform: translateY(0); opacity: 1; }
         .app.is-collapsed { --sidebar-w: 76px; }
@@ -271,6 +275,154 @@
             .topbar, .main { margin-left: 0; }
             .sidebar-toggle { display: none; }
         }
+
+        /* Dropdown style */
+        .avatar-dropdown {
+            position: absolute;
+            right: 0;
+            top: 48px;
+            background: rgba(255, 255, 255, 0.82);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
+            border-radius: 12px;
+            padding: 6px 0;
+            width: 154px;
+            display: none;
+            flex-direction: column;
+            z-index: 100;
+            animation: dropdownFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .avatar-dropdown.show {
+            display: flex;
+        }
+        @keyframes dropdownFadeIn {
+            from { opacity: 0; transform: translateY(-8px) scale(0.95); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .avatar-dropdown-item {
+            width: 100%;
+            padding: 9px 16px;
+            font-size: 13px;
+            color: #334155;
+            border: none;
+            background: transparent;
+            text-align: left;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: inherit;
+            display: flex;
+            align-items: center;
+        }
+        .avatar-dropdown-item:hover {
+            background: rgba(118, 111, 242, 0.08);
+            color: var(--blue);
+        }
+
+        /* Glassmorphic Modal Universal Styling */
+        .g-modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(15, 23, 42, 0.4);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            z-index: 999;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.25s ease;
+        }
+        .g-modal-overlay.show {
+            display: flex;
+            opacity: 1;
+        }
+        .g-modal-content {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+            border-radius: 20px;
+            width: 90%;
+            max-width: 460px;
+            padding: 32px;
+            position: relative;
+            transform: scale(0.92);
+            transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        .g-modal-overlay.show .g-modal-content {
+            transform: scale(1);
+        }
+        .g-modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 24px;
+        }
+        .g-modal-title {
+            margin: 0;
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--blue);
+            font-family: Outfit, sans-serif;
+        }
+        .g-modal-close {
+            background: transparent;
+            border: none;
+            color: #64748b;
+            cursor: pointer;
+            transition: color 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .g-modal-close:hover {
+            color: var(--blue);
+        }
+        .g-form-group {
+            margin-bottom: 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .g-form-label {
+            font-size: 12.5px;
+            font-weight: 600;
+            color: #475569;
+        }
+        .g-form-input {
+            width: 100%;
+            height: 40px;
+            padding: 0 14px;
+            border-radius: 8px;
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            background: rgba(255, 255, 255, 0.5);
+            outline: none;
+            font-size: 13.5px;
+            transition: all 0.2s ease;
+        }
+        .g-form-input:focus {
+            border-color: var(--blue);
+            background: rgba(255, 255, 255, 0.95);
+            box-shadow: 0 0 0 3px rgba(118, 111, 242, 0.15);
+        }
+        .g-form-input:disabled {
+            background: rgba(0, 0, 0, 0.03);
+            color: #64748b;
+            cursor: not-allowed;
+        }
+        .g-modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            margin-top: 28px;
+        }
+
         {% block styles %}{% endblock %}
     </style>
 </head>
@@ -290,38 +442,72 @@
                 </div>
                 <nav class="nav" aria-label="后台菜单">
                     <button class="nav-item" type="button" data-toast="概览暂未接入"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 4h6v6H4V4Zm10 0h6v6h-6V4ZM4 14h6v6H4v-6Zm10 0h6v6h-6v-6Z" stroke="currentColor" stroke-width="2" /></svg><span class="nav-label">概览</span></button>
+                    {% if is_super_admin or '/' in user_permissions %}
                     <button class="nav-item {% if active_menu == 'projects' %}active{% endif %}" type="button" data-href="/"><svg class="nav-icon" viewBox="0 0 1024 1024" aria-hidden="true"><path d="M731.735 230.989c60.948 0 110.356 49.414 110.356 110.37V796.63c0 60.955-49.408 110.369-110.356 110.369H175.356C114.408 907 65 857.586 65 796.63V341.359c0-60.955 49.408-110.37 110.356-110.37z m50.58 264.426H124.776v301.216c0 27.658 22.195 50.132 49.744 50.579l0.836 0.007h556.38c27.934 0 50.58-22.648 50.58-50.586l-0.001-301.216zM845.644 105c60.338 0 109.367 48.43 110.341 108.544l0.015 1.825v576.663c0 16.509-13.381 29.892-29.888 29.892-16.271 0-29.505-13.004-29.88-29.186l-0.008-0.706V215.37c0-27.658-22.195-50.132-49.744-50.579l-0.836-0.007H278.815c-16.507 0-29.888-13.383-29.888-29.891 0-16.273 13.002-29.509 29.183-29.884l0.705-0.008h566.829zM731.735 290.772H175.356c-27.934 0-50.58 22.648-50.58 50.586v94.273h657.539v-94.273c0-27.658-22.195-50.132-49.743-50.579l-0.837-0.007z m-128.749 34.49c16.507 0 29.889 13.384 29.889 29.892 0 16.273-13.002 29.509-29.183 29.884l-0.706 0.008H191.45c-16.507 0-29.888-13.383-29.888-29.892 0-16.273 13.001-29.508 29.182-29.883l0.706-0.008h411.536z m98.861 0c16.507 0 29.888 13.384 29.888 29.892 0 16.509-13.381 29.892-29.888 29.892s-29.888-13.383-29.888-29.892c0-16.508 13.381-29.891 29.888-29.891z" fill="currentColor" /></svg><span class="nav-label">项目管理</span></button>
+                    {% endif %}
+                    
+                    {% set show_config = is_super_admin or '/config-management/permissions' in user_permissions or '/config-management/rules' in user_permissions %}
+                    {% if show_config %}
                     <div class="nav-group {% if active_menu == 'config' %}is-open{% endif %}">
                         <button class="nav-item {% if active_menu == 'config' %}active{% endif %}" type="button" data-toggle="nav-group" aria-expanded="{% if active_menu == 'config' %}true{% else %}false{% endif %}"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z" stroke="currentColor" stroke-width="2" /><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.5-2.4 1a7.3 7.3 0 0 0-2-1.1L14.2 3h-4.4l-.4 2.7a7.3 7.3 0 0 0-2 1.1l-2.4-1-2 3.5 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.5 2.4-1a7.3 7.3 0 0 0 2 1.1l.4 2.7h4.4l.4-2.7a7.3 7.3 0 0 0 2-1.1l2.4 1 2-3.5-2-1.5c.1-.4.1-.8.1-1.2Z" stroke="currentColor" stroke-width="1.6" /></svg><span class="nav-label">配置管理</span><svg class="nav-arrow" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
                         <div class="subnav" aria-label="配置管理子菜单">
+                            {% if is_super_admin or '/config-management/permissions' in user_permissions %}
                             <a class="{% if active_config_child == 'permissions' %}active{% endif %}" href="/config-management/permissions">权限配置</a>
+                            {% endif %}
+                            {% if is_super_admin or '/config-management/rules' in user_permissions %}
                             <a class="{% if active_config_child == 'rules' %}active{% endif %}" href="/config-management/rules">规则配置</a>
+                            {% endif %}
                         </div>
                     </div>
+                    {% endif %}
+
+                    {% set show_users = is_super_admin or '/user-management/users' in user_permissions or '/user-management/roles' in user_permissions %}
+                    {% if show_users %}
                     <div class="nav-group {% if active_menu == 'users' %}is-open{% endif %}">
                         <button class="nav-item {% if active_menu == 'users' %}active{% endif %}" type="button" data-toggle="nav-group" aria-expanded="{% if active_menu == 'users' %}true{% else %}false{% endif %}"><svg class="nav-icon" viewBox="0 0 1024 1024" aria-hidden="true"><path d="M664.512 180.992a204.48 204.48 0 0 1 3.392 408.96h-3.392v-64a140.48 140.48 0 1 0-56.32-269.184l-0.96 0.384-26.176-58.432a203.904 203.904 0 0 1 83.456-17.728z" fill="currentColor" /><path d="M664 526.016a286.528 286.528 0 0 1 286.976 281.28v4.672h-64a222.464 222.464 0 0 0-219.264-221.952h-3.712v-64z" fill="currentColor" /><path d="M427.008 118.016a240.768 240.768 0 0 0-241.024 240.512 240.768 240.768 0 0 0 241.024 240.448 240.768 240.768 0 0 0 241.024-240.448 240.768 240.768 0 0 0-241.024-240.512z m0 64a176.768 176.768 0 0 1 177.024 176.512 176.768 176.768 0 0 1-177.024 176.448 176.768 176.768 0 0 1-177.024-176.448 176.768 176.768 0 0 1 177.024-176.512z" fill="currentColor" /><path d="M427.008 535.04a340.032 340.032 0 0 1 339.968 334.336v5.632h-64A276.032 276.032 0 0 0 151.04 870.4v4.48h-64A340.032 340.032 0 0 1 426.944 535.04z" fill="currentColor" /></svg><span class="nav-label">用户管理</span><svg class="nav-arrow" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
                         <div class="subnav" aria-label="用户管理子菜单">
+                            {% if is_super_admin or '/user-management/users' in user_permissions %}
                             <a class="{% if active_user_child == 'users' %}active{% endif %}" href="/user-management/users">用户列表</a>
+                            {% endif %}
+                            {% if is_super_admin or '/user-management/roles' in user_permissions %}
                             <a class="{% if active_user_child == 'roles' %}active{% endif %}" href="/user-management/roles">角色列表</a>
+                            {% endif %}
                         </div>
                     </div>
+                    {% endif %}
+
+                    {% set show_data = is_super_admin or '/data-management/operations' in user_permissions or '/data-management/stores' in user_permissions %}
+                    {% if show_data %}
                     <div class="nav-group {% if active_menu == 'data' %}is-open{% endif %}">
                         <button class="nav-item {% if active_menu == 'data' %}active{% endif %}" type="button" data-toggle="nav-group" aria-expanded="{% if active_menu == 'data' %}true{% else %}false{% endif %}"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><ellipse cx="12" cy="5" rx="7" ry="3" stroke="currentColor" stroke-width="2" /><path d="M5 5v6c0 1.7 3.1 3 7 3s7-1.3 7-3V5M5 11v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6" stroke="currentColor" stroke-width="2" /></svg><span class="nav-label">数据管理</span><svg class="nav-arrow" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
                         <div class="subnav" aria-label="数据管理子菜单">
+                            {% if is_super_admin or '/data-management/operations' in user_permissions %}
                             <a class="{% if active_data_child == 'operations' %}active{% endif %}" href="/data-management/operations">运营数据</a>
+                            {% endif %}
+                            {% if is_super_admin or '/data-management/stores' in user_permissions %}
                             <a class="{% if active_data_child == 'stores' %}active{% endif %}" href="/data-management/stores">门店数据</a>
+                            {% endif %}
                         </div>
                     </div>
+                    {% endif %}
+
+                    {% set show_ops = is_super_admin or '/market-analysis' in user_permissions or '/ops-tools' in user_permissions %}
+                    {% if show_ops %}
                     <div class="nav-group {% if active_menu == 'ops' %}is-open{% endif %}">
                         <button class="nav-item {% if active_menu == 'ops' %}active{% endif %}" type="button" data-toggle="nav-group" aria-expanded="{% if active_menu == 'ops' %}true{% else %}false{% endif %}"><svg class="nav-icon" viewBox="0 0 1024 1024" aria-hidden="true"><path d="M42.667 682.667v256C42.667 985.77 80.896 1024 128 1024h85.333c47.104 0 85.334-38.23 85.334-85.333v-256c0-47.104-38.23-85.334-85.334-85.334h85.334V512h-85.334V141.312c0-58.965 40.022-61.355 40.022-61.355C253.355 56.405 194.219 0 170.667 0S98.645 48.384 98.645 72.021c0 0 29.355 4.438 29.355 55.979v384H42.667v85.333H128c-47.104 0-85.333 38.23-85.333 85.334z m938.666-512c0-47.104-38.144-85.334-85.333-85.334h-85.333C810.667 38.23 772.523 0 725.333 0H554.667c-47.104 0-85.334 38.144-85.334 85.333H384V0h-85.333v256H384v-85.333h85.333c0 47.104 38.23 85.333 85.334 85.333v682.667c0 47.104 38.229 85.333 85.333 85.333 47.19 0 85.333-38.23 85.333-85.333V256H896c47.19 0 85.333-38.144 85.333-85.333z" fill="currentColor" /></svg><span class="nav-label">运营工具</span><svg class="nav-arrow" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
                         <div class="subnav" aria-label="运营工具子菜单">
+                            {% if is_super_admin or '/market-analysis' in user_permissions %}
                             <a class="{% if active_ops_child == 'market' %}active{% endif %}" href="/market-analysis">商圈分析</a>
+                            {% endif %}
+                            {% if is_super_admin or '/ops-tools' in user_permissions %}
                             <a class="{% if active_ops_child == 'tools' %}active{% endif %}" href="/ops-tools">工具页面</a>
+                            {% endif %}
                         </div>
                     </div>
+                    {% endif %}
                 </nav>
             </div>
-            <div class="logout"><button class="nav-item" type="button" data-toast="已点击退出登录"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M10 17v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v2m4 10 5-5-5-5m5 5H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg><span class="nav-label">退出登录</span></button></div>
+            <div class="logout"><a class="nav-item" href="/logout" style="text-decoration: none;"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M10 17v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v2m4 10 5-5-5-5m5 5H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg><span class="nav-label">退出登录</span></a></div>
         </aside>
         <header class="topbar">
             <h2 class="top-title">{% block top_title %}{% endblock %}</h2>
@@ -330,12 +516,139 @@
                 {% block top_actions %}{% endblock %}
                 <button class="icon-btn" type="button" data-toast="暂无新通知" aria-label="通知"><svg width="18" height="20" viewBox="0 0 18 20" fill="none" aria-hidden="true"><path d="M14 7a5 5 0 0 0-10 0c0 5-2 6-2 6h14s-2-1-2-6ZM10.5 17a1.7 1.7 0 0 1-3 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
                 <button class="icon-btn" type="button" data-toast="帮助中心暂未接入" aria-label="帮助"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="1.8" /><path d="M8.3 8a1.8 1.8 0 1 1 3 1.4c-.7.5-1.3 1-1.3 2.1M10 14.5h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg></button>
-                <button class="avatar" type="button" data-toast="Admin User Profile" aria-label="用户资料"></button>
+                <div class="user-profile-wrapper" style="position: relative; display: flex; align-items: center; gap: 8px;">
+                    <button type="button" id="profileDropdownTrigger" style="background: transparent; border: none; padding: 0; margin: 0; display: flex; align-items: center; gap: 8px; cursor: pointer; text-align: right; outline: none;">
+                        <div class="user-profile-info" style="display: flex; align-items: center; gap: 4px; font-family: Inter, sans-serif;">
+                            <span class="profile-username" style="font-size: 13.5px; font-weight: 600; color: var(--text);">{{ session.get('username', 'Guest') }}</span>
+                            <span class="profile-role" style="font-size: 12.5px; font-weight: 500; color: var(--muted);">（{{ session.get('role_name', 'Visitor') }}）</span>
+                        </div>
+                        <div class="avatar" id="globalUserAvatar" aria-label="用户资料"></div>
+                    </button>
+                    <!-- Glassmorphic Dropdown Menu -->
+                    <div class="avatar-dropdown" id="avatarDropdown">
+                        <button class="avatar-dropdown-item" type="button" id="openProfileBtn">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px; vertical-align: middle;"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>个人信息
+                        </button>
+                        <button class="avatar-dropdown-item" type="button" id="openResetPwdBtn">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px; vertical-align: middle;"><path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"></path></svg>重置密码
+                        </button>
+                        <button class="avatar-dropdown-item" type="button" id="openChangePwdBtn">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px; vertical-align: middle;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>修改密码
+                        </button>
+                        <hr style="border: 0; border-top: 1px solid rgba(0,0,0,0.06); margin: 4px 0;">
+                        <a class="avatar-dropdown-item" href="/logout" style="text-decoration: none; color: #ba1a1a; display: flex; align-items: center; width: 100%;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px; vertical-align: middle;"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"></path></svg>退出登录
+                        </a>
+                    </div>
+                </div>
             </div>
         </header>
         <main class="main">
             {% block content %}{% endblock %}
         </main>
+    </div>
+
+    <!-- Modal 1: 个人信息 -->
+    <div class="g-modal-overlay" id="profileModal">
+        <div class="g-modal-content" style="max-width: 480px;">
+            <div class="g-modal-header">
+                <h3 class="g-modal-title">个人信息</h3>
+                <button type="button" class="g-modal-close" onclick="closeGModal('profileModal')">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+            <div style="display: flex; flex-direction: column; align-items: center; margin-bottom: 24px; position: relative;">
+                <!-- Avatar Preview with upload hover action -->
+                <div style="position: relative; width: 88px; height: 88px; border-radius: 50%; border: 2px solid rgba(118, 111, 242, 0.3); overflow: hidden; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: 700;" id="profileAvatarPreview" onclick="document.getElementById('avatarFileInput').click()">
+                    <!-- dynamic initials or image -->
+                </div>
+                <button type="button" class="create-btn" style="height: 28px; padding: 4px 12px; font-size: 11px; margin-top: 10px;" onclick="document.getElementById('avatarFileInput').click()">更换头像</button>
+                <span style="font-size: 11px; color: #94a3b8; margin-top: 4px;">支持 png, jpg, jpeg, gif，最大 2MB</span>
+                <input type="file" id="avatarFileInput" style="display: none;" accept="image/png, image/jpeg, image/jpg, image/gif" onchange="handleAvatarUpload(this)">
+            </div>
+            <div class="g-form-group">
+                <label class="g-form-label">用户名</label>
+                <input class="g-form-input" type="text" id="profileUsername" disabled>
+            </div>
+            <div class="g-form-group">
+                <label class="g-form-label">手机号</label>
+                <input class="g-form-input" type="text" id="profilePhone" disabled>
+            </div>
+            <div class="g-form-group">
+                <label class="g-form-label">邮箱</label>
+                <input class="g-form-input" type="text" id="profileEmail" disabled>
+            </div>
+            <div class="g-form-group">
+                <label class="g-form-label">所属角色</label>
+                <input class="g-form-input" type="text" id="profileRole" disabled>
+            </div>
+            <div class="g-modal-footer" style="margin-top: 20px;">
+                <button class="btn btn-secondary" type="button" onclick="closeGModal('profileModal')">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal 2: 重置密码 -->
+    <div class="g-modal-overlay" id="resetPasswordModal">
+        <div class="g-modal-content" style="max-width: 400px; text-align: center;">
+            <div class="modal-icon" style="width: 56px; height: 56px; border-radius: 50%; background: rgba(239, 68, 68, 0.15); color: #ef4444; display: grid; place-items: center; margin: 0 auto 20px;">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+            </div>
+            <h3 class="g-modal-title" style="margin-bottom: 12px; color: #ef4444; font-size: 19px;">重置密码确认</h3>
+            <p style="font-size: 14px; color: #475569; line-height: 1.5; margin-bottom: 24px; padding: 0 10px;">您确定要将当前账号的密码重置为**绑定的手机号码后 6 位**吗？</p>
+            <div style="display: flex; justify-content: center; gap: 12px;">
+                <button class="btn btn-secondary" type="button" onclick="closeGModal('resetPasswordModal')">取消</button>
+                <button class="btn" type="button" id="confirmResetPwdBtn" style="background: #ef4444;">确认重置</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal 3: 修改密码 -->
+    <div class="g-modal-overlay" id="changePasswordModal">
+        <div class="g-modal-content" style="max-width: 440px;">
+            <div class="g-modal-header">
+                <h3 class="g-modal-title">修改密码</h3>
+                <button type="button" class="g-modal-close" onclick="closeGModal('changePasswordModal')">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+            <form id="changePasswordForm" onsubmit="handleChangePassword(event)">
+                <div class="g-form-group">
+                    <label class="g-form-label">原密码</label>
+                    <div style="position: relative; width: 100%;">
+                        <input class="g-form-input" type="password" id="oldPassword" required style="padding-right: 44px;">
+                        <button type="button" class="g-eye-btn" onclick="toggleGInputPassword('oldPassword', this)" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: transparent; border: none; cursor: pointer; color: #94a3b8; display: flex; align-items: center; justify-content: center; padding: 0;">
+                            <svg class="eye-off" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+                            <svg class="eye-on" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="g-form-group">
+                    <label class="g-form-label">新密码</label>
+                    <div style="position: relative; width: 100%;">
+                        <input class="g-form-input" type="password" id="newPassword" required style="padding-right: 44px;">
+                        <button type="button" class="g-eye-btn" onclick="toggleGInputPassword('newPassword', this)" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: transparent; border: none; cursor: pointer; color: #94a3b8; display: flex; align-items: center; justify-content: center; padding: 0;">
+                            <svg class="eye-off" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+                            <svg class="eye-on" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="g-form-group">
+                    <label class="g-form-label">确认新密码</label>
+                    <div style="position: relative; width: 100%;">
+                        <input class="g-form-input" type="password" id="confirmNewPassword" required style="padding-right: 44px;">
+                        <button type="button" class="g-eye-btn" onclick="toggleGInputPassword('confirmNewPassword', this)" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: transparent; border: none; cursor: pointer; color: #94a3b8; display: flex; align-items: center; justify-content: center; padding: 0;">
+                            <svg class="eye-off" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+                            <svg class="eye-on" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="g-modal-footer">
+                    <button class="btn btn-secondary" type="button" onclick="closeGModal('changePasswordModal')">取消</button>
+                    <button class="btn" type="submit" id="submitChangePwdBtn">保存修改</button>
+                </div>
+            </form>
+        </div>
     </div>
     <div class="toast" id="toast"></div>
     <script>
@@ -364,11 +677,11 @@
                 const group = button.closest('.nav-group');
                 if (app?.classList.contains('is-collapsed')) {
                     setSidebarCollapsed(false);
-                    const firstChildLink = group?.querySelector('.subnav a[href]');
-                    if (firstChildLink) {
-                        window.location.href = firstChildLink.href;
-                        return;
-                    }
+                }
+                const firstChildLink = group?.querySelector('.subnav a[href]');
+                if (firstChildLink) {
+                    window.location.href = firstChildLink.href;
+                    return;
                 }
                 const isOpen = group.classList.toggle('is-open');
                 button.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
@@ -384,6 +697,330 @@
                 setSidebarCollapsed(!app.classList.contains('is-collapsed'));
             });
         }
+
+        // Global G-Modal Control Functions
+        function openGModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if (modal) {
+                modal.style.display = 'flex';
+                setTimeout(() => modal.classList.add('show'), 10);
+            }
+        }
+
+        function closeGModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if (modal) {
+                modal.classList.remove('show');
+                setTimeout(() => modal.style.display = 'none', 250);
+            }
+        }
+
+        // Toggle Password Visibility in Modal Fields
+        function toggleGInputPassword(inputId, button) {
+            const input = document.getElementById(inputId);
+            const eyeOff = button.querySelector('.eye-off');
+            const eyeOn = button.querySelector('.eye-on');
+            if (input && eyeOff && eyeOn) {
+                if (input.type === 'password') {
+                    input.type = 'text';
+                    eyeOff.style.display = 'none';
+                    eyeOn.style.display = 'block';
+                } else {
+                    input.type = 'password';
+                    eyeOff.style.display = 'block';
+                    eyeOn.style.display = 'none';
+                }
+            }
+        }
+
+        // RC4 Client-side Encryption for secure password transit
+        function rc4Encrypt(key, str) {
+            var utf8Str = unescape(encodeURIComponent(str));
+            var s = [], j = 0, x, res = '';
+            for (var i = 0; i < 256; i++) {
+                s[i] = i;
+            }
+            for (var i = 0; i < 256; i++) {
+                j = (j + s[i] + key.charCodeAt(i % key.length)) % 256;
+                x = s[i]; s[i] = s[j]; s[j] = x;
+            }
+            var i = 0;
+            j = 0;
+            for (var y = 0; y < utf8Str.length; y++) {
+                i = (i + 1) % 256;
+                j = (j + s[i]) % 256;
+                x = s[i]; s[i] = s[j]; s[j] = x;
+                res += String.fromCharCode(utf8Str.charCodeAt(y) ^ s[(s[i] + s[j]) % 256]);
+            }
+            return btoa(res);
+        }
+
+        // Profile Dropdown Toggle Logic
+        const dropdownTrigger = document.getElementById('profileDropdownTrigger');
+        const avatarDropdown = document.getElementById('avatarDropdown');
+
+        if (dropdownTrigger && avatarDropdown) {
+            dropdownTrigger.addEventListener('click', (e) => {
+                e.stopPropagation();
+                avatarDropdown.classList.toggle('show');
+            });
+
+            document.addEventListener('click', (e) => {
+                if (!avatarDropdown.contains(e.target) && e.target !== dropdownTrigger) {
+                    avatarDropdown.classList.remove('show');
+                }
+            });
+        }
+
+        // Load Profile Information from Backend API
+        async function loadProfileInfo() {
+            try {
+                const response = await fetch('/api/profile');
+                const data = await response.json();
+                if (response.ok && data.status === 'success') {
+                    const u = data.data;
+                    document.getElementById('profileUsername').value = u.username;
+                    document.getElementById('profilePhone').value = u.phone;
+                    document.getElementById('profileEmail').value = u.email;
+                    document.getElementById('profileRole').value = u.role_name;
+
+                    // Update modal avatar preview
+                    updateAvatarDisplay(u.avatar, u.username, u.userid);
+                }
+            } catch (err) {
+                console.error(err);
+                showToast('获取个人信息失败');
+            }
+        }
+
+        // Update Avatar Element Rendering (image or colorful initials)
+        function updateAvatarDisplay(avatarUrl, username, userid) {
+            const previewEl = document.getElementById('profileAvatarPreview');
+            const globalEl = document.getElementById('globalUserAvatar');
+            
+            const initials = username.trim().substring(0, 1).toUpperCase();
+            
+            // Helper to compute initials color
+            const colors = [
+                { bg: '#e0f2fe', color: '#0369a1' },
+                { bg: '#dcfce7', color: '#15803d' },
+                { bg: '#fef9c3', color: '#a16207' },
+                { bg: '#fee2e2', color: '#b91c1c' },
+                { bg: '#f3e8ff', color: '#6b21a8' },
+                { bg: '#ffedd5', color: '#9a3412' },
+                { bg: '#e0e7ff', color: '#3730a3' },
+                { bg: '#fae8ff', color: '#86198f' },
+                { bg: '#ffe4e6', color: '#9f1239' }
+            ];
+            let hash = 0;
+            const seedStr = userid || 'guest';
+            for (let i = 0; i < seedStr.length; i++) {
+                hash = seedStr.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            const index = Math.abs(hash) % colors.length;
+            const color = colors[index];
+
+            if (avatarUrl) {
+                // Image Avatar
+                const imgCss = `url('${avatarUrl}') center/cover no-repeat`;
+                if (previewEl) {
+                    previewEl.style.background = imgCss;
+                    previewEl.textContent = '';
+                    previewEl.style.backgroundColor = 'transparent';
+                    previewEl.style.color = 'transparent';
+                }
+                if (globalEl) {
+                    globalEl.style.background = imgCss;
+                    globalEl.textContent = '';
+                    globalEl.style.backgroundColor = 'transparent';
+                    globalEl.style.color = 'transparent';
+                }
+            } else {
+                // Initials Avatar
+                if (previewEl) {
+                    previewEl.style.background = 'none';
+                    previewEl.style.backgroundColor = color.bg;
+                    previewEl.style.color = color.color;
+                    previewEl.textContent = initials;
+                }
+                if (globalEl) {
+                    globalEl.style.background = 'none';
+                    globalEl.style.backgroundColor = color.bg;
+                    globalEl.style.color = color.color;
+                    globalEl.textContent = initials;
+                }
+            }
+        }
+
+        // Handle Avatar File Upload Selection
+        async function handleAvatarUpload(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            if (file.size > 2 * 1024 * 1024) {
+                showToast('上传失败：图片大小不能超过 2MB');
+                input.value = '';
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('avatar', file);
+
+            try {
+                const response = await fetch('/api/profile/avatar', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+                if (response.ok && data.status === 'success') {
+                    showToast('头像更新成功');
+                    // Reload profile info to refresh display
+                    loadProfileInfo();
+                } else {
+                    showToast(data.message || '上传头像失败');
+                }
+            } catch (err) {
+                console.error(err);
+                showToast('上传头像出错，请稍后重试');
+            } finally {
+                input.value = '';
+            }
+        }
+
+        // Open Modals via Dropdown clicks
+        document.getElementById('openProfileBtn').addEventListener('click', () => {
+            avatarDropdown.classList.remove('show');
+            loadProfileInfo();
+            openGModal('profileModal');
+        });
+
+        document.getElementById('openResetPwdBtn').addEventListener('click', () => {
+            avatarDropdown.classList.remove('show');
+            openGModal('resetPasswordModal');
+        });
+
+        document.getElementById('openChangePwdBtn').addEventListener('click', () => {
+            avatarDropdown.classList.remove('show');
+            document.getElementById('changePasswordForm').reset();
+            document.querySelectorAll('#changePasswordForm .g-eye-btn').forEach(btn => {
+                btn.querySelector('.eye-off').style.display = 'block';
+                btn.querySelector('.eye-on').style.display = 'none';
+            });
+            document.querySelectorAll('#changePasswordForm .g-form-input').forEach(inp => {
+                inp.type = 'password';
+            });
+            openGModal('changePasswordModal');
+        });
+
+        // Reset Password API Submission
+        document.getElementById('confirmResetPwdBtn').addEventListener('click', async () => {
+            const btn = document.getElementById('confirmResetPwdBtn');
+            btn.disabled = true;
+            btn.textContent = '重置中...';
+            try {
+                const response = await fetch('/api/profile/reset-password', { method: 'POST' });
+                const data = await response.json();
+                if (response.ok && data.status === 'success') {
+                    closeGModal('resetPasswordModal');
+                    showToast(data.message || '密码重置成功');
+                } else {
+                    showToast(data.message || '密码重置失败');
+                }
+            } catch (err) {
+                console.error(err);
+                showToast('重置密码失败，请稍后重试');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '确认重置';
+            }
+        });
+
+        // Change Password Form Submission
+        async function handleChangePassword(e) {
+            e.preventDefault();
+            const oldPwd = document.getElementById('oldPassword').value;
+            const newPwd = document.getElementById('newPassword').value;
+            const confirmNewPwd = document.getElementById('confirmNewPassword').value;
+
+            if (newPwd !== confirmNewPwd) {
+                showToast('新密码与确认新密码输入不一致！');
+                return;
+            }
+
+            if (newPwd === oldPwd) {
+                showToast('新密码不能与旧密码相同！');
+                return;
+            }
+
+            const oldEncrypted = rc4Encrypt('PiPaiSmartOpsKey2026', oldPwd);
+            const newEncrypted = rc4Encrypt('PiPaiSmartOpsKey2026', newPwd);
+
+            const submitBtn = document.getElementById('submitChangePwdBtn');
+            submitBtn.disabled = true;
+            submitBtn.textContent = '保存中...';
+
+            try {
+                const response = await fetch('/api/profile/change-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        old_password: oldEncrypted,
+                        new_password: newEncrypted
+                    })
+                });
+                const data = await response.json();
+                if (response.ok && data.status === 'success') {
+                    closeGModal('changePasswordModal');
+                    showToast(data.message || '密码修改成功！');
+                } else {
+                    showToast(data.message || '密码修改失败');
+                }
+            } catch (err) {
+                console.error(err);
+                showToast('保存修改出错，请重试');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = '保存修改';
+            }
+        }
+
+        // Dynamic Profile Avatar initials & colors / or image avatar on load
+        (function() {
+            const username = "{{ session.get('username', 'Guest') }}";
+            const userid = "{{ session.get('userid', 'guest') }}";
+            const avatarUrl = "{{ session.get('avatar', '') }}";
+            const avatarEl = document.getElementById('globalUserAvatar');
+            if (avatarEl) {
+                if (avatarUrl) {
+                    avatarEl.style.background = `url('${avatarUrl}') center/cover no-repeat`;
+                    avatarEl.style.backgroundColor = 'transparent';
+                    avatarEl.style.color = 'transparent';
+                    avatarEl.textContent = '';
+                } else {
+                    const initials = username.trim().substring(0, 1).toUpperCase();
+                    avatarEl.textContent = initials;
+                    const colors = [
+                        { bg: '#e0f2fe', color: '#0369a1' },
+                        { bg: '#dcfce7', color: '#15803d' },
+                        { bg: '#fef9c3', color: '#a16207' },
+                        { bg: '#fee2e2', color: '#b91c1c' },
+                        { bg: '#f3e8ff', color: '#6b21a8' },
+                        { bg: '#ffedd5', color: '#9a3412' },
+                        { bg: '#e0e7ff', color: '#3730a3' },
+                        { bg: '#fae8ff', color: '#86198f' },
+                        { bg: '#ffe4e6', color: '#9f1239' }
+                    ];
+                    let hash = 0;
+                    for (let i = 0; i < userid.length; i++) {
+                        hash = userid.charCodeAt(i) + ((hash << 5) - hash);
+                    }
+                    const index = Math.abs(hash) % colors.length;
+                    const color = colors[index];
+                    avatarEl.style.backgroundColor = color.bg;
+                    avatarEl.style.color = color.color;
+                }
+            }
+        })();
     </script>
     {% block scripts %}{% endblock %}
 </body>
