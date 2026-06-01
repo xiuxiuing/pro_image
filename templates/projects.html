@@ -3,12 +3,24 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>项目管理 - 商品分析平台</title>
-    <link
-        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@400;600;700;800&display=swap"
-        rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>项目管理 - 商品竞对分析平台</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
     <style>
+
         :root {
+            --blue: #766ff2;
+            --blue-deep: #4f46c7;
+            --bg: #f8f9fa;
+            --text: #191c1d;
+            --text-2: #434655;
+            --muted: #737686;
+            --nav: #505f76;
+            --line: rgba(195, 198, 215, 0.5);
+            --line-soft: rgba(229, 231, 235, 0.5);
+            --panel: rgba(255, 255, 255, 0.72);
+            --sidebar-w: 260px;
+            --topbar-h: 64px;
             --primary-accent: #FFD500;
             --text-main: #000;
             --text-muted: #64748b;
@@ -18,123 +30,173 @@
             --radius-lg: 20px;
         }
 
+        * { box-sizing: border-box; }
+
         body {
-            font-family: 'Inter', sans-serif;
-            background: #f8fafc;
-            color: var(--text-main);
             margin: 0;
-            padding: 0;
             min-height: 100vh;
+            background: var(--bg);
+            color: var(--text);
+            font-family: Inter, Arial, sans-serif;
             overflow-x: hidden;
-            display: flex;
-            justify-content: center;
         }
 
-        /* --- Brand Background --- */
-        .dynamic-bg {
+        button, input { font: inherit; }
+        button { cursor: pointer; }
+
+        .app { min-height: 100vh; background: var(--bg); }
+
+        .sidebar {
             position: fixed;
-            inset: 0;
-            z-index: -1;
-            overflow: hidden;
-            background:
-                linear-gradient(135deg, rgba(255, 213, 0, 0.18), rgba(255, 255, 255, 0.08) 36%, rgba(226, 232, 240, 0.72)),
-                #f8fafc;
-        }
-
-        #bg-video {
-            position: absolute;
-            inset: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            object-position: center center;
-            display: none;
-        }
-        #bg-image {
-            position: absolute;
-            inset: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            object-position: center center;
-            display: none;
-        }
-
-        body.video-bg-ready #bg-video { display: block; }
-        body.image-bg-ready #bg-image { display: block; }
-        body.perf-static-bg #bg-video { display: none; }
-        body.perf-static-bg #bg-image { display: block; }
-
-        .dynamic-bg::after {
-            content: '';
-            position: absolute;
-            inset: 0;
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.15) 0%, rgba(255, 255, 255, 0.05) 100%);
-            z-index: 1;
-        }
-
-        .container {
-            width: 100vw;
-            min-height: 100vh;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            z-index: 20;
+            width: var(--sidebar-w);
+            padding: 24px 0;
             display: flex;
             flex-direction: column;
-            align-items: center;
             justify-content: space-between;
-            padding: 0;
-            box-sizing: border-box;
-            position: relative;
-            z-index: 1;
+            background: var(--panel);
+            border-right: 1px solid var(--line);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+            backdrop-filter: blur(12px);
+            transition: width 0.2s ease;
         }
 
-        header {
-            width: 100%;
-            flex: 1;
+        .brand-row {
             display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            text-align: center;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 0 16px 40px 24px;
         }
 
-        .projects-nav {
-            position: fixed;
-            top: 20px;
-            right: 24px;
-            z-index: 50;
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            justify-content: flex-end;
+        .brand-logo {
+            width: 48px;
+            height: 48px;
+            border-radius: 10px;
+            object-fit: cover;
+            flex: 0 0 48px;
+            box-shadow: 0 6px 18px rgba(118, 111, 242, 0.14);
         }
-        .projects-nav a {
-            font-size: 13px;
-            font-weight: 700;
-            color: #475569;
-            text-decoration: none;
-            padding: 8px 14px;
+
+        .brand-copy { min-width: 0; flex: 1; transition: opacity 0.16s ease; }
+        .brand-title { margin: 0; color: var(--blue); font-size: 20px; line-height: 28px; font-weight: 700; white-space: nowrap; }
+        .brand-subtitle { margin: 0; color: #505f76; font-size: 14px; line-height: 20px; white-space: nowrap; }
+
+        .sidebar-toggle {
+            width: 32px;
+            height: 32px;
+            border: 1px solid rgba(195, 198, 215, 0.7);
             border-radius: 999px;
-            background: rgba(255, 255, 255, 0.9);
-            border: 1px solid #e2e8f0;
-            box-shadow: 0 2px 8px rgba(0,0,0,.04);
+            display: grid;
+            place-items: center;
+            color: var(--nav);
+            background: rgba(255, 255, 255, 0.75);
+            flex: 0 0 32px;
         }
-        .projects-nav a:hover { color: #000; border-color: var(--primary-accent); }
+        .sidebar-toggle svg { transition: transform 0.2s ease; }
 
-        .header-title h1 {
+        .nav { flex: 1; padding: 0 8px; display: flex; flex-direction: column; gap: 4px; }
+        .nav-item {
+            position: relative;
+            width: 100%;
+            min-width: 0;
+            height: 44px;
+            padding: 12px 16px;
+            border: 0;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: var(--nav);
+            background: transparent;
+            font-size: 14px;
+            line-height: 20px;
+            text-align: left;
+        }
+        .nav-item.active { color: var(--blue); background: rgba(208, 225, 251, 0.5); }
+        .nav-item.active::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 12px;
+            width: 4px;
+            height: 24px;
+            border-radius: 999px;
+            background: var(--blue);
+        }
+        .nav-icon { width: 22px; height: 20px; color: currentColor; flex: 0 0 22px; }
+        .nav-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: opacity 0.16s ease; }
+        .logout { width: 100%; padding: 17px 8px 0; border-top: 1px solid rgba(195, 198, 215, 0.3); }
+        .logout .nav-item { color: #ba1a1a; }
+
+        .topbar {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            height: var(--topbar-h);
+            margin-left: var(--sidebar-w);
+            padding: 0 clamp(16px, 2vw, 24px);
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            background: var(--panel);
+            border-bottom: 1px solid var(--line);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+            backdrop-filter: blur(12px);
+            transition: margin-left 0.2s ease;
+        }
+        .top-actions { display: flex; align-items: center; gap: 16px; min-width: 0; }
+        .search { position: relative; width: min(256px, 28vw); min-width: 180px; height: 36px; }
+        .search svg { position: absolute; left: 12px; top: 9px; width: 18px; height: 18px; color: #6b7280; pointer-events: none; }
+        .search input {
+            width: 100%;
+            height: 36px;
+            border: 0;
+            outline: none;
+            border-radius: 8px;
+            background: #f3f4f5;
+            color: var(--blue);
+            padding: 9px 16px 10px 40px;
+            font-size: 14px;
+            line-height: 17px;
+        }
+        .create-btn {
+            height: 32px;
+            padding: 8px 16px;
+            border: 0;
+            border-radius: 8px;
+            background: var(--blue);
+            color: #fff;
+            font-size: 12px;
+            line-height: 16px;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+        .create-btn:hover { background: var(--blue-deep); }
+        .icon-btn { width: 32px; height: 36px; border: 0; border-radius: 999px; display: grid; place-items: center; color: #344054; background: transparent; }
+        .avatar { width: 32px; height: 32px; border: 1px solid var(--line); border-radius: 50%; background: radial-gradient(circle at 34% 28%, #f6c36a 0 13%, #0d9488 14% 42%, #d8f6ff 43% 62%, #0f172a 63% 100%); }
+
+        .main {
+            margin-left: var(--sidebar-w);
+            min-height: calc(100vh - var(--topbar-h));
+            padding: 44px 32px 28px 40px;
+            transition: margin-left 0.2s ease;
+        }
+        .hero { max-width: 1080px; }
+        .hero h2 {
             margin: 0;
-            font-family: 'Outfit', sans-serif;
-            font-size: 88px;
-            font-weight: 800;
-            letter-spacing: 0.15em;
-            color: #1e293b;
+            color: var(--blue);
+            font-size: clamp(34px, 2.8vw, 44px);
+            line-height: 1.18;
+            font-weight: 700;
+            letter-spacing: 0;
         }
-
-        .header-title p {
-            margin: 15px 0 0 0;
-            font-size: 26px;
-            font-weight: 600;
-            color: #475569;
-            letter-spacing: 0.25em;
-        }
+        .hero p { margin: 12px 0 0; color: var(--text-2); font-size: 18px; line-height: 28px; font-weight: 500; }
+        .projects { width: 100%; max-width: none; margin-top: 56px; }
+        .section-head { min-height: 30px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+        .section-head h3 { margin: 0; color: var(--text); font-size: 20px; line-height: 28px; font-weight: 600; }
 
         /* --- Project Grid at Bottom --- */
         .project-section {
@@ -336,51 +398,6 @@
             border: 1px solid #fde68a;
         }
 
-        .project-card.card-creating {
-            border-color: #fbbf24;
-            background: rgba(255, 255, 255, 0.78);
-            cursor: default;
-        }
-        .project-card.card-creating:hover {
-            transform: translateY(-3px);
-            border-color: #fbbf24;
-            box-shadow: 0 14px 34px rgba(251, 191, 36, 0.14);
-        }
-
-        .card-loading-body {
-            flex: 1;
-            width: 100%;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            min-height: 76px;
-        }
-
-        .card-progress-track {
-            width: 74%;
-            height: 6px;
-            border-radius: 999px;
-            background: #f1f5f9;
-            overflow: hidden;
-            margin-top: 4px;
-        }
-
-        .card-progress-fill {
-            height: 100%;
-            width: 40%;
-            border-radius: inherit;
-            background: linear-gradient(90deg, var(--primary-accent), #f59e0b);
-            animation: cardProgressWait 1.35s ease-in-out infinite;
-        }
-
-        @keyframes cardProgressWait {
-            0% { transform: translateX(-110%); }
-            55% { transform: translateX(60%); }
-            100% { transform: translateX(190%); }
-        }
-
         .project-card.card-failed {
             border-color: #fca5a5;
             background: rgba(254, 242, 242, 0.7);
@@ -517,6 +534,20 @@
             color: #94a3b8;
             font-weight: 200;
         }
+
+
+        .project-section { width: 100%; padding: 0; display: block; overflow: visible; }
+        .project-carousel-wrap { width: 100%; max-width: none; margin-top: 24px; }
+        .project-grid { --card-w: clamp(340px, 22vw, 390px); --card-gap: 28px; padding: 12px 0 18px; }
+        .project-card { min-height: 250px; padding: 34px 28px; }
+        .project-name { font-size: 24px; line-height: 30px; margin-bottom: 10px; }
+        .project-meta { font-size: 13px; line-height: 1.55; margin-bottom: 24px; }
+        .btn-card { width: 118px; height: 56px; font-size: 14px; }
+        .project-card.new-card { min-height: 250px; }
+        .project-scroll-btn { width: 30px; height: 30px; border: 1px solid #c3c6d7; color: #505f76; font-size: 18px; font-weight: 700; background: transparent; }
+        .project-scroll-btn.prev { left: auto; right: 38px; top: -32px; }
+        .project-scroll-btn.next { right: 0; top: -32px; }
+        .project-scroll-btn:hover { background: transparent; transform: translateY(-50%) scale(1.04); }
 
         /* --- Modal --- */
         .modal-backdrop {
@@ -686,9 +717,9 @@
 
         .license-days-badge-fixed {
             position: fixed;
-            top: 16px;
-            left: 20px;
-            z-index: 100;
+            right: 24px;
+            bottom: 24px;
+            z-index: 3100;
             font-size: 12px;
             font-weight: 700;
             padding: 8px 14px;
@@ -712,8 +743,8 @@
 
         @media (max-width: 720px) {
             .license-days-badge-fixed {
-                top: 12px;
-                left: 12px;
+                right: 12px;
+                bottom: 12px;
             }
         }
 
@@ -747,10 +778,6 @@
                 grid-template-columns: 1fr;
                 gap: 0;
             }
-            #bg-video,
-            #bg-image {
-                object-position: 38% center;
-            }
             .project-carousel-wrap {
                 width: min(100%, calc(100vw - 28px));
             }
@@ -759,39 +786,46 @@
             }
         }
 
-        @media (prefers-reduced-motion: reduce) {
-            #bg-video { display: none !important; }
-            .project-card,
-            .btn-card,
-            .btn,
-            .progress-fill,
-            .pm-bar-fill {
-                transition: none !important;
-            }
-            .card-spinner,
-            .planet-spinner,
-            .pm-step-spinner {
-                animation: none !important;
-            }
+
+        .modal-backdrop { align-items: center; }
+        .modal-content { border-radius: 24px; padding: 32px; }
+        .modal-title { font-size: 24px; line-height: 32px; margin-bottom: 24px; }
+        .btn-new { background: var(--blue); color: #fff; }
+        .btn-new:hover { background: var(--blue-deep); }
+
+        .is-collapsed { --sidebar-w: 76px; }
+        .is-collapsed .brand-row { padding-left: 22px; padding-right: 22px; }
+        .is-collapsed .brand-logo,
+        .is-collapsed .brand-copy,
+        .is-collapsed .nav-label { width: 0; opacity: 0; pointer-events: none; }
+        .is-collapsed .sidebar-toggle svg { transform: rotate(180deg); }
+        .is-collapsed .nav-item { justify-content: center; padding: 12px; }
+
+        @media (max-width: 760px) {
+            :root { --sidebar-w: 0px; }
+            .sidebar { transform: translateX(-100%); }
+            .topbar, .main { margin-left: 0; }
+            .topbar { justify-content: flex-start; }
+            .top-actions { width: 100%; gap: 8px; }
+            .search { flex: 1; width: auto; min-width: 0; }
+            .icon-btn, .avatar { display: none; }
+            .main { padding: 28px 16px 20px; }
+            .projects { margin-top: 36px; }
+            .project-carousel-wrap { width: 100%; }
+            .project-grid { --card-w: min(84vw, 340px); }
+            .project-scroll-btn { display: none; }
         }
+
     </style>
 </head>
 
 <body>
-    <div class="dynamic-bg">
-        <video id="bg-video" autoplay muted loop playsinline preload="none">
-            <source data-src="/static/bg.mp4" type="video/mp4">
-        </video>
-        <img id="bg-image" src="" alt="" aria-hidden="true" decoding="async">
-    </div>
-
     <div id="warning-banner" class="warning-banner">
         本地分析任务运行中，请保持电脑运行状态，避免断网或锁屏
     </div>
     <div id="toast" class="toast-msg"></div>
     <div id="licenseDaysBadge" class="license-days-badge-fixed" style="display:none;" title=""></div>
 
-    <!-- Analysis Progress Modal -->
     <div id="progressModal" class="progress-modal-backdrop">
         <div class="progress-modal">
             <button class="pm-close" onclick="closeProgressModal()">&times;</button>
@@ -806,157 +840,101 @@
         <div class="planet-spinner"></div>
         <p id="loading-title" style="margin-top: 24px; font-weight: 700; color: #64748b; font-size: 20px;">正在导入数据...</p>
         <div class="progress-wrapper">
-            <div class="progress-track">
-                <div class="progress-fill" id="progress-fill"></div>
-            </div>
-            <div class="progress-info">
-                <span class="stage" id="progress-stage">准备中...</span>
-                <span id="progress-pct">0%</span>
-            </div>
+            <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+            <div class="progress-info"><span class="stage" id="progress-stage">准备中...</span><span id="progress-pct">0%</span></div>
         </div>
     </div>
 
-    <div class="projects-nav">
-        <a href="/market-analysis" title="商圈分析">商圈分析</a>
-        <a href="/match-rules" title="类目规则模板">类目规则</a>
-        <a href="/match-agent" title="关联优化 Agent">关联优化Agent</a>
-    </div>
+    <div class="app" id="app">
+        <aside class="sidebar">
+            <div>
+                <div class="brand-row">
+                    <img class="brand-logo" src="/static/pi-pai-logo.png" alt="Pi Pai logo">
+                    <div class="brand-copy">
+                        <h1 class="brand-title">Pi Pai</h1>
+                        <p class="brand-subtitle">科技-让复杂的世界变简单</p>
+                    </div>
+                    <button class="sidebar-toggle" id="sidebarToggle" type="button" aria-label="收缩侧边栏" aria-expanded="true">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M10 3 5 8l5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                    </button>
+                </div>
+                <nav class="nav" aria-label="后台菜单">
+                    <button class="nav-item" type="button" data-toast="概览暂未接入"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 4h6v6H4V4Zm10 0h6v6h-6V4ZM4 14h6v6H4v-6Zm10 0h6v6h-6v-6Z" stroke="currentColor" stroke-width="2" /></svg><span class="nav-label">概览</span></button>
+                    <button class="nav-item active" type="button"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 7h7l2 2h9v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" stroke="currentColor" stroke-width="2" /><path d="M15 13h4m-2-2v4" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg><span class="nav-label">项目管理</span></button>
+                    <button class="nav-item" type="button" data-href="/match-rules"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z" stroke="currentColor" stroke-width="2" /><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.5-2.4 1a7.3 7.3 0 0 0-2-1.1L14.2 3h-4.4l-.4 2.7a7.3 7.3 0 0 0-2 1.1l-2.4-1-2 3.5 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.5 2.4-1a7.3 7.3 0 0 0 2 1.1l.4 2.7h4.4l.4-2.7a7.3 7.3 0 0 0 2-1.1l2.4 1 2-3.5-2-1.5c.1-.4.1-.8.1-1.2Z" stroke="currentColor" stroke-width="1.6" /></svg><span class="nav-label">匹配配置</span></button>
+                    <button class="nav-item" type="button" data-toast="账号管理暂未接入"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm8.5 1a3.5 3.5 0 1 0 0-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" /><path d="M2 21a6 6 0 0 1 12 0m4 0a5 5 0 0 0-3-4.6" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg><span class="nav-label">账号管理</span></button>
+                    <button class="nav-item" type="button" data-toast="数据管理请进入工作台查看"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><ellipse cx="12" cy="5" rx="7" ry="3" stroke="currentColor" stroke-width="2" /><path d="M5 5v6c0 1.7 3.1 3 7 3s7-1.3 7-3V5M5 11v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6" stroke="currentColor" stroke-width="2" /></svg><span class="nav-label">数据管理</span></button>
+                    <button class="nav-item" type="button" data-toast="运营工具暂未接入"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m14.7 6.3 3-3 3 3-3 3-3-3ZM3 21l7.5-7.5m2.5-6.5 4 4M4 4l5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg><span class="nav-label">运营工具</span></button>
+                </nav>
+            </div>
+            <div class="logout"><button class="nav-item" type="button" data-toast="已点击退出登录"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M10 17v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v2m4 10 5-5-5-5m5 5H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg><span class="nav-label">退出登录</span></button></div>
+        </aside>
 
-    <div class="container">
-        <header>
-            <div class="header-title">
-                <h1>Pi Agent</h1>
-                <p>洞穿竞对态势 • 驱动价格决策</p>
+        <header class="topbar">
+            <div class="top-actions">
+                <label class="search"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m21 21-4.3-4.3M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg><input id="projectSearch" type="search" placeholder="搜索项目..." aria-label="搜索项目"></label>
+                <button class="create-btn" type="button" onclick="openModal()">创建新项目</button>
+                <button class="icon-btn" type="button" data-toast="暂无新通知" aria-label="通知"><svg width="18" height="20" viewBox="0 0 18 20" fill="none" aria-hidden="true"><path d="M14 7a5 5 0 0 0-10 0c0 5-2 6-2 6h14s-2-1-2-6ZM10.5 17a1.7 1.7 0 0 1-3 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+                <button class="icon-btn" type="button" data-toast="帮助中心暂未接入" aria-label="帮助"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="1.8" /><path d="M8.3 8a1.8 1.8 0 1 1 3 1.4c-.7.5-1.3 1-1.3 2.1M10 14.5h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg></button>
+                <button class="avatar" type="button" data-toast="Admin User Profile" aria-label="用户资料"></button>
             </div>
         </header>
 
-        <div class="project-section">
-            <div class="project-carousel-wrap">
-                <button class="project-scroll-btn prev is-hidden" type="button" id="project-scroll-prev" aria-label="向左滚动项目">‹</button>
-                <div class="project-grid" id="project-list" tabindex="0" aria-label="项目列表">
-                    <!-- Projects injected here -->
+        <main class="main">
+            <section class="hero"><h2>Roland，你好</h2><p>  迎探索Pi Pai智能运营平台</p></section>
+            <section class="projects" aria-labelledby="projectTitle">
+                <div class="section-head"><h3 id="projectTitle">项目列表</h3></div>
+                <div class="project-section">
+                    <div class="project-carousel-wrap">
+                        <button class="project-scroll-btn prev is-hidden" type="button" id="project-scroll-prev" aria-label="向左滚动项目">‹</button>
+                        <div class="project-grid" id="project-list" tabindex="0" aria-label="项目列表"></div>
+                        <button class="project-scroll-btn next is-hidden" type="button" id="project-scroll-next" aria-label="向右滚动项目">›</button>
+                    </div>
                 </div>
-                <button class="project-scroll-btn next is-hidden" type="button" id="project-scroll-next" aria-label="向右滚动项目">›</button>
-            </div>
-        </div>
+            </section>
+        </main>
     </div>
 
-    <!-- Create Project Modal -->
     <div id="createModal" class="modal-backdrop">
         <div class="modal-content">
             <div class="modal-title">创建项目</div>
-
-            <div id="modal-analyzing-warn" style="display:none; background:#fef3c7; border:1px solid #fbbf24; border-radius:12px; padding:12px 16px; margin-bottom:20px; font-size:12px; font-weight:600; color:#92400e;">
-                当前有项目正在分析中，同时运行多个分析会影响速度
-            </div>
-
+            <div id="modal-analyzing-warn" style="display:none; background:#fef3c7; border:1px solid #fbbf24; border-radius:12px; padding:12px 16px; margin-bottom:20px; font-size:12px; font-weight:600; color:#92400e;">当前有项目正在分析中，同时运行多个分析会影响速度</div>
             <form id="create-project-form">
-                <div class="form-group">
-                    <label class="form-label">项目名称 (必填)</label>
-                    <input type="text" name="name" class="form-control" placeholder="例如: 闪购商品竞对分析" required>
-                </div>
-
-                <!-- Always Visible Source File Section -->
+                <div class="form-group"><label class="form-label">项目名称 (必填)</label><input type="text" name="name" class="form-control" placeholder="例如: 闪购商品竞对分析" required></div>
                 <div class="file-grid">
-                    <div class="form-group">
-                        <label class="form-label">主店文件 (必填)</label>
-                        <input type="file" name="main_file" class="form-control" accept=".xlsx,.xls" required>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">竞店文件 (必填)</label>
-                        <input type="file" name="comp_files" class="form-control" accept=".xlsx,.xls" multiple required>
-                    </div>
+                    <div class="form-group"><label class="form-label">主店文件 (必填)</label><input type="file" name="main_file" class="form-control" accept=".xlsx,.xls" required></div>
+                    <div class="form-group"><label class="form-label">竞店文件 (必填)</label><input type="file" name="comp_files" class="form-control" accept=".xlsx,.xls" multiple required></div>
                 </div>
-
-
-
-                <div style="margin-top: 48px; display: flex; gap: 16px;">
-                    <button type="submit" class="btn btn-new" style="flex: 2; height: 60px;" id="submit-btn">创建项目</button>
-                    <button type="button" class="btn" style="flex: 1; background: #f1f5f9; color: #64748b;"
-                        onclick="closeModal()">取消</button>
-                </div>
+                <div style="margin-top: 48px; display: flex; gap: 16px;"><button type="submit" class="btn btn-new" style="flex: 2; height: 60px;" id="submit-btn">创建项目</button><button type="button" class="btn" style="flex: 1; background: #f1f5f9; color: #64748b;" onclick="closeModal()">取消</button></div>
             </form>
         </div>
     </div>
 
+
     <script>
-        function setupProjectPagePerformance() {
-            const video = document.getElementById('bg-video');
-            const bgImage = document.getElementById('bg-image');
-            if (!video || !bgImage) return;
-            const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-            const imageCandidates = ['/static/bg.gif', '/static/bj.png'];
-            let settled = false;
-            let videoFallbackTimer = null;
 
-            function loadFallbackImage() {
-                if (settled) return;
-                settled = true;
-                if (videoFallbackTimer) {
-                    clearTimeout(videoFallbackTimer);
-                    videoFallbackTimer = null;
-                }
-                video.pause();
-                video.removeAttribute('src');
-                video.querySelectorAll('source').forEach(s => s.removeAttribute('src'));
-                video.load();
-                let idx = 0;
-                const tryNext = () => {
-                    if (idx >= imageCandidates.length) {
-                        document.body.classList.remove('image-bg-ready');
-                        document.body.classList.add('perf-static-bg');
-                        return;
-                    }
-                    const src = imageCandidates[idx++];
-                    bgImage.onload = () => {
-                        document.body.classList.remove('perf-static-bg');
-                        document.body.classList.add('image-bg-ready');
-                        bgImage.onerror = null;
-                    };
-                    bgImage.onerror = () => {
-                        bgImage.onerror = null;
-                        tryNext();
-                    };
-                    bgImage.src = src;
-                };
-                tryNext();
+        const app = document.getElementById('app');
+        const sidebarToggle = document.getElementById('sidebarToggle');
+
+        function bindShellControls() {
+            if (sidebarToggle) {
+                sidebarToggle.addEventListener('click', () => {
+                    const collapsed = app.classList.toggle('is-collapsed');
+                    sidebarToggle.setAttribute('aria-expanded', String(!collapsed));
+                    sidebarToggle.setAttribute('aria-label', collapsed ? '展开侧边栏' : '收缩侧边栏');
+                    setTimeout(updateProjectScrollButtons, 220);
+                });
             }
 
-            if (reduceMotion) {
-                document.body.classList.add('perf-static-bg');
-                loadFallbackImage();
-                return;
-            }
-
-            const onVideoReady = () => {
-                if (settled) return;
-                settled = true;
-                if (videoFallbackTimer) {
-                    clearTimeout(videoFallbackTimer);
-                    videoFallbackTimer = null;
-                }
-                document.body.classList.remove('perf-static-bg');
-                document.body.classList.add('video-bg-ready');
-            };
-            const onVideoError = () => {
-                loadFallbackImage();
-            };
-
-            video.addEventListener('canplay', onVideoReady, { once: true });
-            video.addEventListener('playing', onVideoReady, { once: true });
-            video.addEventListener('error', onVideoError, { once: true });
-
-            video.querySelectorAll('source[data-src]').forEach(s => {
-                if (!s.getAttribute('src')) s.setAttribute('src', s.dataset.src);
+            document.querySelectorAll('[data-toast]').forEach((button) => {
+                button.addEventListener('click', () => showToast(button.dataset.toast));
             });
-            document.body.classList.add('perf-static-bg');
-            video.load();
-            video.play().catch(() => {
-                loadFallbackImage();
+
+            document.querySelectorAll('[data-href]').forEach((button) => {
+                button.addEventListener('click', () => {
+                    window.location.href = button.dataset.href;
+                });
             });
-            videoFallbackTimer = setTimeout(() => {
-                if (!settled) loadFallbackImage();
-            }, 1400);
         }
 
         function openModal() {
@@ -972,9 +950,7 @@
         let _pollTimer = null;
         let _hasAnalyzing = false;
         let _analyzingIds = new Set();
-        let _pendingCreates = new Map();
         let _projectListHot = false;
-        let _ruleTemplates = [];
 
         function getProjectList() {
             return document.getElementById('project-list');
@@ -1051,16 +1027,6 @@
             }
         }
 
-        function escHtml(value) {
-            return String(value ?? '').replace(/[&<>"']/g, ch => ({
-                '&': '&amp;',
-                '<': '&lt;',
-                '>': '&gt;',
-                '"': '&quot;',
-                "'": '&#39;'
-            }[ch]));
-        }
-
         function notifyAnalysisComplete(name, success) {
             if ('Notification' in window && Notification.permission === 'granted') {
                 new Notification(success ? '分析完成' : '分析失败', {
@@ -1077,35 +1043,8 @@
             setTimeout(() => t.classList.remove('show'), duration);
         }
 
-        async function loadRuleTemplates() {
-            const select = document.getElementById('create-rule-template');
-            if (!select) return;
-            try {
-                const resp = await fetch('/api/rule-templates');
-                const data = await resp.json();
-                if (!resp.ok || data.status !== 'ok') throw new Error(data.message || '规则模板加载失败');
-                _ruleTemplates = Array.isArray(data.items) ? data.items : [];
-                const preferred = _ruleTemplates.find(t => t.name === '生产规则V1') || _ruleTemplates[0];
-                select.innerHTML = '';
-                _ruleTemplates.forEach(t => {
-                    const opt = document.createElement('option');
-                    opt.value = t.id;
-                    opt.textContent = `${t.name}${t.name === '生产规则V2' ? '（V2 十字段）' : ''}`;
-                    if (preferred && t.id === preferred.id) opt.selected = true;
-                    select.appendChild(opt);
-                });
-                if (!_ruleTemplates.length) {
-                    select.innerHTML = '<option value="">无可用规则模板</option>';
-                }
-            } catch (err) {
-                console.error('Rule template load error:', err);
-                select.innerHTML = '<option value="">生产规则V1</option>';
-                showToast('规则模板加载失败，将使用默认模板');
-            }
-        }
-
         function updateWarningBanner(projects) {
-            _hasAnalyzing = projects.some(p => ['analyzing', 'creating'].includes(p.status));
+            _hasAnalyzing = projects.some(p => p.status === 'analyzing');
             document.getElementById('warning-banner').style.display = _hasAnalyzing ? 'block' : 'none';
         }
 
@@ -1118,78 +1057,12 @@
             if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
         }
 
-        function renderPendingCreateCard(pending) {
-            const card = document.createElement('div');
-            card.className = 'project-card card-creating';
-            card.setAttribute('aria-busy', 'true');
-            card.innerHTML = `
-                <div class="project-name" title="${escHtml(pending.name)}">${escHtml(pending.name)}</div>
-                <div class="card-loading-body">
-                    <div class="card-spinner" style="width:22px; height:22px; border-width:2.5px;"></div>
-                    <div class="card-status-text analyzing">项目创建中...</div>
-                    <div style="font-size:11px; color:#94a3b8; font-weight:600;">正在上传并导入数据</div>
-                    <div class="card-progress-track"><div class="card-progress-fill"></div></div>
-                </div>
-                <div class="card-actions">
-                    <button class="btn-card btn-progress" disabled style="opacity:.72; cursor:wait;">请稍候</button>
-                </div>
-            `;
-            return card;
-        }
-
-        function prependPendingCreate(name) {
-            const id = `pending-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-            _pendingCreates.set(id, { id, name: name || '新项目', createdAt: Date.now() });
-            renderProjectListCache();
-            const list = getProjectList();
-            if (list) list.scrollTo({ left: 0, behavior: 'smooth' });
-            return id;
-        }
-
-        function removePendingCreate(id) {
-            if (!id) return;
-            _pendingCreates.delete(id);
-            renderProjectListCache();
-        }
-
-        let _lastProjects = [];
-
-        function renderProjectListCache(projects = _lastProjects) {
-            _lastProjects = Array.isArray(projects) ? projects : [];
-            const list = document.getElementById('project-list');
-            if (!list) return;
-            list.innerHTML = '';
-
-            _pendingCreates.forEach(p => list.appendChild(renderPendingCreateCard(p)));
-
-            _lastProjects.forEach(p => {
-                list.appendChild(renderCard(p));
-                const s = p.status || 'ready';
-                if (_analyzingIds.has(p.id) && !['analyzing', 'creating'].includes(s)) {
-                    _analyzingIds.delete(p.id);
-                    notifyAnalysisComplete(p.name, s === 'ready');
-                    showToast(s === 'ready' ? `项目「${p.name}」已就绪` : `项目「${p.name}」处理失败`);
-                }
-                if (['analyzing', 'creating'].includes(s)) _analyzingIds.add(p.id);
-            });
-
-            const addCard = document.createElement('div');
-            addCard.className = 'project-card new-card';
-            addCard.onclick = openModal;
-            addCard.innerHTML = `<div class="plus-icon">+</div>`;
-            list.appendChild(addCard);
-
-            const totalCards = _pendingCreates.size + _lastProjects.length + 1;
-            list.classList.toggle('grid-centered', totalCards <= 3);
-            requestAnimationFrame(updateProjectScrollButtons);
-        }
-
         function renderCard(p) {
             const card = document.createElement('div');
             const status = p.status || 'ready';
 
-            if (status === 'analyzing' || status === 'creating') {
-                card.className = status === 'creating' ? 'project-card card-creating' : 'project-card card-analyzing';
+            if (status === 'analyzing') {
+                card.className = 'project-card card-analyzing';
                 let elapsedText = '';
                 let isTimeout = false;
                 if (p.analysis_started_at) {
@@ -1198,9 +1071,7 @@
                     isTimeout = mins >= 30;
                     elapsedText = mins < 1 ? '刚刚开始' : `已运行 ${mins} 分钟`;
                 }
-                const statusLabel = status === 'creating'
-                    ? (isTimeout ? '文件较大，仍在入库中...' : '项目创建中...')
-                    : (isTimeout ? '耗时较长，请保持电脑常亮' : 'AI 分析中...');
+                const statusLabel = isTimeout ? '耗时较长，请保持电脑常亮' : 'AI 分析中...';
                 card.innerHTML = `
                     <div class="project-name">${p.name}</div>
                     <div class="project-meta" style="display:flex; flex-direction:column; align-items:center; gap:4px;">
@@ -1209,14 +1080,12 @@
                         ${elapsedText ? `<span style="font-size:11px; color:#94a3b8;">${elapsedText}</span>` : ''}
                     </div>
                     <div class="card-actions">
-                        ${status === 'analyzing' ? `<button class="btn-card btn-progress" onclick="openProgressModal(${p.id}, '${p.name.replace(/'/g,"\\'")}'); event.stopPropagation();">进度详情</button>` : `<button class="btn-card btn-progress" disabled style="opacity:.72; cursor:wait;">请稍候</button>`}
+                        <button class="btn-card btn-progress" onclick="openProgressModal(${p.id}, '${p.name.replace(/'/g,"\\'")}'); event.stopPropagation();">进度详情</button>
                         <button class="btn-card btn-delete" onclick="deleteProject(${p.id}, event, true)">取消</button>
                     </div>
                 `;
                 card.onclick = (e) => {
-                    if (e.target.closest('button')) return;
-                    if (status === 'analyzing') openProgressModal(p.id, p.name);
-                    else showToast('项目正在创建中，文件越大入库时间越长');
+                    if (!e.target.closest('button')) openProgressModal(p.id, p.name);
                 };
             } else if (status === 'failed') {
                 card.className = 'project-card card-failed';
@@ -1255,12 +1124,30 @@
         async function loadProjects() {
             try {
                 const resp = await fetch('/api/projects');
-                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 const projects = await resp.json();
-                if (!Array.isArray(projects)) {
-                    throw new Error(projects.message || '项目列表返回异常');
-                }
-                renderProjectListCache(projects);
+                const list = document.getElementById('project-list');
+                list.innerHTML = '';
+
+                projects.forEach(p => {
+                    list.appendChild(renderCard(p));
+                    const s = p.status || 'ready';
+                    if (_analyzingIds.has(p.id) && s !== 'analyzing') {
+                        _analyzingIds.delete(p.id);
+                        notifyAnalysisComplete(p.name, s === 'ready');
+                        showToast(s === 'ready' ? `项目「${p.name}」分析完成` : `项目「${p.name}」分析失败`);
+                    }
+                    if (s === 'analyzing') _analyzingIds.add(p.id);
+                });
+
+                const addCard = document.createElement('div');
+                addCard.className = 'project-card new-card';
+                addCard.onclick = openModal;
+                addCard.innerHTML = `<div class="plus-icon">+</div>`;
+                list.appendChild(addCard);
+
+                const totalCards = projects.length + 1;
+                list.classList.toggle('grid-centered', totalCards <= 3);
+                requestAnimationFrame(updateProjectScrollButtons);
 
                 updateWarningBanner(projects);
 
@@ -1271,21 +1158,6 @@
                 }
             } catch (err) {
                 console.error('Projects load error:', err);
-                const list = document.getElementById('project-list');
-                if (list) {
-                    list.innerHTML = `
-                        <div class="project-card card-failed" style="min-width:320px;">
-                            <div class="project-name">项目列表加载失败</div>
-                            <div style="flex:1; display:flex; align-items:center; justify-content:center; text-align:center; color:#dc2626; font-size:13px; font-weight:700; padding:0 18px;">
-                                ${escHtml(err.message || '请稍后重试')}
-                            </div>
-                            <div class="card-actions">
-                                <button class="btn-card btn-enter" onclick="loadProjects()">重新加载</button>
-                            </div>
-                        </div>
-                    `;
-                }
-                stopPolling();
             }
         }
 
@@ -1340,28 +1212,22 @@
             submitBtn.style.opacity = '0.5';
 
             const formData = new FormData(e.target);
-            const projectName = (formData.get('name') || '').toString().trim() || '新项目';
             closeModal();
-            const pendingId = prependPendingCreate(projectName);
-            showToast('项目已加入列表，正在创建...');
 
             try {
                 const resp = await fetch('/api/projects', { method: 'POST', body: formData });
                 const res = await resp.json();
                 if (res.status === 'success') {
-                    _pendingCreates.delete(pendingId);
                     e.target.reset();
-                    showToast(res.ready === false ? '项目已创建，正在后台入库...' : '项目创建完成');
+                    showToast('项目创建完成');
                     await loadProjects();
                     const list = getProjectList();
                     if (list) list.scrollTo({ left: 0, behavior: 'smooth' });
                     return;
                 } else {
-                    removePendingCreate(pendingId);
                     alert('错误: ' + res.message);
                 }
             } catch (err) {
-                removePendingCreate(pendingId);
                 alert('请求失败');
             } finally {
                 submitBtn.disabled = false;
@@ -1520,12 +1386,24 @@
             }
         }
 
-        setupProjectPagePerformance();
+        bindShellControls();
         bindProjectCarouselControls();
         requestNotifyPermission();
-        loadRuleTemplates();
         loadProjects();
         refreshLicenseDaysBadge();
+
+
+        const projectSearch = document.getElementById('projectSearch');
+        if (projectSearch) {
+            projectSearch.addEventListener('input', () => {
+                const keyword = projectSearch.value.trim().toLowerCase();
+                document.querySelectorAll('#project-list .project-card:not(.new-card)').forEach((card) => {
+                    card.style.display = card.textContent.toLowerCase().includes(keyword) ? '' : 'none';
+                });
+                updateProjectScrollButtons();
+            });
+        }
+
     </script>
 </body>
 
