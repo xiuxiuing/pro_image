@@ -4,6 +4,29 @@
 {% block title %}商圈分析 - 运营后台{% endblock %}
 {% block top_title %}商圈分析{% endblock %}
 {% block search_control %}{% endblock %}
+
+{% block top_actions %}
+<div class="header-actions" style="display: flex; gap: 8px; margin-right: 12px;">
+    <button class="topbar-btn" type="button" onclick="triggerIframeAction('refresh')">刷新</button>
+    <button class="topbar-btn" type="button" onclick="triggerIframeAction('download')">下载</button>
+    <button class="topbar-btn" type="button" onclick="triggerIframeAction('share')">分享</button>
+</div>
+<script>
+    function triggerIframeAction(action) {
+        const iframe = document.querySelector('.ops-frame');
+        if (iframe && iframe.contentWindow) {
+            if (action === 'refresh') {
+                iframe.contentWindow.loadMarketAnalysis && iframe.contentWindow.loadMarketAnalysis(true);
+            } else if (action === 'download') {
+                iframe.contentWindow.openDownloadModal && iframe.contentWindow.openDownloadModal();
+            } else if (action === 'share') {
+                iframe.contentWindow.saveDashboardScreenshot && iframe.contentWindow.saveDashboardScreenshot();
+            }
+        }
+    }
+</script>
+{% endblock %}
+
 {% block styles %}
         .main {
             padding: 0;
@@ -16,6 +39,31 @@
             min-height: calc(100vh - var(--topbar-h));
             border: 0;
             background: #f8f9fa;
+        }
+        .topbar-btn {
+            height: 32px;
+            padding: 0 16px;
+            border: 1px solid rgba(195, 198, 215, 0.6);
+            border-radius: 8px;
+            background: #fff;
+            color: #344054;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+            transition: all 0.15s ease;
+        }
+        .topbar-btn:hover {
+            background: #f9fafb;
+            border-color: rgba(195, 198, 215, 0.9);
+            color: var(--blue);
+            transform: translateY(-1px);
+        }
+        .topbar-btn:active {
+            transform: translateY(0);
         }
 {% endblock %}
 {% block content %}
