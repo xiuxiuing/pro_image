@@ -7,7 +7,7 @@
 {% block top_actions %}<a class="create-btn" href="/match-rules/new">新建模板</a>{% endblock %}
 {% block styles %}
         .main {
-            padding: clamp(28px, 3vw, 52px) clamp(24px, 4vw, 56px);
+            padding: 5px;
         }
         .rules-head {
             width: 100%;
@@ -92,7 +92,7 @@
             .rules-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
         @media (max-width: 720px) {
-            .main { padding: 20px 16px; }
+            .main { padding: 5px; }
             .rules-head { margin-bottom: 18px; }
             .rules-grid { grid-template-columns: 1fr; }
             .card { padding: 18px; }
