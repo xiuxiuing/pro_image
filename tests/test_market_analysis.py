@@ -1,13 +1,14 @@
 import json
-import sqlite3
 import tempfile
 import time
 import unittest
 from pathlib import Path
 
 from openpyxl import Workbook
+from sqlalchemy import text
 
 from data_mgr import DataManager
+from db_access import Database
 
 
 def make_workbook(path, headers, rows):
@@ -20,6 +21,15 @@ def make_workbook(path, headers, rows):
 
 
 class MarketAnalysisTests(unittest.TestCase):
+    def setUp(self):
+        db = Database()
+        try:
+            with db.engine.begin() as conn:
+                conn.execute(text("DROP SCHEMA public CASCADE"))
+                conn.execute(text("CREATE SCHEMA public"))
+        finally:
+            db.close()
+
     def test_market_category_bucket_reference_keeps_other_under_five_percent(self):
         path = Path(__file__).resolve().parents[1] / "data" / "market_category_buckets.json"
         with path.open("r", encoding="utf-8") as f:
@@ -87,8 +97,9 @@ class MarketAnalysisTests(unittest.TestCase):
                 ],
             )
             dm.import_project_sources(pid)
+            dm.activate_project(pid)
 
-            with sqlite3.connect(tmp / "pro_image.db") as conn:
+            with dm._get_conn() as conn:
                 row = conn.execute(
                     """
                     SELECT statistics_json, market_analysis_json, workbench_summary_json, status
@@ -148,6 +159,7 @@ class MarketAnalysisTests(unittest.TestCase):
                 [{"path": str(comp_path), "store_name": "竞店"}],
             )
             dm.import_project_sources(pid)
+            dm.activate_project(pid)
 
             stats = dm.get_statistics()
             market = dm.get_market_analysis()
@@ -203,6 +215,7 @@ class MarketAnalysisTests(unittest.TestCase):
                 ],
             )
             dm.import_project_sources(pid)
+            dm.activate_project(pid)
             stats = dm.get_statistics()
 
         main_tab = next(tab for tab in stats["tabs"] if tab["id"] == "main")
@@ -245,6 +258,7 @@ class MarketAnalysisTests(unittest.TestCase):
                 [{"path": str(comp_path), "store_name": "竞店"}],
             )
             dm.import_project_sources(pid)
+            dm.activate_project(pid)
             stats = dm.get_statistics()
 
         comp_tab = next(tab for tab in stats["tabs"] if tab["id"] == "comp-0")
@@ -273,16 +287,16 @@ class MarketAnalysisTests(unittest.TestCase):
                 [{"path": str(comp_path), "store_name": "竞店"}],
             )
             dm.import_project_sources(pid)
-            with sqlite3.connect(tmp / "pro_image.db") as conn:
+            dm.activate_project(pid)
+            with dm._get_conn() as conn:
                 conn.execute("DELETE FROM project_analysis_snapshots WHERE project_id = ?", (pid,))
-                conn.commit()
 
             stats = dm.get_statistics()
             market = dm.get_market_analysis()
             deadline = time.time() + 3
             count = 0
             while time.time() < deadline:
-                with sqlite3.connect(tmp / "pro_image.db") as conn:
+                with dm._get_conn() as conn:
                     count = conn.execute(
                         "SELECT COUNT(*) FROM project_analysis_snapshots WHERE project_id = ? AND status = 'ready'",
                         (pid,),
@@ -314,13 +328,14 @@ class MarketAnalysisTests(unittest.TestCase):
                 [{"path": str(comp_path), "store_name": "竞店"}],
             )
             dm.import_project_sources(pid)
+            dm.activate_project(pid)
 
             before = dm.get_workbench_summary()
             self.assertEqual(before["stores"]["0"]["linked"]["sku_count"], 0)
             self.assertEqual(before["stores"]["0"]["unlinked"]["sku_count"], 1)
 
-            dm.manual_link("m1", "0", "c1")
-            with sqlite3.connect(tmp / "pro_image.db") as conn:
+            dm.manual_link("m1", "0", "c1", project_id=pid)
+            with dm._get_conn() as conn:
                 row = conn.execute(
                     "SELECT workbench_summary_json FROM project_analysis_snapshots WHERE project_id = ?",
                     (pid,),

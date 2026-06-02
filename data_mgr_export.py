@@ -153,7 +153,7 @@ class DataManagerExportMixin:
             op_time = time.strftime('%Y-%m-%d %H:%M:%S')
 
             with self._db_lock, self._get_conn() as conn:
-                main_export = pd.read_sql(
+                main_export = self._read_sql(
                     "SELECT * FROM main_products WHERE project_id = ?",
                     conn,
                     params=(self.active_project_id,),
@@ -177,15 +177,15 @@ class DataManagerExportMixin:
 
                 for i, store_name in enumerate(self.store_names):
                     store_id = str(i)
-                    comp_df = pd.read_sql(
+                    comp_df = self._read_sql(
                         "SELECT * FROM comp_products WHERE project_id = ? AND store_id = ?",
                         conn,
                         params=(self.active_project_id, store_id),
                     )
-                    links_df = pd.read_sql(
+                    links_df = self._read_sql(
                         """
                         SELECT
-                            pl.main_sku_id AS 关联主店skuId,
+                            pl.main_sku_id AS "关联主店skuId",
                             pl.comp_sku_id,
                             pl.store_id,
                             pl.similarity AS 匹配相似度,
@@ -256,7 +256,7 @@ class DataManagerExportMixin:
             if "is_new_add" in comp_cols:
                 ignored_clause = "AND COALESCE(is_ignored, '') != '是'" if "is_ignored" in comp_cols else ""
                 query = f"SELECT * FROM comp_products WHERE project_id = ? AND is_new_add IN ('是', '新增为SPU', '新增该规格') {ignored_clause}"
-                all_comp_new_df = pd.read_sql(query, conn, params=(self.active_project_id,))
+                all_comp_new_df = self._read_sql(query, conn, params=(self.active_project_id,))
             else:
                 all_comp_new_df = pd.DataFrame()
             if not all_comp_new_df.empty:
@@ -266,7 +266,7 @@ class DataManagerExportMixin:
                 
                 # Fetch links to get Main Store SKU if linked
                 link_query = "SELECT comp_sku_id, main_sku_id, store_id FROM product_links WHERE project_id = ?"
-                links = pd.read_sql(link_query, conn, params=(self.active_project_id,))
+                links = self._read_sql(link_query, conn, params=(self.active_project_id,))
                 
                 # Merge to get Main SKU (store-aware to avoid cross-store false joins)
                 merged = all_comp_new_df.merge(
@@ -362,13 +362,13 @@ class DataManagerExportMixin:
             "现匹配相似度",
         ]
         with self._db_lock, self._get_conn() as conn:
-            df = pd.read_sql(
+            df = self._read_sql(
                 """
                 SELECT
                     mlc.created_at AS 订正时间,
                     COALESCE(NULLIF(mlc.error_type, ''), CASE WHEN COALESCE(mlc.old_comp_sku_id, '') != '' THEN '错配' ELSE '漏配' END) AS 错误类型,
                     mlc.store_id AS __store_id,
-                    mp.skuId AS 主店skuId,
+                    mp.skuId AS "主店skuId",
                     mp.`商品名称` AS 主店商品名称,
                     mp.`规格名称` AS 主店规格名称,
                     mp.`主图链接` AS 主店主图链接,
@@ -376,7 +376,7 @@ class DataManagerExportMixin:
                     mp.`原价` AS 主店原价,
                     mp.`活动价` AS 主店活动价,
                     mp.`采购价` AS 主店采购价,
-                    mlc.old_comp_sku_id AS 原竞店skuId,
+                    mlc.old_comp_sku_id AS "原竞店skuId",
                     old_cp.`商品名称` AS 原竞店商品名称,
                     old_cp.`规格名称` AS 原竞店规格名称,
                     old_cp.`主图链接` AS 原竞店主图链接,
@@ -385,7 +385,7 @@ class DataManagerExportMixin:
                     old_cp.`活动价` AS 原竞店活动价,
                     mlc.old_match_type AS 原关联方式,
                     mlc.old_similarity AS 原匹配相似度,
-                    mlc.new_comp_sku_id AS 现竞店skuId,
+                    mlc.new_comp_sku_id AS "现竞店skuId",
                     new_cp.`商品名称` AS 现竞店商品名称,
                     new_cp.`规格名称` AS 现竞店规格名称,
                     new_cp.`主图链接` AS 现竞店主图链接,

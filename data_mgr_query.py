@@ -228,8 +228,31 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
             self._analysis_snapshot_build_reason = {}
         return self._analysis_snapshot_building, self._analysis_snapshot_build_lock, self._analysis_snapshot_build_reason
 
-    def _read_analysis_snapshot(self, ready_only=True, include_data=True):
-        if not self.active_project_id:
+    def _project_store_names(self, project_id=None):
+        pid = project_id or self.active_project_id
+        if not pid:
+            return []
+        if pid == self.active_project_id and getattr(self, "store_names", None):
+            return list(self.store_names)
+        with self._db_lock:
+            conn = self._get_conn()
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT store_name
+                    FROM project_files
+                    WHERE project_id = ? AND type = 'comp'
+                    ORDER BY id ASC
+                    """,
+                    (pid,),
+                ).fetchall()
+            finally:
+                conn.close()
+        return [str(row[0] or "") for row in rows]
+
+    def _read_analysis_snapshot(self, ready_only=True, include_data=True, project_id=None):
+        pid = project_id or self.active_project_id
+        if not pid:
             return None
         with self._db_lock:
             conn = self._get_conn()
@@ -242,7 +265,7 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
                             FROM project_analysis_snapshots
                             WHERE project_id = ? AND version = ? AND status = 'ready'
                             """,
-                            (self.active_project_id, self.ANALYSIS_SNAPSHOT_VERSION),
+                            (pid, self.ANALYSIS_SNAPSHOT_VERSION),
                         ).fetchone()
                     else:
                         row = conn.execute(
@@ -251,7 +274,7 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
                             FROM project_analysis_snapshots
                             WHERE project_id = ?
                             """,
-                            (self.active_project_id,),
+                            (pid,),
                         ).fetchone()
                     if not row:
                         return None
@@ -271,7 +294,7 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
                         FROM project_analysis_snapshots
                         WHERE project_id = ? AND version = ? AND status = 'ready'
                         """,
-                        (self.active_project_id, self.ANALYSIS_SNAPSHOT_VERSION),
+                        (pid, self.ANALYSIS_SNAPSHOT_VERSION),
                     ).fetchone()
                 else:
                     row = conn.execute(
@@ -280,7 +303,7 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
                         FROM project_analysis_snapshots
                         WHERE project_id = ?
                         """,
-                        (self.active_project_id,),
+                        (pid,),
                     ).fetchone()
             finally:
                 conn.close()
@@ -327,8 +350,8 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
             finally:
                 conn.close()
 
-    def _snapshot_meta(self, snapshot=None):
-        pid = self.active_project_id
+    def _snapshot_meta(self, snapshot=None, project_id=None):
+        pid = project_id or self.active_project_id
         if not pid:
             return {"status": "missing", "computed_at": "", "version": self.ANALYSIS_SNAPSHOT_VERSION, "message": "No active project"}
 
@@ -339,7 +362,7 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
             is_building = pid in building
             reason = build_reason.get(pid, "")
 
-        snapshot = snapshot if snapshot is not None else self._read_analysis_snapshot(ready_only=False, include_data=False)
+        snapshot = snapshot if snapshot is not None else self._read_analysis_snapshot(ready_only=False, include_data=False, project_id=pid)
         if not snapshot:
             return {
                 "status": "building" if is_building else "missing",
@@ -366,14 +389,15 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
             "message": messages.get(status, "暂无统计快照"),
         }
 
-    def get_analysis_snapshot_status(self):
-        snapshot = self._read_analysis_snapshot(ready_only=False, include_data=False)
-        return self._snapshot_meta(snapshot)
+    def get_analysis_snapshot_status(self, project_id=None):
+        pid = project_id or self.active_project_id
+        snapshot = self._read_analysis_snapshot(ready_only=False, include_data=False, project_id=pid)
+        return self._snapshot_meta(snapshot, project_id=pid)
 
-    def _attach_snapshot_meta(self, data, snapshot=None):
+    def _attach_snapshot_meta(self, data, snapshot=None, project_id=None):
         if not isinstance(data, dict):
             return data
-        meta = self._snapshot_meta(snapshot)
+        meta = self._snapshot_meta(snapshot, project_id=project_id)
         out = dict(data)
         out["snapshot_status"] = meta["status"]
         out["snapshot_computed_at"] = meta["computed_at"]
@@ -471,61 +495,75 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
             raise RuntimeError(error_message)
         return {"statistics": statistics, "market_analysis": market_analysis, "workbench_summary": workbench_summary}
 
-    def get_statistics(self, refresh=False, sync_missing=False):
-        if not self.active_project_id:
-            return self._attach_snapshot_meta(self._snapshot_empty_statistics())
+    def get_statistics(self, refresh=False, sync_missing=False, project_id=None):
+        pid = project_id or self.active_project_id
+        if not pid:
+            return self._attach_snapshot_meta(self._snapshot_empty_statistics(), project_id=pid)
+        if pid != self.active_project_id:
+            snapshot = self._read_analysis_snapshot(ready_only=not refresh, project_id=pid)
+            if snapshot and (not refresh or snapshot.get("status") in ("ready", "stale")):
+                return self._attach_snapshot_meta(snapshot.get("statistics") or self._snapshot_empty_statistics(), snapshot, project_id=pid)
+            snapshot_meta = self._read_analysis_snapshot(ready_only=False, include_data=False, project_id=pid)
+            return self._attach_snapshot_meta(self._snapshot_empty_statistics(), snapshot_meta, project_id=pid)
         if refresh:
             self.ensure_analysis_snapshot_async(force=True)
             snapshot = self._read_analysis_snapshot(ready_only=False, include_data=False)
             if snapshot and snapshot.get("status") in ("ready", "stale"):
                 stale_snapshot = self._read_analysis_snapshot(ready_only=False)
                 if stale_snapshot and stale_snapshot.get("statistics"):
-                    return self._attach_snapshot_meta(stale_snapshot["statistics"], stale_snapshot)
-            return self._attach_snapshot_meta(self._snapshot_empty_statistics(), snapshot)
+                    return self._attach_snapshot_meta(stale_snapshot["statistics"], stale_snapshot, project_id=pid)
+            return self._attach_snapshot_meta(self._snapshot_empty_statistics(), snapshot, project_id=pid)
         snapshot = self._read_analysis_snapshot(ready_only=True)
         if snapshot:
-            return self._attach_snapshot_meta(snapshot["statistics"], snapshot)
+            return self._attach_snapshot_meta(snapshot["statistics"], snapshot, project_id=pid)
         if sync_missing:
             snapshot_data = self.rebuild_analysis_snapshot()
             snapshot = self._read_analysis_snapshot(ready_only=True)
-            return self._attach_snapshot_meta(snapshot_data["statistics"], snapshot)
+            return self._attach_snapshot_meta(snapshot_data["statistics"], snapshot, project_id=pid)
         snapshot = self._read_analysis_snapshot(ready_only=False, include_data=False)
         if snapshot and snapshot.get("status") in ("ready", "stale"):
             stale_snapshot = self._read_analysis_snapshot(ready_only=False)
             if stale_snapshot and stale_snapshot.get("statistics"):
-                return self._attach_snapshot_meta(stale_snapshot["statistics"], stale_snapshot)
+                    return self._attach_snapshot_meta(stale_snapshot["statistics"], stale_snapshot, project_id=pid)
         if not snapshot:
             self.ensure_analysis_snapshot_async()
             snapshot = self._read_analysis_snapshot(ready_only=False, include_data=False)
-        return self._attach_snapshot_meta(self._snapshot_empty_statistics(), snapshot)
+        return self._attach_snapshot_meta(self._snapshot_empty_statistics(), snapshot, project_id=pid)
 
-    def get_market_analysis(self, refresh=False, sync_missing=False):
-        if not self.active_project_id:
-            return self._attach_snapshot_meta(self._snapshot_empty_market_analysis())
+    def get_market_analysis(self, refresh=False, sync_missing=False, project_id=None):
+        pid = project_id or self.active_project_id
+        if not pid:
+            return self._attach_snapshot_meta(self._snapshot_empty_market_analysis(), project_id=pid)
+        if pid != self.active_project_id:
+            snapshot = self._read_analysis_snapshot(ready_only=not refresh, project_id=pid)
+            if snapshot and (not refresh or snapshot.get("status") in ("ready", "stale")):
+                return self._attach_snapshot_meta(snapshot.get("market_analysis") or self._snapshot_empty_market_analysis(), snapshot, project_id=pid)
+            snapshot_meta = self._read_analysis_snapshot(ready_only=False, include_data=False, project_id=pid)
+            return self._attach_snapshot_meta(self._snapshot_empty_market_analysis(), snapshot_meta, project_id=pid)
         if refresh:
             self.ensure_analysis_snapshot_async(force=True)
             snapshot = self._read_analysis_snapshot(ready_only=False, include_data=False)
             if snapshot and snapshot.get("status") in ("ready", "stale"):
                 stale_snapshot = self._read_analysis_snapshot(ready_only=False)
                 if stale_snapshot and stale_snapshot.get("market_analysis"):
-                    return self._attach_snapshot_meta(stale_snapshot["market_analysis"], stale_snapshot)
-            return self._attach_snapshot_meta(self._snapshot_empty_market_analysis(), snapshot)
+                    return self._attach_snapshot_meta(stale_snapshot["market_analysis"], stale_snapshot, project_id=pid)
+            return self._attach_snapshot_meta(self._snapshot_empty_market_analysis(), snapshot, project_id=pid)
         snapshot = self._read_analysis_snapshot(ready_only=True)
         if snapshot:
-            return self._attach_snapshot_meta(snapshot["market_analysis"], snapshot)
+            return self._attach_snapshot_meta(snapshot["market_analysis"], snapshot, project_id=pid)
         if sync_missing:
             snapshot_data = self.rebuild_analysis_snapshot()
             snapshot = self._read_analysis_snapshot(ready_only=True)
-            return self._attach_snapshot_meta(snapshot_data["market_analysis"], snapshot)
+            return self._attach_snapshot_meta(snapshot_data["market_analysis"], snapshot, project_id=pid)
         snapshot = self._read_analysis_snapshot(ready_only=False, include_data=False)
         if snapshot and snapshot.get("status") in ("ready", "stale"):
             stale_snapshot = self._read_analysis_snapshot(ready_only=False)
             if stale_snapshot and stale_snapshot.get("market_analysis"):
-                return self._attach_snapshot_meta(stale_snapshot["market_analysis"], stale_snapshot)
+                    return self._attach_snapshot_meta(stale_snapshot["market_analysis"], stale_snapshot, project_id=pid)
         if not snapshot:
             self.ensure_analysis_snapshot_async()
             snapshot = self._read_analysis_snapshot(ready_only=False, include_data=False)
-        return self._attach_snapshot_meta(self._snapshot_empty_market_analysis(), snapshot)
+        return self._attach_snapshot_meta(self._snapshot_empty_market_analysis(), snapshot, project_id=pid)
 
     def get_workbench_summary(self, refresh=False):
         if not self.active_project_id:
@@ -652,8 +690,9 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
         search="",
         sort_key="",
         sort_order="desc",
+        project_id=None,
     ):
-        data = self.get_statistics(refresh=refresh)
+        data = self.get_statistics(refresh=refresh, project_id=project_id)
         tabs = data.get("tabs") or []
         if not tabs:
             return data
@@ -717,13 +756,13 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
         with self._db_lock:
             conn = self._get_conn()
             try:
-                main_df = pd.read_sql(
+                main_df = self._read_sql(
                     "SELECT * FROM main_products WHERE project_id = ? ORDER BY _row_orig_idx ASC",
                     conn,
                     params=(self.active_project_id,),
                 )
-                comp_df = pd.read_sql(
-                    "SELECT rowid AS __rowid, * FROM comp_products WHERE project_id = ? ORDER BY store_id ASC, __rowid ASC",
+                comp_df = self._read_sql(
+                    "SELECT * FROM comp_products WHERE project_id = ? ORDER BY store_id ASC, skuId ASC",
                     conn,
                     params=(self.active_project_id,),
                 )
@@ -852,14 +891,14 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
             conn = self._get_conn()
             try:
                 if source_type == "competitor_unique":
-                    df = pd.read_sql(
+                    df = self._read_sql(
                         "SELECT * FROM comp_products WHERE project_id = ? AND store_id = ?",
                         conn,
                         params=(self.active_project_id, store_id),
                     )
                     source_name = self.store_names[int(store_id)] if store_id.isdigit() and int(store_id) < len(self.store_names) else "竞店"
                 else:
-                    df = pd.read_sql(
+                    df = self._read_sql(
                         "SELECT * FROM main_products WHERE project_id = ? ORDER BY _row_orig_idx ASC",
                         conn,
                         params=(self.active_project_id,),
@@ -911,12 +950,12 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
         with self._db_lock:
             conn = self._get_conn()
             try:
-                main_df = pd.read_sql(
+                main_df = self._read_sql(
                     "SELECT * FROM main_products WHERE project_id = ? ORDER BY _row_orig_idx ASC",
                     conn,
                     params=(self.active_project_id,),
                 )
-                comp_df = pd.read_sql(
+                comp_df = self._read_sql(
                     "SELECT * FROM comp_products WHERE project_id = ?",
                     conn,
                     params=(self.active_project_id,),
@@ -1139,9 +1178,9 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
         with self._db_lock:
             conn = self._get_conn()
             try:
-                self.main_df = pd.read_sql("SELECT * FROM main_products WHERE project_id = ? ORDER BY _row_orig_idx ASC", conn, params=(self.active_project_id,))
-                links_df = pd.read_sql("SELECT * FROM product_links WHERE project_id = ?", conn, params=(self.active_project_id,))
-                comp_df = pd.read_sql("SELECT * FROM comp_products WHERE project_id = ?", conn, params=(self.active_project_id,))
+                self.main_df = self._read_sql("SELECT * FROM main_products WHERE project_id = ? ORDER BY _row_orig_idx ASC", conn, params=(self.active_project_id,))
+                links_df = self._read_sql("SELECT * FROM product_links WHERE project_id = ?", conn, params=(self.active_project_id,))
+                comp_df = self._read_sql("SELECT * FROM comp_products WHERE project_id = ?", conn, params=(self.active_project_id,))
             except Exception as e:
                 print("DB Reconstruction err:", e); self.grid_df = pd.DataFrame(); return
             finally:
@@ -1456,9 +1495,29 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
             "store_stats": {sid: (store.get("linked") or {}) for sid, store in (summary.get("stores") or {}).items()},
         }
 
-    def get_store_products(self, store_id):
-        if store_id in self.store_dfs and not self.store_dfs[store_id]["df"].empty:
+    def get_store_products(self, store_id, project_id=None):
+        pid = project_id or self.active_project_id
+        if not pid:
+            return []
+        if pid == self.active_project_id and store_id in self.store_dfs and not self.store_dfs[store_id]["df"].empty:
             return self.store_dfs[store_id]["df"].fillna("").to_dict(orient='records')
+        with self._db_lock:
+            conn = self._get_conn()
+            try:
+                df = self._read_sql(
+                    """
+                    SELECT *
+                    FROM comp_products
+                    WHERE project_id = ? AND store_id = ?
+                    ORDER BY skuId ASC
+                    """,
+                    conn,
+                    params=(pid, str(store_id)),
+                )
+            finally:
+                conn.close()
+        if not df.empty:
+            return df.fillna("").to_dict(orient="records")
         return []
 
     def get_unlinked_products(self):
@@ -1482,15 +1541,16 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
                               AND pl.comp_sku_id = cp.skuId
                           )
                     """
-                    df = pd.read_sql(q, conn, params=(self.active_project_id, sid))
+                    df = self._read_sql(q, conn, params=(self.active_project_id, sid))
                     out[sid] = df.fillna("").to_dict(orient='records')
             finally:
                 conn.close()
         return out
 
 
-    def get_main_products_page(self, page=1, limit=50, search=""):
-        if not self.active_project_id:
+    def get_main_products_page(self, page=1, limit=50, search="", project_id=None):
+        pid = project_id or self.active_project_id
+        if not pid:
             return {"items": [], "total": 0, "page": page, "limit": limit, "pages": 0}
         page = max(1, int(page))
         search_tokens = self._search_tokens(search)
@@ -1499,7 +1559,7 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
             limit = max(1, min(int(limit), 100))
         offset = (page - 1) * limit
         where = ["project_id = ?"]
-        params = [self.active_project_id]
+        params = [pid]
         if search_tokens:
             self._add_search_token_clauses(where, params, ["skuId", "商品名称", "规格名称"], search_tokens)
         where_sql = " AND ".join(where)
@@ -1518,7 +1578,7 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
                     "skuId", "商品名称", "规格名称", "主图链接", "活动价", "原价",
                     "销售", "美团类目三级", "_row_orig_idx",
                 ] + optional_cols
-                df = pd.read_sql(
+                df = self._read_sql(
                     f"""
                     SELECT {", ".join(select_cols)}
                     FROM main_products
@@ -1529,7 +1589,7 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
                     conn,
                     params=query_params
                 )
-                link_cnt = pd.read_sql(
+                link_cnt = self._read_sql(
                     """
                     SELECT main_sku_id, COUNT(*) AS cnt
                     FROM product_links
@@ -1537,7 +1597,7 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
                     GROUP BY main_sku_id
                     """,
                     conn,
-                    params=(self.active_project_id,)
+                    params=(pid,)
                 )
             finally:
                 conn.close()
@@ -1552,13 +1612,14 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
         pages = (total + limit - 1) // limit if total else 0
         return {"items": df.fillna("").to_dict(orient="records"), "total": total, "page": page, "limit": limit, "pages": pages}
 
-    def get_main_product_links(self, main_sku_id):
-        if not self.active_project_id or not main_sku_id:
+    def get_main_product_links(self, main_sku_id, project_id=None):
+        pid = project_id or self.active_project_id
+        if not pid or not main_sku_id:
             return {"items": [], "total": 0}
         with self._db_lock:
             conn = self._get_conn()
             try:
-                df = pd.read_sql(
+                df = self._read_sql(
                     """
                     SELECT
                         pl.store_id AS __link_store_id,
@@ -1577,53 +1638,55 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
                     ORDER BY CAST(pl.store_id AS INTEGER) ASC
                     """,
                     conn,
-                    params=(self.active_project_id, str(main_sku_id)),
+                    params=(pid, str(main_sku_id)),
                 )
             finally:
                 conn.close()
         if df.empty:
             return {"items": [], "total": 0}
         records = df.fillna("").to_dict(orient="records")
+        store_names = self._project_store_names(pid)
         for item in records:
             store_id = str(item.get("__link_store_id", ""))
             try:
-                item["__store_name"] = self.store_names[int(store_id)]
+                item["__store_name"] = store_names[int(store_id)]
             except (ValueError, IndexError):
                 item["__store_name"] = store_id or "竞店"
         return {"items": records, "total": len(records)}
 
-    def get_match_explanation(self, main_sku_id, store_id):
-        if not self.active_project_id or not main_sku_id or store_id is None:
+    def get_match_explanation(self, main_sku_id, store_id, project_id=None):
+        pid = project_id or self.active_project_id
+        if not pid or not main_sku_id or store_id is None:
             return {"status": "error", "message": "缺少项目或商品参数"}
         sid = str(store_id)
         with self._db_lock:
             conn = self._get_conn()
             try:
-                main_df = pd.read_sql(
+                main_df = self._read_sql(
                     "SELECT * FROM main_products WHERE project_id = ? AND skuId = ? LIMIT 1",
                     conn,
-                    params=(self.active_project_id, str(main_sku_id)),
+                    params=(pid, str(main_sku_id)),
                 )
-                link_df = pd.read_sql(
+                link_df = self._read_sql(
                     """
                     SELECT * FROM product_links
                     WHERE project_id = ? AND main_sku_id = ? AND store_id = ?
                     LIMIT 1
                     """,
                     conn,
-                    params=(self.active_project_id, str(main_sku_id), sid),
+                    params=(pid, str(main_sku_id), sid),
                 )
                 comp_sku = ""
                 if not link_df.empty:
                     comp_sku = str(link_df.iloc[0].get("comp_sku_id") or "")
-                comp_df = pd.read_sql(
+                comp_df = self._read_sql(
                     """
                     SELECT * FROM comp_products
                     WHERE project_id = ? AND store_id = ? AND skuId = ?
                     LIMIT 1
                     """,
                     conn,
-                    params=(self.active_project_id, sid, comp_sku),
+                    params=(pid, sid, comp_sku),
                 ) if comp_sku else pd.DataFrame()
             finally:
                 conn.close()
@@ -1638,18 +1701,19 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
         main = main_df.fillna("").iloc[0].to_dict()
         comp = comp_df.fillna("").iloc[0].to_dict()
         link = link_df.fillna("").iloc[0].to_dict()
-        template = self.get_post_match_template_for_project(self.active_project_id)
+        template = self.get_post_match_template_for_project(pid)
         block = post_match_engine.rules_for_item(template, main)
         group = post_match_engine.get_rule_group_for_item(template, main) or {}
         explain = post_match_engine.explain_post_match(main, comp, block)
         weak = post_match_engine.weak_ranking_score(main, comp, block)
+        store_names = self._project_store_names(pid)
         try:
-            store_name = self.store_names[int(sid)]
+            store_name = store_names[int(sid)]
         except (ValueError, IndexError):
             store_name = sid or "竞店"
         return {
             "status": "ok",
-            "project_id": self.active_project_id,
+            "project_id": pid,
             "store_id": sid,
             "store_name": store_name,
             "rule_group": {
@@ -1666,7 +1730,7 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
             "candidate": comp,
             "post_match": explain,
             "weak_ranking": weak,
-            "other_candidates": self._build_match_explain_other_candidates(main, comp_sku, sid, block),
+            "other_candidates": self._build_match_explain_other_candidates(main, comp_sku, sid, block, project_id=pid),
         }
 
     def _match_explain_text(self, item):
@@ -1720,19 +1784,20 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
             return "后验规则放过；未成为当前结果通常是原始向量/文本候选排序低于已选商品，或未进入当次召回TopK"
         return (explain or {}).get("reason", "")
 
-    def _build_match_explain_other_candidates(self, main, selected_comp_sku, store_id, block, limit=2):
-        if not self.active_project_id or not main or store_id is None:
+    def _build_match_explain_other_candidates(self, main, selected_comp_sku, store_id, block, limit=2, project_id=None):
+        pid = project_id or self.active_project_id
+        if not pid or not main or store_id is None:
             return []
         with self._db_lock:
             conn = self._get_conn()
             try:
-                comp_df = pd.read_sql(
+                comp_df = self._read_sql(
                     """
                     SELECT * FROM comp_products
                     WHERE project_id = ? AND store_id = ?
                     """,
                     conn,
-                    params=(self.active_project_id, str(store_id)),
+                    params=(pid, str(store_id)),
                 )
             finally:
                 conn.close()

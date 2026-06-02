@@ -8,11 +8,18 @@ User=www-data
 Group=www-data
 WorkingDirectory=/opt/pro_image
 Environment="PATH=/opt/pro_image/venv/bin"
-# 单机 SQLite + 进程内 DataManager：必须使用单 worker，否则多进程各持一份库/内存状态
+Environment="DATABASE_URL=postgresql+psycopg://pro_image:change-me@127.0.0.1:5432/pro_image"
+Environment="PROIMAGE_USE_CELERY=1"
+Environment="CELERY_BROKER_URL=redis://127.0.0.1:6379/0"
+Environment="CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/1"
+# 当前仍有部分页面读取依赖 DataManager.active_project_id 和内存缓存；完成剩余读接口显式化后再调高。
+# 重任务请交给 pro-image-worker.service，避免阻塞 Web 请求。
+Environment="WEB_CONCURRENCY=1"
+Environment="WEB_THREADS=1"
 ExecStart=/opt/pro_image/venv/bin/gunicorn \
   --bind 127.0.0.1:5001 \
-  --workers 1 \
-  --threads 4 \
+  --workers ${WEB_CONCURRENCY} \
+  --threads ${WEB_THREADS} \
   --timeout 600 \
   --access-logfile - \
   --error-logfile - \

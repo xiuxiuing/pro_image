@@ -1,4 +1,3 @@
-import ast
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,6 +7,7 @@ from packaging_core import (
     BUSINESS_SOURCE_FILES,
     BUILD_DEPENDENCY_MODULES,
     CORE_NUITKA_MODULES,
+    DEFAULT_RULE_TEMPLATE_FILES,
     REQUIRED_MODEL_FILES,
     RESOURCE_DIRS,
     cleanup_nuitka_module_intermediates,
@@ -43,26 +43,15 @@ class NuitkaCorePackagingTests(unittest.TestCase):
             self.assertNotIn("'data_mgr'", text)
             self.assertNotIn("'app_ops'", text)
 
-    def test_ops_tools_package_steps_use_nuitka_core_flow(self):
-        tree = ast.parse((ROOT / "app_ops_extra.py").read_text(encoding="utf-8"))
-        steps = None
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name) and target.id == "steps":
-                        try:
-                            steps = ast.literal_eval(node.value)
-                        except Exception:
-                            pass
-        self.assertEqual(
-            ["检查环境", "Nuitka 编译核心", "准备打包目录", "PyInstaller 打包", "验证产物", "压缩产物"],
-            steps,
-        )
+    def test_ops_package_build_route_is_removed_from_online_tools(self):
+        text = (ROOT / "app_ops_extra.py").read_text(encoding="utf-8")
+        self.assertNotIn("/api/ops/package-build", text)
+        self.assertNotIn("api_ops_package_build", text)
 
-    def test_ops_tools_copy_mentions_nuitka_package_flow(self):
-        text = (ROOT / "templates" / "ops_tools.html").read_text(encoding="utf-8")
-        self.assertIn("Nuitka 编译核心算法模块", text)
-        self.assertIn("ProImage_nuitka_*", text)
+    def test_ops_tools_copy_omits_package_flow(self):
+        text = (ROOT / "templates" / "ops_tools_raw.html").read_text(encoding="utf-8")
+        self.assertNotIn("程序打包", text)
+        self.assertNotIn("/api/ops/package-build", text)
 
     def test_requirements_build_lists_nuitka_and_pyinstaller(self):
         req = (ROOT / "requirements-build.txt").read_text(encoding="utf-8")
@@ -170,9 +159,10 @@ class NuitkaCorePackagingTests(unittest.TestCase):
             artifact = Path(tmpdir) / "ProImage_AI"
             (artifact / "_internal" / "templates").mkdir(parents=True)
             (artifact / "_internal" / "static").mkdir(parents=True)
-            rule = artifact / "_internal" / "data" / "default_rule_templates" / "production_rule_v1.json"
-            rule.parent.mkdir(parents=True)
-            rule.write_text("{}", encoding="utf-8")
+            for parts in DEFAULT_RULE_TEMPLATE_FILES:
+                rule = artifact / "_internal" / Path(*parts)
+                rule.parent.mkdir(parents=True, exist_ok=True)
+                rule.write_text("{}", encoding="utf-8")
             for mod in CORE_NUITKA_MODULES:
                 (artifact / "_internal" / f"{mod}.cp312-win_amd64.pyd").write_text("")
 

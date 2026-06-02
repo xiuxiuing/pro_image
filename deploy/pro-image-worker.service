@@ -1,0 +1,25 @@
+[Unit]
+Description=Pro Image Celery Worker
+After=network.target redis-server.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/pro_image
+Environment="PATH=/opt/pro_image/venv/bin"
+Environment="DATABASE_URL=postgresql+psycopg://pro_image:change-me@127.0.0.1:5432/pro_image"
+Environment="PROIMAGE_USE_CELERY=1"
+Environment="CELERY_BROKER_URL=redis://127.0.0.1:6379/0"
+Environment="CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/1"
+# Keep AI/import concurrency conservative; scale worker machines or queues later.
+Environment="CELERY_CONCURRENCY=1"
+ExecStart=/opt/pro_image/venv/bin/celery \
+  -A celery_app.celery worker \
+  --loglevel=INFO \
+  --concurrency=${CELERY_CONCURRENCY}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

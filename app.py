@@ -15,6 +15,7 @@ if sys.platform == "darwin":
 from flask import Flask, render_template, request, jsonify, send_file, redirect, session, url_for
 from data_mgr import DataManager
 from license_utils import LicenseManager
+from online_jobs import JobStore
 import signal
 import faulthandler
 import shutil
@@ -104,6 +105,7 @@ else:
 
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB
 dm = DataManager(data_root)
+job_store = JobStore(dm)
 app.secret_key = 'PiPaiSmartOpsSecretKey2026_Secure'
 
 def rc4_crypt(key: bytes, data: bytes) -> bytes:
@@ -155,9 +157,10 @@ extract_info_ai2 = _LazyModule("extract_info_ai2")
 main_030822 = _LazyModule("main_030822")
 
 _analysis_progress = {}
+_progress_job_ids = {}
 _progress_lock = threading.Lock()
 
-def _init_progress(pid, use_ai, main_name, comp_names):
+def _init_progress(pid, use_ai, main_name, comp_names, job_id=None):
     steps = []
     if use_ai:
         steps.append({"label": f"AI提取 {main_name}", "status": "pending", "detail": ""})
@@ -166,13 +169,43 @@ def _init_progress(pid, use_ai, main_name, comp_names):
     steps.append({"label": f"AI匹配 {main_name}", "status": "pending", "detail": ""})
     prog = {"started_at": time.time(), "steps": steps}
     with _progress_lock: _analysis_progress[pid] = prog
+    try:
+        if job_id:
+            job_store.mark_running(job_id)
+        else:
+            job_id = job_store.create_job(
+                pid,
+                "analysis",
+                [s["label"] for s in steps],
+                {"source": "legacy_progress"},
+                status="running",
+            )
+        with _progress_lock:
+            _progress_job_ids[pid] = job_id
+    except Exception:
+        pass
     return prog
 
-def _init_import_progress(pid, labels):
+def _init_import_progress(pid, labels, job_id=None):
     steps = [{"label": str(lbl), "status": "pending", "detail": ""} for lbl in labels]
     prog = {"started_at": time.time(), "steps": steps}
     with _progress_lock:
         _analysis_progress[pid] = prog
+    try:
+        if job_id:
+            job_store.mark_running(job_id)
+        else:
+            job_id = job_store.create_job(
+                pid,
+                "manual_import",
+                [s["label"] for s in steps],
+                {"source": "legacy_progress"},
+                status="running",
+            )
+        with _progress_lock:
+            _progress_job_ids[pid] = job_id
+    except Exception:
+        pass
     return prog
 
 def _update_step(pid, step_idx, status, detail=""):
@@ -184,14 +217,43 @@ def _update_step(pid, step_idx, status, detail=""):
         step["detail"] = detail
         if status == "running" and not step.get("started_at"): step["started_at"] = time.time()
         if status == "done" and not step.get("ended_at"): step["ended_at"] = time.time()
+    with _progress_lock:
+        job_id = _progress_job_ids.get(pid)
+    if job_id:
+        try:
+            job_store.update_step(job_id, step_idx, status, detail)
+        except Exception:
+            pass
 
 def _clear_progress(pid):
-    with _progress_lock: _analysis_progress.pop(pid, None)
+    with _progress_lock:
+        _analysis_progress.pop(pid, None)
+        _progress_job_ids.pop(pid, None)
 
 def _schedule_clear_progress(pid):
+    with _progress_lock:
+        job_id = _progress_job_ids.get(pid)
+    if job_id:
+        try:
+            with dm._db_lock:
+                conn = dm._get_conn()
+                try:
+                    row = conn.execute("SELECT status FROM projects WHERE id = ?", (pid,)).fetchone()
+                    project_status = row[0] if row else ""
+                finally:
+                    conn.close()
+            job_store.finish(job_id, "failed" if project_status == "failed" else "succeeded")
+        except Exception:
+            pass
     threading.Timer(5.0, lambda p=pid: _clear_progress(p)).start()
 
 def get_analysis_progress_data(pid):
+    try:
+        persisted = job_store.latest_project_progress(pid)
+        if persisted.get("available"):
+            return persisted
+    except Exception:
+        pass
     with _progress_lock:
         prog = _analysis_progress.get(pid)
     if not prog: return {"available": False}
@@ -296,6 +358,7 @@ def require_login():
         '/data-management/operations', 
         '/data-management/stores', 
         '/market-analysis', 
+        '/pi-agent',
         '/ops-tools'
     ]
     if request.path in protected_paths:
@@ -624,6 +687,12 @@ def match_agent_page():
     is_valid, _ = check_license()
     if not is_valid: return render_template("activate.html", hwid=CURRENT_HWID)
     return render_template("match_agent.html")
+
+@app.route("/pi-agent")
+def pi_agent_page():
+    is_valid, _ = check_license()
+    if not is_valid: return render_template("activate.html", hwid=CURRENT_HWID)
+    return render_template("pi_agent.html")
 
 @app.route("/match-rules")
 def match_rules_page():

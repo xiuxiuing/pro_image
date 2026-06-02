@@ -1,0 +1,23 @@
+{% extends "admin_base.html" %}
+{% set active_menu = "ops" %}
+{% set active_ops_child = "pi-agent" %}
+{% block title %}Pi Agent - 运营后台{% endblock %}
+{% block top_title %}Pi Agent{% endblock %}
+{% block search_control %}{% endblock %}
+{% block styles %}
+        .main {
+            padding: 0;
+            min-height: calc(100vh - var(--topbar-h));
+            background: #f8f9fa;
+        }
+        .ops-frame {
+            display: block;
+            width: 100%;
+            min-height: calc(100vh - var(--topbar-h));
+            border: 0;
+            background: #f8f9fa;
+        }
+{% endblock %}
+{% block content %}
+            <iframe class="ops-frame" src="/match-agent" title="Pi Agent"></iframe>
+{% endblock %}

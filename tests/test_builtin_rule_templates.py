@@ -1,10 +1,12 @@
 import json
-import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
 
+from sqlalchemy import text
+
 from data_mgr import DataManager
+from db_access import Database
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,8 +37,17 @@ EXPECTED_PRODUCTION_RULE_INCREMENT_GROUP_COUNTS = {
 
 
 class BuiltinRuleTemplateTests(unittest.TestCase):
-    def _template_row(self, db_path, name=PRODUCTION_RULE_TEMPLATE_NAME):
-        with sqlite3.connect(db_path) as conn:
+    def setUp(self):
+        db = Database()
+        try:
+            with db.engine.begin() as conn:
+                conn.execute(text("DROP SCHEMA public CASCADE"))
+                conn.execute(text("CREATE SCHEMA public"))
+        finally:
+            db.close()
+
+    def _template_row(self, dm, name=PRODUCTION_RULE_TEMPLATE_NAME):
+        with dm._get_conn() as conn:
             return conn.execute(
                 "SELECT id, name, description, config_json FROM rule_templates WHERE name = ?",
                 (name,),
@@ -45,7 +56,7 @@ class BuiltinRuleTemplateTests(unittest.TestCase):
     def test_empty_database_seeds_production_rule_v1_and_uses_it_for_new_projects(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             dm = DataManager(tmpdir)
-            row = self._template_row(Path(tmpdir) / "pro_image.db")
+            row = self._template_row(dm)
 
             self.assertIsNotNone(row)
             config = json.loads(row[3])
@@ -59,7 +70,7 @@ class BuiltinRuleTemplateTests(unittest.TestCase):
             comps = [{"path": str(Path(tmpdir) / "comp.xlsx"), "store_name": "竞店"}]
             pid = dm.create_project("新项目", main, comps)
 
-            with sqlite3.connect(Path(tmpdir) / "pro_image.db") as conn:
+            with dm._get_conn() as conn:
                 project_tid = conn.execute(
                     "SELECT rule_template_id FROM projects WHERE id = ?", (pid,)
                 ).fetchone()[0]
@@ -68,62 +79,86 @@ class BuiltinRuleTemplateTests(unittest.TestCase):
 
     def test_existing_production_rule_v1_is_not_overwritten(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "pro_image.db"
+            dm = DataManager(tmpdir)
             custom_config = '{"v":3,"rule_groups":[{"id":"custom","name":"用户自定义","categories":{"paths":[]},"metrics":{}}]}'
-            with sqlite3.connect(db_path) as conn:
+            with dm._get_conn() as conn:
                 conn.execute(
-                    """
-                    CREATE TABLE rule_templates (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        name TEXT NOT NULL,
-                        description TEXT DEFAULT '',
-                        config_json TEXT NOT NULL DEFAULT '{}',
-                        created_at TEXT,
-                        updated_at TEXT
-                    )
-                    """
+                    "UPDATE rule_templates SET description = ?, config_json = ? WHERE name = ?",
+                    ("用户改过的规则", custom_config, PRODUCTION_RULE_TEMPLATE_NAME),
                 )
-                conn.execute(
-                    "INSERT INTO rule_templates (name, description, config_json) VALUES (?, ?, ?)",
-                    (PRODUCTION_RULE_TEMPLATE_NAME, "用户改过的规则", custom_config),
-                )
+                dm._ensure_builtin_rule_templates(conn)
 
-            DataManager(tmpdir)
-            row = self._template_row(db_path)
+            row = self._template_row(dm)
 
             self.assertEqual(row[2], "用户改过的规则")
             self.assertEqual(row[3], custom_config)
 
-    def test_existing_database_without_production_rule_v1_gets_seeded_without_reordering(self):
+    def test_database_without_production_rule_v1_gets_seeded_without_reordering_custom_templates(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "pro_image.db"
-            with sqlite3.connect(db_path) as conn:
+            dm = DataManager(tmpdir)
+            with dm._get_conn() as conn:
+                conn.execute("DELETE FROM projects")
+                conn.execute("DELETE FROM rule_templates")
                 conn.execute(
-                    """
-                    CREATE TABLE rule_templates (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        name TEXT NOT NULL,
-                        description TEXT DEFAULT '',
-                        config_json TEXT NOT NULL DEFAULT '{}',
-                        created_at TEXT,
-                        updated_at TEXT
-                    )
-                    """
+                    "INSERT INTO rule_templates (name, description, config_json) VALUES (?, ?, ?)",
+                    ("老模板", "保留", '{"v":3,"rule_groups":[]}'),
+                )
+                dm._ensure_builtin_rule_templates(conn)
+
+            with dm._get_conn() as conn:
+                rows = conn.execute(
+                    "SELECT id, name FROM rule_templates ORDER BY id ASC"
+                ).fetchall()
+
+            self.assertEqual(rows[0][1], "老模板")
+            self.assertEqual(rows[1][1], PRODUCTION_RULE_TEMPLATE_NAME)
+            self.assertEqual(rows[2][1], PRODUCTION_RULE_V2_TEMPLATE_NAME)
+
+    def test_production_rule_v2_builtin_is_refreshed_from_packaged_resource(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dm = DataManager(tmpdir)
+            with dm._get_conn() as conn:
+                conn.execute(
+                    "UPDATE rule_templates SET description = ?, config_json = ? WHERE name = ?",
+                    ("旧V2", '{"v":3,"rule_groups":[]} ', PRODUCTION_RULE_V2_TEMPLATE_NAME),
+                )
+                dm._ensure_builtin_rule_templates(conn)
+
+            row = self._template_row(dm, PRODUCTION_RULE_V2_TEMPLATE_NAME)
+
+            self.assertNotEqual(row[2], "旧V2")
+            self.assertEqual(
+                sum(
+                    len(group["categories"]["paths"])
+                    for group in json.loads(row[3]).get("rule_groups", [])
+                ),
+                EXPECTED_PRODUCTION_RULE_V2_PATH_COUNT,
+            )
+
+    def test_rule_template_ids_remain_monotonic_after_seed(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dm = DataManager(tmpdir)
+            custom_config = '{"v":3,"rule_groups":[{"id":"custom","name":"用户自定义","categories":{"paths":[]},"metrics":{}}]}'
+            with dm._get_conn() as conn:
+                conn.execute("DELETE FROM projects")
+                conn.execute("DELETE FROM rule_templates")
+                conn.execute(
+                    "INSERT INTO rule_templates (name, description, config_json) VALUES (?, ?, ?)",
+                    (PRODUCTION_RULE_TEMPLATE_NAME, "用户改过的规则", custom_config),
                 )
                 conn.execute(
                     "INSERT INTO rule_templates (name, description, config_json) VALUES (?, ?, ?)",
                     ("老模板", "保留", '{"v":3,"rule_groups":[]}'),
                 )
+                dm._ensure_builtin_rule_templates(conn)
 
-            DataManager(tmpdir)
-
-            with sqlite3.connect(db_path) as conn:
+            with dm._get_conn() as conn:
                 rows = conn.execute(
                     "SELECT id, name FROM rule_templates ORDER BY id ASC"
                 ).fetchall()
 
-            self.assertEqual(rows[0], (1, "老模板"))
-            self.assertEqual(rows[1][1], PRODUCTION_RULE_TEMPLATE_NAME)
+            self.assertEqual(rows[0][1], PRODUCTION_RULE_TEMPLATE_NAME)
+            self.assertEqual(rows[1][1], "老模板")
             self.assertEqual(rows[2][1], PRODUCTION_RULE_V2_TEMPLATE_NAME)
 
     def test_packaged_builtin_rule_template_resource_exists_under_data(self):
@@ -182,8 +217,8 @@ class BuiltinRuleTemplateTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             dm = DataManager(tmpdir)
-            v1 = self._template_row(Path(tmpdir) / "pro_image.db", PRODUCTION_RULE_TEMPLATE_NAME)
-            v2 = self._template_row(Path(tmpdir) / "pro_image.db", PRODUCTION_RULE_V2_TEMPLATE_NAME)
+            v1 = self._template_row(dm, PRODUCTION_RULE_TEMPLATE_NAME)
+            v2 = self._template_row(dm, PRODUCTION_RULE_V2_TEMPLATE_NAME)
 
             self.assertIsNotNone(v1)
             self.assertIsNotNone(v2)
@@ -193,7 +228,7 @@ class BuiltinRuleTemplateTests(unittest.TestCase):
             comps = [{"path": str(Path(tmpdir) / "comp.xlsx"), "store_name": "竞店"}]
             pid = dm.create_project("V2项目", main, comps, rule_template_id=v2[0])
 
-            with sqlite3.connect(Path(tmpdir) / "pro_image.db") as conn:
+            with dm._get_conn() as conn:
                 project_tid = conn.execute(
                     "SELECT rule_template_id FROM projects WHERE id = ?", (pid,)
                 ).fetchone()[0]
@@ -202,7 +237,7 @@ class BuiltinRuleTemplateTests(unittest.TestCase):
             self.assertEqual(dm.get_post_match_template_for_project(pid), json.loads(v2[3]))
 
             dm.activate_project(pid, skip_load=True)
-            with sqlite3.connect(Path(tmpdir) / "pro_image.db") as conn:
+            with dm._get_conn() as conn:
                 conn.execute(
                     """
                     INSERT INTO main_products

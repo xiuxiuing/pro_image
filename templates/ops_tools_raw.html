@@ -424,30 +424,6 @@
         </section>
 
         <section>
-            <h2>程序打包</h2>
-            <p class="hint">按 packaging_nuitka.md 的核心保护方案执行：Nuitka 编译核心算法模块，PyInstaller 收集业务壳与第三方依赖，完成后自动做结构验证。</p>
-            <form id="package-form">
-                <div class="field">
-                    <label>打包目标</label>
-                    <select name="target" id="package-target">
-                        <option value="macos">macOS .app</option>
-                        <option value="windows">Windows 程序包</option>
-                    </select>
-                    <div class="inline-note">流程：检查环境 → Nuitka 编译核心 → 准备 _build_src → ProImage_nuitka_*.spec → 验证产物 → ZIP。</div>
-                </div>
-                <div class="actions">
-                    <button class="primary" type="submit" id="package-submit">开始打包</button>
-                    <a id="package-download" class="download-link" style="display:none;">下载程序包</a>
-                </div>
-            </form>
-            <div class="progress" id="package-progress">
-                <div class="progress-head"><span id="package-status">等待中</span><span id="package-task-id"></span></div>
-                <div class="steps" id="package-steps"></div>
-            </div>
-            <div class="message" id="package-message"></div>
-        </section>
-
-        <section>
             <h2>商圈分析</h2>
             <p class="hint">上传一份或多份原始 Excel 样本，系统会按平级商圈样本聚合生成一张商圈分析 PNG，不区分主店/竞店角色。</p>
             <div class="actions">
@@ -826,24 +802,6 @@
                 startPolling(data.task_id, "license");
             } catch (err) {
                 setMessage("license-message", err.message, true);
-            } finally {
-                btn.disabled = false;
-            }
-        });
-
-        document.getElementById("package-form").addEventListener("submit", async (event) => {
-            event.preventDefault();
-            const btn = document.getElementById("package-submit");
-            btn.disabled = true;
-            document.getElementById("package-download").style.display = "none";
-            setMessage("package-message", "已提交打包任务，打包过程可能需要几分钟。");
-            try {
-                const resp = await fetch("/api/ops/package-build", { method: "POST", body: new FormData(event.target) });
-                const data = await resp.json();
-                if (data.status !== "ok") throw new Error(data.message || "提交失败");
-                startPolling(data.task_id, "package");
-            } catch (err) {
-                setMessage("package-message", err.message, true);
             } finally {
                 btn.disabled = false;
             }

@@ -2,12 +2,15 @@ import pandas as pd
 import os
 import re
 import threading
-import sqlite3
+from contextlib import contextmanager
 import time
 import json
 import sys
 import utils
+from db_access import Database
 from field_registry import build_field_mappings
+from online_jobs import JobStore
+from storage_service import StorageService
 
 # --- Constants ---
 INTERNAL_COLUMNS = ['淘汰标记', '是否淘汰', '新活动价', '新售价', '跟价店']
@@ -40,8 +43,11 @@ _SAFE_COL_RE = re.compile(r'^[\w\u4e00-\u9fff]+$')
 class DataManagerBase:
     def __init__(self, base_dir):
         self.base_dir = base_dir
-        self.db_path = os.path.join(base_dir, "pro_image.db")
+        self.storage = StorageService(base_dir)
+        self.db = Database()
+        self.db_path = ""
         self._db_lock = threading.RLock()
+        self._project_context_lock = threading.RLock()
         
         # Project-specific state
         self.active_project_id = 1
@@ -64,20 +70,22 @@ class DataManagerBase:
 
     def _get_project_dirs(self, pid):
         """Returns standard subdirectories for a project."""
-        pdir = os.path.join(self.base_dir, "uploads", f"project_{pid}")
-        return {
-            "root": pdir,
-            "sources": os.path.join(pdir, "sources"),
-            "outputs": os.path.join(pdir, "outputs"),
-            "cache": os.path.join(pdir, "cache")
-        }
+        return self.storage.project_dirs(pid)
+
+    def close(self):
+        db = getattr(self, "db", None)
+        if db is not None:
+            db.close()
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def _ensure_project_dirs(self, pid):
         """Ensures all standard project subdirectories exist."""
-        dirs = self._get_project_dirs(pid)
-        for _, path in dirs.items():
-            os.makedirs(path, exist_ok=True)
-        return dirs
+        return self.storage.ensure_project_dirs(pid)
 
     def _load_active_project(self):
         with self._db_lock:
@@ -120,11 +128,101 @@ class DataManagerBase:
             finally:
                 conn.close()
 
+    def _load_project_state(self, project_id):
+        with self._db_lock:
+            conn = self._get_conn()
+            try:
+                row = conn.execute(
+                    "SELECT id, name, COALESCE(match_config, '') FROM projects WHERE id = ? LIMIT 1",
+                    (project_id,),
+                ).fetchone()
+                if not row:
+                    return False
+                self.active_project_id, self.active_project_name = row[0], row[1]
+                try:
+                    self.match_config = json.loads(row[2]) if row[2] else {}
+                except Exception:
+                    self.match_config = {}
+
+                dirs = self._ensure_project_dirs(self.active_project_id)
+                self.project_dir = dirs["root"]
+                self.target_file = ""
+                self.output_file = os.path.join(dirs["outputs"], f"output_{self.active_project_id}.xlsx")
+                self.source_files = []
+                self.store_names = []
+                self.main_store_name = ""
+                files = conn.execute(
+                    "SELECT type, local_path, store_name FROM project_files WHERE project_id = ? ORDER BY id ASC",
+                    (self.active_project_id,),
+                ).fetchall()
+                for f_type, path, store in files:
+                    if f_type == "main":
+                        self.target_file = path
+                        self.main_store_name = store
+                    elif f_type == "comp":
+                        self.source_files.append(path)
+                        self.store_names.append(store)
+                return True
+            finally:
+                conn.close()
+
+    @contextmanager
+    def project_context(self, project_id=None, load_data=True):
+        pid = project_id or self.active_project_id
+        if not pid:
+            with self._project_context_lock:
+                yield self
+            return
+
+        with self._project_context_lock:
+            if pid == self.active_project_id:
+                yield self
+                return
+            saved = {
+                "active_project_id": self.active_project_id,
+                "active_project_name": self.active_project_name,
+                "target_file": self.target_file,
+                "output_file": self.output_file,
+                "project_dir": self.project_dir,
+                "source_files": list(self.source_files),
+                "store_names": list(self.store_names),
+                "main_store_name": self.main_store_name,
+                "match_config": dict(self.match_config or {}),
+                "grid_df": self.grid_df,
+                "main_df": self.main_df,
+                "store_dfs": self.store_dfs,
+            }
+            try:
+                self.grid_df = None
+                self.main_df = None
+                self.store_dfs = {}
+                if not self._load_project_state(pid):
+                    raise ValueError(f"Project not found: {pid}")
+                if load_data:
+                    self.load_data()
+                yield self
+            finally:
+                self.active_project_id = saved["active_project_id"]
+                self.active_project_name = saved["active_project_name"]
+                self.target_file = saved["target_file"]
+                self.output_file = saved["output_file"]
+                self.project_dir = saved["project_dir"]
+                self.source_files = saved["source_files"]
+                self.store_names = saved["store_names"]
+                self.main_store_name = saved["main_store_name"]
+                self.match_config = saved["match_config"]
+                self.grid_df = saved["grid_df"]
+                self.main_df = saved["main_df"]
+                self.store_dfs = saved["store_dfs"]
+
     def _get_conn(self):
-        conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30)
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=30000")
-        return conn
+        return self.db.connect()
+
+    def _read_sql(self, sql, conn, params=None):
+        return conn.read_sql(sql, params=params)
+
+    def _to_sql(self, df, table_name, conn, index=False, if_exists="append"):
+        return conn.to_sql(df, table_name, index=index, if_exists=if_exists)
 
     def _builtin_rule_template_path(self):
         rel = os.path.join("data", "default_rule_templates", "production_rule_v1.json")
@@ -211,35 +309,13 @@ class DataManagerBase:
             print(f"Created builtin rule template: {item['name']}")
 
     def _ensure_main_products_identity_schema(self, conn):
-        row = conn.execute(
-            "SELECT sql FROM sqlite_master WHERE type='table' AND name='main_products'"
-        ).fetchone()
-        table_sql = (row[0] or "") if row else ""
         main_cols = ", ".join(
             [f"`{c}` TEXT" for c in CORE_MAIN_COLUMNS if c not in ["project_id", "skuId", "_row_orig_idx"]]
         )
-        desired_sql = (
+        conn.execute(
             "CREATE TABLE IF NOT EXISTS main_products "
             f"(project_id INTEGER, skuId TEXT, _row_orig_idx INT, {main_cols})"
         )
-        normalized_sql = table_sql.replace(" ", "").replace("\n", "").replace("\t", "")
-        if "PRIMARYKEY(project_id,skuId)" not in normalized_sql:
-            conn.execute(desired_sql)
-        else:
-            tmp = f"main_products_migrate_{int(time.time())}"
-            conn.execute(
-                f"CREATE TABLE `{tmp}` "
-                f"(project_id INTEGER, skuId TEXT, _row_orig_idx INT, {main_cols})"
-            )
-            existing_cols = [
-                r[1] for r in conn.execute("PRAGMA table_info(main_products)").fetchall()
-            ]
-            copy_cols = [c for c in CORE_MAIN_COLUMNS if c in existing_cols]
-            cols = ", ".join([f"`{c}`" for c in copy_cols])
-            conn.execute(f"INSERT INTO `{tmp}` ({cols}) SELECT {cols} FROM main_products")
-            conn.execute("DROP TABLE main_products")
-            conn.execute(f"ALTER TABLE `{tmp}` RENAME TO main_products")
-            print("Migration: main_products identity now includes skuId + 商品名称 + 规格名称")
         conn.execute(
             """
             CREATE UNIQUE INDEX IF NOT EXISTS idx_main_products_identity
@@ -259,8 +335,9 @@ class DataManagerBase:
                 with conn:
                     # Meta and Project Management
                     conn.execute("CREATE TABLE IF NOT EXISTS meta_info (key TEXT PRIMARY KEY, value TEXT)")
-                    conn.execute("CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, is_active INTEGER DEFAULT 0, status TEXT DEFAULT 'ready', analysis_started_at TEXT, match_config TEXT DEFAULT '')")
-                    conn.execute("CREATE TABLE IF NOT EXISTS project_files (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER, type TEXT, local_path TEXT, store_name TEXT, FOREIGN KEY(project_id) REFERENCES projects(id))")
+                    conn.execute("CREATE TABLE IF NOT EXISTS projects (id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, name TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, is_active INTEGER DEFAULT 0, status TEXT DEFAULT 'ready', analysis_started_at TEXT, match_config TEXT DEFAULT '')")
+                    conn.execute("CREATE TABLE IF NOT EXISTS project_files (id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, project_id INTEGER, type TEXT, local_path TEXT, store_name TEXT, FOREIGN KEY(project_id) REFERENCES projects(id))")
+                    JobStore(self).ensure_schema(conn)
                     conn.execute(
                         """
                         CREATE TABLE IF NOT EXISTS project_analysis_snapshots (
@@ -287,7 +364,7 @@ class DataManagerBase:
                     conn.execute(
                         """
                         CREATE TABLE IF NOT EXISTS manual_link_corrections (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
                             project_id INTEGER NOT NULL,
                             main_sku_id TEXT NOT NULL,
                             store_id TEXT NOT NULL,
@@ -360,7 +437,7 @@ class DataManagerBase:
                     conn.execute(
                         """
                         CREATE TABLE IF NOT EXISTS match_feedback_cases (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
                             project_id INTEGER NOT NULL,
                             main_sku_id TEXT NOT NULL,
                             store_id TEXT NOT NULL,
@@ -377,7 +454,7 @@ class DataManagerBase:
                     conn.execute(
                         """
                         CREATE TABLE IF NOT EXISTS match_agent_runs (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
                             project_id INTEGER NOT NULL,
                             provider TEXT DEFAULT '',
                             model_name TEXT DEFAULT '',
@@ -397,7 +474,7 @@ class DataManagerBase:
                     conn.execute(
                         """
                         CREATE TABLE IF NOT EXISTS rule_templates (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
                             name TEXT NOT NULL,
                             description TEXT DEFAULT '',
                             config_json TEXT NOT NULL DEFAULT '{}',
@@ -428,7 +505,7 @@ class DataManagerBase:
                     conn.execute(
                         """
                         CREATE TABLE IF NOT EXISTS roles (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
                             name TEXT NOT NULL UNIQUE,
                             description TEXT DEFAULT '',
                             status INTEGER NOT NULL DEFAULT 1,
@@ -459,7 +536,7 @@ class DataManagerBase:
                             brand TEXT DEFAULT '',
                             status INTEGER NOT NULL DEFAULT 1,
                             created_at TEXT NOT NULL,
-                            role_id INTEGER NOT NULL,
+                            role_id TEXT NOT NULL,
                             role_name TEXT NOT NULL
                         )
                         """
@@ -472,7 +549,7 @@ class DataManagerBase:
                         ("brand", "ALTER TABLE user ADD COLUMN brand TEXT DEFAULT ''"),
                         ("status", "ALTER TABLE user ADD COLUMN status INTEGER NOT NULL DEFAULT 1"),
                         ("created_at", "ALTER TABLE user ADD COLUMN created_at TEXT"),
-                        ("role_id", "ALTER TABLE user ADD COLUMN role_id INTEGER"),
+                        ("role_id", "ALTER TABLE user ADD COLUMN role_id TEXT"),
                         ("role_name", "ALTER TABLE user ADD COLUMN role_name TEXT DEFAULT ''"),
                         ("avatar", "ALTER TABLE user ADD COLUMN avatar TEXT DEFAULT ''"),
                     ):
@@ -547,6 +624,9 @@ class DataManagerBase:
                             "INSERT INTO projects (id, name, created_at, is_active) VALUES (1, '默认项目', ?, 1)",
                             (_proj_now,),
                         )
+                        conn.execute(
+                            "SELECT setval(pg_get_serial_sequence('projects', 'id'), COALESCE((SELECT MAX(id) FROM projects), 1))"
+                        )
                         print("Created default project.")
 
                     # Startup recovery: fix orphaned in-progress status from crashed runs.
@@ -564,6 +644,22 @@ class DataManagerBase:
                         conn.execute("UPDATE projects SET status = ?, analysis_started_at = NULL WHERE id = ?",
                                      (new_status, orphan_pid))
                         print(f"Startup recovery: project {orphan_pid} → {new_status}")
+
+                    if os.environ.get("PROIMAGE_RECOVER_ORPHAN_JOBS", "").strip().lower() in ("1", "true", "yes", "on"):
+                        conn.execute(
+                            """
+                            UPDATE jobs
+                            SET status = 'failed',
+                                error_message = CASE
+                                    WHEN COALESCE(error_message, '') = '' THEN '服务启动时恢复：上一轮任务未正常结束'
+                                    ELSE error_message
+                                END,
+                                finished_at = COALESCE(finished_at, ?),
+                                updated_at = ?
+                            WHERE status IN ('queued', 'running')
+                            """,
+                            (time.strftime("%Y-%m-%d %H:%M:%S"), time.strftime("%Y-%m-%d %H:%M:%S")),
+                        )
                     
                     # Bootstrap default 'admin' user if not exists
                     admin_exists = conn.execute("SELECT COUNT(*) FROM user WHERE username = ?", ("admin",)).fetchone()[0]
@@ -626,4 +722,3 @@ class DataManagerBase:
         finally:
             if not with_conn:
                 conn.close()
-

@@ -99,8 +99,8 @@ class PackagingStructureTests(unittest.TestCase):
             "/api/ops/tasks/<task_id>/download",
             "/api/ops/license-key-status",
             "/api/ops/license-generate",
-            "/api/ops/package-build",
             "/api/ops/market-analysis-generate",
+            "/ops-tools/raw",
         }
 
         self.assertEqual(expected, route_rules(["app_ops.py", "app_ops_*.py"]))

@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import json
 import time
-import sqlite3
 from typing import List, Optional, Tuple, Any, Dict
 
 import post_match_engine as _pme

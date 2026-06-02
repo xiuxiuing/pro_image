@@ -5,10 +5,13 @@ set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/pro_image}"
 DOMAIN="${DOMAIN:-}"
+PG_DB="${PG_DB:-pro_image}"
+PG_USER="${PG_USER:-pro_image}"
+PG_PASSWORD="${PG_PASSWORD:-change-me}"
 
-echo "==> 依赖：git python3-venv nginx certbot python3-certbot-nginx"
+echo "==> 依赖：git python3-venv nginx redis postgresql certbot"
 apt-get update -y
-apt-get install -y git python3 python3-venv python3-pip nginx certbot python3-certbot-nginx
+apt-get install -y git python3 python3-venv python3-pip nginx redis-server postgresql postgresql-client certbot python3-certbot-nginx
 
 if [[ ! -d "$APP_DIR/.git" ]]; then
   echo "请将仓库克隆到 $APP_DIR，例如："
@@ -26,11 +29,24 @@ pip install -r deploy/requirements-deploy.txt
 
 chown -R www-data:www-data "$APP_DIR"
 
-echo "==> systemd: 复制 deploy/pro-image.service 到 /etc/systemd/system/ 并 daemon-reload"
+echo "==> PostgreSQL: 创建数据库和用户（如已存在则跳过）"
+sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='${PG_USER}'" | grep -q 1 || \
+  sudo -u postgres psql -c "CREATE USER ${PG_USER} WITH PASSWORD '${PG_PASSWORD}'"
+sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='${PG_DB}'" | grep -q 1 || \
+  sudo -u postgres createdb -O "${PG_USER}" "${PG_DB}"
+sudo -u postgres psql -c "ALTER DATABASE ${PG_DB} OWNER TO ${PG_USER}"
+
+echo "==> systemd: 复制 Web/Worker service 到 /etc/systemd/system/ 并 daemon-reload"
 cp -f "$APP_DIR/deploy/pro-image.service" /etc/systemd/system/pro-image.service
+cp -f "$APP_DIR/deploy/pro-image-worker.service" /etc/systemd/system/pro-image-worker.service
+DATABASE_URL_VALUE="postgresql+psycopg://${PG_USER}:${PG_PASSWORD}@127.0.0.1:5432/${PG_DB}"
+sed -i "s#^Environment=\"DATABASE_URL=.*#Environment=\"DATABASE_URL=${DATABASE_URL_VALUE}\"#g" /etc/systemd/system/pro-image.service
+sed -i "s#^Environment=\"DATABASE_URL=.*#Environment=\"DATABASE_URL=${DATABASE_URL_VALUE}\"#g" /etc/systemd/system/pro-image-worker.service
 systemctl daemon-reload
 systemctl enable pro-image
+systemctl enable pro-image-worker
 systemctl restart pro-image
+systemctl restart pro-image-worker
 
 echo "==> nginx"
 cp -f "$APP_DIR/deploy/nginx-site.conf.example" /etc/nginx/sites-available/pro-image
@@ -47,3 +63,4 @@ echo "未设置 DOMAIN 时：编辑 /etc/nginx/sites-available/pro-image 中的 
 echo "然后: sudo certbot --nginx -d 你的域名"
 echo ""
 systemctl --no-pager status pro-image || true
+systemctl --no-pager status pro-image-worker || true

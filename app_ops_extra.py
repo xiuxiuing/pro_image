@@ -1,12 +1,9 @@
 import os
-import sys
 import shutil
 import time
 import threading
 import traceback
 import json
-import platform
-import datetime
 from flask import Blueprint, request, jsonify
 from packaging_core import (
     BUSINESS_SOURCE_FILES,
@@ -177,125 +174,4 @@ def api_ops_license_generate():
         traceback.print_exc()
         ops_context["update_step"](task_id, 0, "failed", str(e))
         ops_context["fail_task"](task_id, e)
-    return jsonify({"status": "ok", "task_id": task_id})
-
-@extra_bp.route('/api/ops/package-build', methods=['POST'])
-def api_ops_package_build():
-    license_err = ops_context["license_error_response"]()
-    if license_err: return license_err
-    target = (request.form.get("target") or "").strip().lower()
-    if target not in ("macos", "windows"):
-        return jsonify({"status": "error", "message": "请选择 macOS 或 Windows"}), 400
-
-    steps = ["检查环境", "Nuitka 编译核心", "准备打包目录", "PyInstaller 打包", "验证产物", "压缩产物"]
-    task = ops_context["create_task"]("package", steps, f"{target} 打包排队中")
-    task_id = task["task_id"]
-
-    def _run_package_bg():
-        ops_context["set_task"](task_id, status="running", started_at=ops_context["now"](), message=f"{target} 打包中")
-        try:
-            system = platform.system()
-            ops_context["update_step"](task_id, 0, "running", f"当前系统 {system}")
-            if target == "macos":
-                if system != "Darwin":
-                    raise RuntimeError("macOS .app 需要在 macOS 打包机上执行")
-                patch_script = os.path.join(ops_context["resource_root"], "tools", "patch_pyinstaller_site_packages.py")
-                if os.path.isfile(patch_script):
-                    ops_context["run_command"](task_id, 0, [sys.executable, patch_script], ops_context["resource_root"])
-                else:
-                    ops_context["update_step"](task_id, 0, "done", "未找到 patch 脚本，跳过")
-                spec = "ProImage_nuitka_macOS.spec"
-                artifact = os.path.join(ops_context["resource_root"], "dist", "ProImage_AI.app")
-                zip_name = f"ProImage_AI_macOS_{time.strftime('%Y%m%d_%H%M%S')}.zip"
-            else:
-                if system != "Windows":
-                    raise RuntimeError("Windows 程序需要在 Windows 打包机上执行")
-                ops_context["update_step"](task_id, 0, "done", "Windows 环境")
-                spec = "ProImage_nuitka_Windows.spec"
-                artifact = os.path.join(ops_context["resource_root"], "dist", "ProImage_AI")
-                zip_name = f"ProImage_Windows_{time.strftime('%Y%m%d_%H%M%S')}.zip"
-
-            installed = ensure_build_dependencies(ops_context["resource_root"])
-            if installed:
-                ops_context["update_step"](
-                    task_id, 0, "running", f"已自动安装打包依赖：{', '.join(installed)}"
-                )
-            ops_context["run_command"](task_id, 0, [sys.executable, "-m", "nuitka", "--version"], ops_context["resource_root"])
-            ops_context["run_command"](task_id, 0, [sys.executable, "-m", "PyInstaller", "--version"], ops_context["resource_root"])
-            if _missing_model_resources(ops_context["resource_root"]):
-                ops_context["update_step"](task_id, 0, "running", "缺少本地模型，自动下载 models/")
-                ops_context["run_command"](task_id, 0, [sys.executable, "download_models.py"], ops_context["resource_root"])
-            _ensure_required_models(ops_context["resource_root"])
-            ops_context["update_step"](task_id, 0, "done", f"平台={system} Python={sys.version.split()[0]}")
-
-            modules_dir = os.path.join(ops_context["resource_root"], "nuitka_modules")
-            os.makedirs(modules_dir, exist_ok=True)
-            removed = purge_stale_nuitka_modules(modules_dir)
-            if removed:
-                ops_context["update_step"](
-                    task_id,
-                    1,
-                    "running",
-                    f"已清理 {removed} 个旧版本核心模块（ABI 与当前 Python 不一致）",
-                )
-            for mod in CORE_NUITKA_MODULES:
-                src = f"{mod}.py"
-                if not os.path.isfile(os.path.join(ops_context["resource_root"], src)):
-                    raise RuntimeError(f"缺少核心源码：{src}")
-                ops_context["run_command"](
-                    task_id,
-                    1,
-                    [sys.executable, "-m", "nuitka", "--module", "--output-dir=nuitka_modules", src],
-                    ops_context["resource_root"],
-                )
-            ops_context["update_step"](task_id, 1, "done", f"完成，已编译 {len(CORE_NUITKA_MODULES)} 个核心模块")
-
-            ops_context["update_step"](task_id, 2, "running", "复制业务壳、资源和核心编译产物")
-            build_src = _prepare_nuitka_build_src(ops_context["resource_root"], target)
-            ops_context["update_step"](task_id, 2, "done", build_src)
-
-            _remove_tree_if_exists(artifact, "旧打包产物")
-            _remove_tree_if_exists(os.path.join(ops_context["resource_root"], "build", os.path.splitext(spec)[0]), "旧构建缓存")
-            ops_context["run_command"](task_id, 3, [sys.executable, "-m", "PyInstaller", "-y", spec], ops_context["resource_root"])
-            if target == "macos":
-                ops_context["run_command"](task_id, 3, ["xattr", "-cr", artifact], ops_context["resource_root"])
-                ops_context["run_command"](task_id, 3, ["codesign", "--force", "--deep", "--sign", "-", artifact], ops_context["resource_root"])
-
-            ops_context["update_step"](task_id, 4, "running", "检查核心模块和资源")
-            verify_msg = _verify_nuitka_artifact(target, artifact)
-            ops_context["update_step"](task_id, 4, "done", verify_msg)
-            
-            pre_cleaned = cleanup_pre_zip_workspace(ops_context["resource_root"])
-            pre_note = "、".join(pre_cleaned) if pre_cleaned else "无"
-            ops_context["update_step"](task_id, 5, "running", f"压缩前已释放 {pre_note}")
-
-            task_dir = ops_context["task_dir"](task_id)
-            zip_dir = resolve_package_zip_dir(task_dir)
-            os.makedirs(zip_dir, exist_ok=True)
-            zip_path = os.path.join(zip_dir, zip_name)
-            require_disk_space_for_zip(artifact, zip_path)
-            ops_context["update_step"](task_id, 5, "running", "压缩产物")
-            ops_context["zip_path"](artifact, zip_path)
-            cleaned = cleanup_packaging_intermediates(
-                ops_context["resource_root"], spec, artifact_path=artifact
-            )
-            cleanup_note = "、".join(cleaned) if cleaned else "无额外临时目录"
-            ops_context["update_step"](task_id, 5, "done", f"完成；ZIP 位于 {zip_path}；已清理 {cleanup_note}")
-            ops_context["set_task"](
-                task_id,
-                status="done",
-                ended_at=ops_context["now"](),
-                message=f"打包完成（{zip_path}）",
-                result_path=zip_path,
-                result_kind="package_zip",
-                download_name=zip_name,
-            )
-        except BaseException as e:
-            traceback.print_exc()
-            task_info = ops_context["get_task"](task_id)
-            running_idx = next((i for i, s in enumerate(task_info.get("steps", [])) if s["status"] == "running"), 0)
-            ops_context["update_step"](task_id, running_idx, "failed", str(e))
-            ops_context["fail_task"](task_id, e)
-
-    threading.Thread(target=_run_package_bg, daemon=True).start()
     return jsonify({"status": "ok", "task_id": task_id})

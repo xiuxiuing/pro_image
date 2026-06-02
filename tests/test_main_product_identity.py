@@ -1,11 +1,12 @@
-import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
 
 from openpyxl import Workbook
+from sqlalchemy import text
 
 from data_mgr import DataManager
+from db_access import Database
 
 
 def make_workbook(path, headers, rows):
@@ -18,6 +19,15 @@ def make_workbook(path, headers, rows):
 
 
 class MainProductIdentityTests(unittest.TestCase):
+    def setUp(self):
+        db = Database()
+        try:
+            with db.engine.begin() as conn:
+                conn.execute(text("DROP SCHEMA public CASCADE"))
+                conn.execute(text("CREATE SCHEMA public"))
+        finally:
+            db.close()
+
     def test_search_tokens_are_deduped_and_limited_to_first_five(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             dm = DataManager(tmpdir)
@@ -67,12 +77,12 @@ class MainProductIdentityTests(unittest.TestCase):
                 [{"path": str(comp_path), "store_name": "竞店"}],
             )
             dm.import_project_sources(pid)
-            dm.load_data()
+            dm.activate_project(pid)
 
-            main_result = dm.get_main_products_page(search="护舒宝 考拉安睡裤 L码")
+            main_result = dm.get_main_products_page(search="护舒宝 考拉安睡裤 L码", project_id=pid)
             grid_result = dm.get_paginated_grid(search="护舒宝 考拉安睡裤 L码")
             unlinked_result = dm.get_unlinked_pool_page(search="护舒宝 考拉安睡裤 L码")
-            missing_result = dm.get_main_products_page(search="护舒宝 考拉安睡裤 M码")
+            missing_result = dm.get_main_products_page(search="护舒宝 考拉安睡裤 M码", project_id=pid)
 
             self.assertEqual(main_result["total"], 1)
             self.assertEqual(main_result["items"][0]["商品名称"], target_name)
@@ -120,7 +130,7 @@ class MainProductIdentityTests(unittest.TestCase):
             )
             dm.import_project_sources(pid)
 
-            with sqlite3.connect(tmp / "pro_image.db") as conn:
+            with dm._get_conn() as conn:
                 rows = conn.execute(
                     """
                     SELECT skuId, 商品名称, 规格名称
@@ -174,13 +184,13 @@ class MainProductIdentityTests(unittest.TestCase):
             )
             dm.import_project_sources(pid)
 
-            with sqlite3.connect(tmp / "pro_image.db") as conn:
+            with dm._get_conn() as conn:
                 rows = conn.execute(
                     """
                     SELECT skuId, 商品名称, 规格名称
                     FROM comp_products
                     WHERE project_id = ? AND store_id = '0'
-                    ORDER BY rowid
+                    ORDER BY skuId, 商品名称, 规格名称
                     """,
                     (pid,),
                 ).fetchall()
@@ -209,10 +219,10 @@ class MainProductIdentityTests(unittest.TestCase):
                 [{"path": str(comp_path), "store_name": "竞店"}],
             )
             dm.import_project_sources(pid)
-            self.assertTrue(dm.mark_as_new("0", "c1", True))
-            self.assertTrue(dm.mark_as_ignored("0", "c1", True))
+            self.assertTrue(dm.mark_as_new("0", "c1", True, project_id=pid))
+            self.assertTrue(dm.mark_as_ignored("0", "c1", True, project_id=pid))
 
-            with sqlite3.connect(tmp / "pro_image.db") as conn:
+            with dm._get_conn() as conn:
                 row = conn.execute(
                     """
                     SELECT is_new_add, is_ignored
@@ -224,38 +234,32 @@ class MainProductIdentityTests(unittest.TestCase):
 
             self.assertEqual(row, ("否", "是"))
 
-    def test_existing_main_products_table_migrates_away_from_sku_only_primary_key(self):
+    def test_main_products_schema_uses_identity_index_without_sku_only_primary_key(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "pro_image.db"
-            with sqlite3.connect(db_path) as conn:
-                conn.execute(
+            dm = DataManager(tmpdir)
+
+            with dm._get_conn() as conn:
+                pk_cols = conn.execute(
                     """
-                    CREATE TABLE main_products (
-                        project_id INTEGER,
-                        skuId TEXT,
-                        _row_orig_idx INT,
-                        商品名称 TEXT,
-                        规格名称 TEXT,
-                        PRIMARY KEY(project_id, skuId)
-                    )
+                    SELECT a.attname
+                    FROM pg_index i
+                    JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+                    WHERE i.indrelid = 'main_products'::regclass AND i.indisprimary
+                    ORDER BY array_position(i.indkey, a.attnum)
                     """
-                )
-                conn.execute(
-                    "INSERT INTO main_products (project_id, skuId, _row_orig_idx, 商品名称, 规格名称) VALUES (1, '1001', 0, '旧商品', '白色')"
-                )
+                ).fetchall()
+                index_row = conn.execute(
+                    """
+                    SELECT indexdef
+                    FROM pg_indexes
+                    WHERE tablename = 'main_products'
+                      AND indexname = 'idx_main_products_identity'
+                    """
+                ).fetchone()
 
-            DataManager(tmpdir)
-
-            with sqlite3.connect(db_path) as conn:
-                sql = conn.execute(
-                    "SELECT sql FROM sqlite_master WHERE type='table' AND name='main_products'"
-                ).fetchone()[0]
-                index_sql = conn.execute(
-                    "SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_main_products_identity'"
-                ).fetchone()[0]
-
-            self.assertNotIn("PRIMARY KEY(project_id, skuId)", sql)
-            self.assertIn("COALESCE(`商品名称`, '')", index_sql)
+            self.assertEqual(pk_cols, [])
+            self.assertIsNotNone(index_row)
+            self.assertIn('COALESCE("商品名称", \'\'::text)', index_row[0])
 
 
 if __name__ == "__main__":

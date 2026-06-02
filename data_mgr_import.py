@@ -52,6 +52,20 @@ class DataManagerImportMixin:
             return
         self._reconstruct_from_sqlite()
 
+    def _project_has_main_rows(self, project_id):
+        if not project_id:
+            return False
+        with self._db_lock:
+            conn = self._get_conn()
+            try:
+                row = conn.execute(
+                    "SELECT 1 FROM main_products WHERE project_id = ? LIMIT 1",
+                    (project_id,),
+                ).fetchone()
+                return bool(row)
+            finally:
+                conn.close()
+
     def import_project_sources(self, project_id):
         """Import only the uploaded main/competitor source files for a project."""
         with self._db_lock:
@@ -83,10 +97,15 @@ class DataManagerImportMixin:
         )
 
         self.invalidate_analysis_snapshot(project_id)
-        if self.active_project_id == project_id:
+        active_was_empty = not self._project_has_main_rows(self.active_project_id)
+        if active_was_empty and self.active_project_id != project_id:
+            self.activate_project(project_id, skip_load=True)
+        with self.project_context(project_id, load_data=False):
             self.grid_df = None
             self.main_df = None
             self.store_dfs = {}
+            self._reconstruct_from_sqlite()
+            self.rebuild_analysis_snapshot()
 
     def parse_links_from_output(self, project_id, output_file):
         """Parse an analysis/output workbook into standard product_links rows."""
@@ -111,7 +130,7 @@ class DataManagerImportMixin:
 
                 comp_dfs = []
                 for sid in store_ids:
-                    cdf = pd.read_sql(
+                    cdf = self._read_sql(
                         "SELECT * FROM comp_products WHERE project_id = ? AND store_id = ?",
                         conn, params=(project_id, sid)
                     )
@@ -203,11 +222,11 @@ class DataManagerImportMixin:
                         if links_df is not None and not links_df.empty:
                             scoped = links_df[links_df["main_sku_id"].astype(str).isin(main_skus)]
                             if not scoped.empty:
-                                scoped.to_sql('product_links', conn, index=False, if_exists='append')
+                                self._to_sql(scoped, 'product_links', conn, index=False, if_exists='append')
                     else:
                         conn.execute("DELETE FROM product_links WHERE project_id = ?", (project_id,))
                         if links_df is not None and not links_df.empty:
-                            links_df.to_sql('product_links', conn, index=False, if_exists='append')
+                            self._to_sql(links_df, 'product_links', conn, index=False, if_exists='append')
             finally:
                 conn.close()
 
@@ -425,15 +444,22 @@ class DataManagerImportMixin:
                         conn.execute("DELETE FROM product_links WHERE project_id = ?", (pid,))
 
                     if main_df is not None:
-                        main_df.to_sql('main_products', conn, index=False, if_exists='append')
+                        self._to_sql(main_df, 'main_products', conn, index=False, if_exists='append')
                         if self.active_project_id == pid:
                             self.main_df = main_df
                     for cdf in comp_dfs:
-                        cdf.to_sql('comp_products', conn, index=False, if_exists='append')
+                        self._to_sql(cdf, 'comp_products', conn, index=False, if_exists='append')
                     if links_df is not None and not links_df.empty:
-                        links_df.to_sql('product_links', conn, index=False, if_exists='append')
+                        self._to_sql(links_df, 'product_links', conn, index=False, if_exists='append')
 
-                    conn.execute("REPLACE INTO meta_info (key, value) VALUES ('mapping_version', ?)", (MAPPING_VERSION,))
+                    conn.execute(
+                        """
+                        INSERT INTO meta_info (key, value)
+                        VALUES ('mapping_version', ?)
+                        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+                        """,
+                        (MAPPING_VERSION,),
+                    )
                 print(f"Import complete for project {pid} (atomic transaction).")
             except Exception as e:
                 print(f"Import FAILED for project {pid}, transaction rolled back: {e}")

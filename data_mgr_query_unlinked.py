@@ -176,7 +176,7 @@ class DataManagerUnlinkedQueryMixin:
                     main_params.append(cat_like)
                 main_where_sql = " AND ".join(main_where)
 
-                link_cnt = pd.read_sql(
+                link_cnt = self._read_sql(
                     """
                     SELECT main_sku_id, COUNT(*) AS cnt
                     FROM product_links
@@ -213,7 +213,7 @@ class DataManagerUnlinkedQueryMixin:
                     if str(sort_store_id) == sid:
                         sid_desc = "ASC" if str(sort_order).lower() == "asc" else "DESC"
                     lim_sql = f"LIMIT {int(lim)} OFFSET {int(off)}" if lim is not None else ""
-                    return pd.read_sql(
+                    return self._read_sql(
                         f"""
                         SELECT cp.*
                         FROM comp_products cp
@@ -226,7 +226,7 @@ class DataManagerUnlinkedQueryMixin:
                     )
 
                 if need_full:
-                    main_df = pd.read_sql(
+                    main_df = self._read_sql(
                         f"""
                         SELECT * FROM main_products
                         WHERE {main_where_sql}
@@ -272,7 +272,7 @@ class DataManagerUnlinkedQueryMixin:
                     store_stats = self._unlinked_store_stats_from_sets(store_stat_sets)
                 else:
                     main_count = conn.execute(f"SELECT COUNT(*) FROM main_products WHERE {main_where_sql}", tuple(main_params)).fetchone()[0]
-                    main_df = pd.read_sql(
+                    main_df = self._read_sql(
                         f"""
                         SELECT * FROM main_products
                         WHERE {main_where_sql}

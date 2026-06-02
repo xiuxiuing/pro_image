@@ -87,10 +87,11 @@ class DataManagerMatchAgentMixin:
                 if not items:
                     rows = conn.execute(
                         """
-                        SELECT DISTINCT store_id
+                        SELECT store_id
                         FROM comp_products
                         WHERE project_id = ?
-                        ORDER BY CAST(store_id AS INTEGER), store_id
+                        GROUP BY store_id
+                        ORDER BY MIN(CAST(store_id AS INTEGER)), store_id
                         """,
                         (pid,),
                     ).fetchall()
@@ -122,7 +123,7 @@ class DataManagerMatchAgentMixin:
         return {"comp_sku_id": _norm(row[0]), "similarity": row[1], "match_type": _norm(row[2])}
 
     def _match_agent_get_main(self, conn, project_id: int, main_sku_id: str) -> Optional[dict]:
-        df = pd.read_sql(
+        df = self._read_sql(
             "SELECT * FROM main_products WHERE project_id = ? AND skuId = ? LIMIT 1",
             conn,
             params=(project_id, str(main_sku_id)),
@@ -130,7 +131,7 @@ class DataManagerMatchAgentMixin:
         return None if df.empty else df.iloc[0].fillna("").to_dict()
 
     def _match_agent_get_comp(self, conn, project_id: int, store_id: str, comp_sku_id: str) -> Optional[dict]:
-        df = pd.read_sql(
+        df = self._read_sql(
             "SELECT * FROM comp_products WHERE project_id = ? AND store_id = ? AND skuId = ? LIMIT 1",
             conn,
             params=(project_id, str(store_id), str(comp_sku_id)),
@@ -138,7 +139,7 @@ class DataManagerMatchAgentMixin:
         return None if df.empty else df.iloc[0].fillna("").to_dict()
 
     def _match_agent_text_rank(self, conn, project_id: int, store_id: str, main_item: dict, correct_sku: str) -> Tuple[int, float, List[Dict[str, Any]]]:
-        df = pd.read_sql(
+        df = self._read_sql(
             "SELECT skuId, 商品名称, 规格名称, 美团类目三级 FROM comp_products WHERE project_id = ? AND store_id = ?",
             conn,
             params=(project_id, str(store_id)),
@@ -267,7 +268,7 @@ class DataManagerMatchAgentMixin:
             out["error"] = "main_030822 尚未加载，跳过BGE TopK对比"
             return out
         try:
-            df = pd.read_sql(
+            df = self._read_sql(
                 "SELECT * FROM comp_products WHERE project_id = ? AND store_id = ?",
                 conn,
                 params=(project_id, str(store_id)),
@@ -848,7 +849,7 @@ class DataManagerMatchAgentMixin:
         if not categories:
             return pd.DataFrame(columns=["project_id", "main_sku_id", "store_id", "comp_sku_id", "similarity", "match_type", "is_new_add"])
         placeholders = ",".join(["?"] * len(categories))
-        return pd.read_sql(
+        return self._read_sql(
             f"""
             SELECT pl.project_id, pl.main_sku_id, pl.store_id, pl.comp_sku_id, pl.similarity, pl.match_type, pl.is_new_add
             FROM product_links pl
@@ -1173,7 +1174,7 @@ class DataManagerMatchAgentMixin:
         with self._db_lock:
             conn = self._get_conn()
             try:
-                df = pd.read_sql(
+                df = self._read_sql(
                     """
                     SELECT * FROM match_feedback_cases
                     WHERE project_id = ?
@@ -1211,23 +1212,26 @@ class DataManagerMatchAgentMixin:
                 with conn:
                     cur = conn.execute(
                         """
-                        INSERT OR REPLACE INTO match_feedback_cases
-                        (id, project_id, main_sku_id, store_id, correct_comp_sku_id, current_comp_sku_id, feedback_type, note, status, created_at, updated_at)
-                        VALUES (
-                            (SELECT id FROM match_feedback_cases WHERE project_id=? AND main_sku_id=? AND store_id=? AND correct_comp_sku_id=?),
-                            ?, ?, ?, ?, ?, ?, ?, 'active',
-                            COALESCE((SELECT created_at FROM match_feedback_cases WHERE project_id=? AND main_sku_id=? AND store_id=? AND correct_comp_sku_id=?), ?),
-                            ?
-                        )
+                        INSERT INTO match_feedback_cases
+                            (project_id, main_sku_id, store_id, correct_comp_sku_id, current_comp_sku_id, feedback_type, note, status, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+                        ON CONFLICT (project_id, main_sku_id, store_id, correct_comp_sku_id)
+                        DO UPDATE SET
+                            current_comp_sku_id = EXCLUDED.current_comp_sku_id,
+                            feedback_type = EXCLUDED.feedback_type,
+                            note = EXCLUDED.note,
+                            status = 'active',
+                            updated_at = EXCLUDED.updated_at
+                        RETURNING id
                         """,
                         (
-                            pid, main_sku, store_id, correct_sku,
                             pid, main_sku, store_id, correct_sku, current_sku,
                             _norm(data.get("feedback_type")) or "漏配", _norm(data.get("note")),
-                            pid, main_sku, store_id, correct_sku, now, now,
+                            now, now,
                         ),
                     )
-                    return True, "", int(cur.lastrowid or 0)
+                    row = cur.fetchone()
+                    return True, "", int(row[0] if row else (cur.lastrowid or 0))
             finally:
                 conn.close()
 
@@ -1309,7 +1313,7 @@ class DataManagerMatchAgentMixin:
         with self._db_lock:
             conn = self._get_conn()
             try:
-                cases_df = pd.read_sql(
+                cases_df = self._read_sql(
                     "SELECT * FROM match_feedback_cases WHERE project_id = ? AND status = 'active' ORDER BY id ASC",
                     conn,
                     params=(pid,),

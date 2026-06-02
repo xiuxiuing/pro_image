@@ -6,7 +6,7 @@
 
 upstream pro_image_app {
     server 127.0.0.1:5001;
-    keepalive 2;
+    keepalive 16;
 }
 
 server {

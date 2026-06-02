@@ -7,10 +7,20 @@ import json
 from flask import Blueprint, request, jsonify
 import utils
 import quality_preflight
+from online_jobs import JobStore
+from project_analysis_runner import ProgressFns, run_auto_analysis, run_manual_import
 
 projects_bp = Blueprint('data_projects', __name__)
 _active_analysis_pids = set()
 _active_analysis_lock = threading.Lock()
+
+
+def _celery_enabled():
+    return os.environ.get("PROIMAGE_USE_CELERY", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _progress_fns():
+    return ProgressFns(_init_progress, _init_import_progress, _update_step, _schedule_clear_progress)
 
 
 def init_projects(context):
@@ -59,9 +69,9 @@ def handle_projects():
         import time, os, shutil
         # Temporary PID for directory naming
         temp_pid = int(time.time())
-        proj_dir = os.path.join(data_root, "uploads", f"project_{temp_pid}")
-        sources_dir = os.path.join(proj_dir, "sources")
-        os.makedirs(sources_dir, exist_ok=True)
+        dirs = dm.storage.ensure_project_dirs(temp_pid)
+        proj_dir = dirs["root"]
+        sources_dir = dirs["sources"]
         
         # Save files with role prefixes
         main_saved_name = "main__" + _safe_upload_filename(main_file.filename, "main.xlsx")
@@ -87,7 +97,7 @@ def handle_projects():
         )
 
         # Rename temp directory to real PID
-        real_proj_dir = os.path.join(data_root, "uploads", f"project_{pid}")
+        real_proj_dir = dm.storage.project_root(pid)
         if os.path.exists(real_proj_dir): shutil.rmtree(real_proj_dir)
         os.rename(proj_dir, real_proj_dir)
 
@@ -96,20 +106,48 @@ def handle_projects():
                 conn.execute("UPDATE project_files SET local_path = REPLACE(local_path, ?, ?) WHERE project_id = ?",
                             (f"project_{temp_pid}", f"project_{pid}", pid))
 
-        dm._ensure_project_dirs(pid)
+        dm.storage.ensure_project_dirs(pid)
 
-        def _import_sources_bg(project_id):
+        import_labels = ["读取上传文件", "写入业务数据", "刷新分析快照", "完成"]
+        import_job_id = JobStore(dm).create_job(
+            pid,
+            "source_import",
+            import_labels,
+            {"project_id": pid, "mode": "create_project"},
+        )
+
+        def _import_sources_bg(project_id, job_id):
+            store = JobStore(dm)
             try:
+                store.mark_running(job_id)
+                store.update_step(job_id, 0, "running", "准备导入")
                 dm.import_project_sources(project_id)
+                store.update_step(job_id, 0, "done")
+                store.update_step(job_id, 1, "done", "数据已写入")
+                store.update_step(job_id, 2, "done", "快照已刷新")
                 dm.update_project_status(project_id, 'ready')
+                store.update_step(job_id, 3, "done")
+                store.finish(job_id, "done")
             except BaseException:
                 traceback.print_exc()
                 try:
                     dm.update_project_status(project_id, 'failed')
                 except Exception:
                     pass
+                try:
+                    store.finish(job_id, "failed", "导入失败")
+                except Exception:
+                    pass
 
-        threading.Thread(target=_import_sources_bg, args=(pid,), daemon=True).start()
+        if _celery_enabled():
+            try:
+                from pro_image_tasks import import_project_sources_task
+                import_project_sources_task.delay(pid, import_job_id)
+            except Exception:
+                traceback.print_exc()
+                threading.Thread(target=_import_sources_bg, args=(pid, import_job_id), daemon=True).start()
+        else:
+            threading.Thread(target=_import_sources_bg, args=(pid, import_job_id), daemon=True).start()
         return jsonify({"status": "success", "project_id": pid, "ready": False})
 
     return jsonify(dm.list_projects())
@@ -127,6 +165,8 @@ def activate_project(pid):
         return jsonify({"status": "error", "message": "项目不存在"}), 404
     if proj.get('status') == 'analyzing':
         return jsonify({"status": "error", "message": "该项目正在分析中，请等待完成"}), 400
+    if JobStore(dm).project_has_active_job(pid, ["source_import", "analysis", "manual_import"]):
+        return jsonify({"status": "error", "message": "该项目已有任务正在排队或执行，请等待完成"}), 400
     if proj.get('status') == 'creating':
         return jsonify({"status": "error", "message": "该项目正在创建中，请等待完成"}), 400
     if proj.get('status') == 'failed':
@@ -175,6 +215,8 @@ def analyze_project(pid):
         return jsonify({"status": "error", "message": "项目不存在"}), 404
     if proj.get('status') == 'analyzing':
         return jsonify({"status": "error", "message": "该项目正在分析中，请等待完成"}), 400
+    if JobStore(dm).project_has_active_job(pid, ["source_import", "analysis", "manual_import"]):
+        return jsonify({"status": "error", "message": "该项目已有任务正在排队或执行，请等待完成"}), 400
 
     mode = (request.form.get("mode") or "auto").strip()
     match_config_json = (request.form.get('match_config_json') or "").strip()
@@ -245,10 +287,11 @@ def analyze_project(pid):
         err = _validate_upload(result_file, "关联结果文件")
         if err:
             return jsonify({"status": "error", "message": err}), 400
+        run_stamp = int(time.time())
         if partial_categories:
-            output_file = os.path.join(dirs["outputs"], f"partial_output_{pid}_{int(time.time())}.xlsx")
+            output_file = os.path.join(dirs["outputs"], f"manual_partial_output_{pid}_{run_stamp}.xlsx")
         else:
-            output_file = os.path.join(dirs["outputs"], f"output_{pid}.xlsx")
+            output_file = os.path.join(dirs["outputs"], f"manual_output_{pid}_{run_stamp}.xlsx")
         result_file.save(output_file)
 
         with _active_analysis_lock:
@@ -268,37 +311,46 @@ def analyze_project(pid):
                 _active_analysis_pids.discard(pid)
             raise
 
-        import_labels = ["保存关联文件", "解析关联结果", "写入关联数据", "完成"]
-        partial_cats = list(partial_categories)
-
-        def _run_manual_import_bg():
+        payload = {
+            "project_id": pid,
+            "output_file": output_file,
+            "partial_categories": list(partial_categories),
+        }
+        if _celery_enabled():
+            payload["job_id"] = JobStore(dm).create_job(
+                pid,
+                "manual_import",
+                ["保存关联文件", "解析关联结果", "写入关联数据", "完成"],
+                {"project_id": pid, "mode": "manual"},
+                status="queued",
+            )
+            with _active_analysis_lock:
+                _active_analysis_pids.discard(pid)
             try:
-                _init_import_progress(pid, import_labels)
-                _update_step(pid, 0, "done")
-                _update_step(pid, 1, "running")
-                links_df = dm.parse_links_from_output(pid, output_file)
-                _update_step(pid, 1, "done")
-                _update_step(pid, 2, "running")
-                if partial_cats:
-                    dm.replace_project_links(pid, links_df, categories=partial_cats)
-                else:
-                    dm.replace_project_links(pid, links_df)
-                _update_step(pid, 2, "done")
-                _update_step(pid, 3, "running")
-                dm.update_project_status(pid, 'ready')
-                _update_step(pid, 3, "done")
+                from pro_image_tasks import run_manual_import_task
+                run_manual_import_task.delay(payload)
             except Exception:
                 traceback.print_exc()
-                try:
-                    dm.update_project_status(pid, 'failed')
-                except Exception:
-                    pass
-            finally:
                 with _active_analysis_lock:
-                    _active_analysis_pids.discard(pid)
-                _schedule_clear_progress(pid)
+                    _active_analysis_pids.add(pid)
 
-        threading.Thread(target=_run_manual_import_bg, daemon=True).start()
+                def _run_manual_import_bg():
+                    try:
+                        run_manual_import(dm, payload, _progress_fns())
+                    finally:
+                        with _active_analysis_lock:
+                            _active_analysis_pids.discard(pid)
+
+                threading.Thread(target=_run_manual_import_bg, daemon=True).start()
+        else:
+            def _run_manual_import_bg():
+                try:
+                    run_manual_import(dm, payload, _progress_fns())
+                finally:
+                    with _active_analysis_lock:
+                        _active_analysis_pids.discard(pid)
+
+            threading.Thread(target=_run_manual_import_bg, daemon=True).start()
         return jsonify({"status": "success", "project_id": pid, "ready": False})
 
     use_ai = request.form.get('use_ai') == 'on'
@@ -336,130 +388,68 @@ def analyze_project(pid):
             _active_analysis_pids.discard(pid)
         raise
 
-    def _filtered_source_files():
-        import pandas as pd
-        import utils
-        from data_mgr_base import FIELD_MAPPINGS
-
-        cache_dir = os.path.join(dirs["cache"], f"analysis_input_{int(time.time())}")
-        os.makedirs(cache_dir, exist_ok=True)
-
-        norm_main = quality_preflight.normalize_file_for_analysis(
-            main_path,
-            os.path.join(cache_dir, "main_normalized.xlsx"),
-            (column_mappings or {}).get("main") or {},
+    payload = {
+        "project_id": pid,
+        "dirs": dirs,
+        "main_path": main_path,
+        "comp_paths": comp_paths,
+        "main_name": main_name,
+        "comp_names": comp_names,
+        "preflight": preflight,
+        "partial_categories": list(partial_categories),
+        "column_mappings": column_mappings,
+        "match_config_json": match_config_json,
+        "use_ai": use_ai,
+        "api_key": api_key,
+        "ai_model_name": ai_model_name,
+        "ai_provider": ai_provider,
+        "kimi_api_key": kimi_api_key,
+        "kimi_model_name": kimi_model_name,
+        "fallback_provider": fallback_provider,
+    }
+    if _celery_enabled():
+        step_labels = []
+        if use_ai and api_key:
+            step_labels.append(f"AI提取 {main_name}")
+            for cn in comp_names:
+                step_labels.append(f"AI提取 {cn}")
+        for cn in comp_names:
+            step_labels.append(f"AI分析 {cn}")
+        step_labels.append(f"AI匹配 {main_name}")
+        payload["job_id"] = JobStore(dm).create_job(
+            pid,
+            "analysis",
+            step_labels,
+            {"project_id": pid, "mode": "auto"},
+            status="queued",
         )
-        norm_comps = [
-            quality_preflight.normalize_file_for_analysis(
-                p,
-                os.path.join(cache_dir, f"comp_{idx}_normalized.xlsx"),
-                (column_mappings or {}).get(f"comp_{idx}") or {},
-            )
-            for idx, p in enumerate(comp_paths)
-        ]
-        if not partial_categories:
-            return norm_main, norm_comps
-
-        selected = set(partial_categories)
-
-        def _filter_file(path, name):
-            rows = utils.excel_to_list_dict(path)
-            df = pd.DataFrame(rows)
-            if df.empty:
-                out = os.path.join(cache_dir, name)
-                df.to_excel(out, index=False)
-                return out
-            df = dm._apply_mappings(df, FIELD_MAPPINGS)
-            if "美团类目三级" not in df.columns:
-                df = df.iloc[0:0].copy()
-            else:
-                cat = df["美团类目三级"].fillna("").map(utils.clean_text_value).astype(str).str.strip()
-                df = df[cat.isin(selected)].copy()
-            out = os.path.join(cache_dir, name)
-            df.to_excel(out, index=False)
-            return out
-
-        filtered_main = _filter_file(norm_main, "main_partial.xlsx")
-        filtered_comps = [_filter_file(p, f"comp_{idx}_partial.xlsx") for idx, p in enumerate(norm_comps)]
-        return filtered_main, filtered_comps
-
-    def _run_analysis_bg():
-        import extract_info_ai2, main_030822
-        has_ai = bool(use_ai and api_key)
-        prog = _init_progress(pid, has_ai, main_name, comp_names)
-        ai_file_count = (1 + len(comp_names)) if has_ai else 0
+        with _active_analysis_lock:
+            _active_analysis_pids.discard(pid)
         try:
-            analysis_main_path, analysis_comp_paths = _filtered_source_files()
-            if has_ai:
-                all_ai_paths = [analysis_main_path] + analysis_comp_paths
-                _ai_gap = int(os.environ.get("PROIMAGE_AI_INTER_FILE_SLEEP_SEC", "8") or "8")
-                for fi, fp in enumerate(all_ai_paths):
-                    _update_step(pid, fi, "running")
-                    def _ai_cb(batch, total, _fi=fi):
-                        _update_step(pid, _fi, "running", f"batch {batch}/{total}")
-                    extract_info_ai2.process_file_ai(
-                        fp, api_key, progress_cb=_ai_cb,
-                        model_name=ai_model_name, fallback_api_key=kimi_api_key or None, fallback_model=kimi_model_name or None,
-                        provider=ai_provider, fallback_provider=fallback_provider
-                    )
-                    _update_step(pid, fi, "done")
-                    if fi + 1 < len(all_ai_paths) and _ai_gap > 0:
-                        time.sleep(_ai_gap)
-
-            analysis_base = ai_file_count
-            def _analysis_cb(event, idx=0, detail=""):
-                if event == "source_start":
-                    _update_step(pid, analysis_base + idx, "running", detail)
-                elif event == "source_done":
-                    _update_step(pid, analysis_base + idx, "done")
-                elif event == "query_start":
-                    _update_step(pid, len(prog["steps"]) - 1, "running", detail)
-                elif event == "query_progress":
-                    _update_step(pid, len(prog["steps"]) - 1, "running", detail)
-
-            _pmt = dm.get_post_match_template_for_project(pid)
-            output_name = f"partial_{pid}_{int(time.time())}" if partial_categories else str(pid)
-            analysis_metrics = {}
-            main_030822.run_analysis(
-                analysis_main_path, analysis_comp_paths,
-                output_name=output_name, output_dir=dirs["outputs"],
-                progress_cb=_analysis_cb, match_config=match_config_json, post_match_template=_pmt,
-                analysis_metrics=analysis_metrics,
-            )
-            _update_step(pid, len(prog["steps"]) - 1, "done", "分析完成")
-            report = quality_preflight.build_quality_report(
-                preflight,
-                analysis_metrics,
-                {"project_id": pid, "output_name": output_name, "partial_categories": partial_categories},
-            )
-            report_path = os.path.join(dirs["outputs"], f"quality_report_{output_name}.json")
-            quality_preflight.save_quality_report(report, report_path)
-            quality_preflight.save_quality_report(report, os.path.join(dirs["outputs"], "quality_report_latest.json"))
-            if partial_categories:
-                partial_output = os.path.join(dirs["outputs"], f"output_{output_name}.xlsx")
-                links_df = dm.parse_links_from_output(pid, partial_output)
-                dm.replace_project_links(pid, links_df, categories=partial_categories)
-            else:
-                full_output = os.path.join(dirs["outputs"], f"output_{pid}.xlsx")
-                links_df = dm.parse_links_from_output(pid, full_output)
-                dm.replace_project_links(pid, links_df)
-            dm.update_project_status(pid, 'ready')
-            try:
-                dm.activate_project(pid, skip_load=True)
-            except Exception:
-                traceback.print_exc()
-        except BaseException:
+            from pro_image_tasks import run_auto_analysis_task
+            run_auto_analysis_task.delay(payload)
+        except Exception:
             traceback.print_exc()
-            try:
-                dm.update_project_status(pid, 'failed')
-            except Exception:
-                pass
-        finally:
             with _active_analysis_lock:
-                _active_analysis_pids.discard(pid)
-            _schedule_clear_progress(pid)
+                _active_analysis_pids.add(pid)
 
-    threading.Thread(target=_run_analysis_bg, daemon=True).start()
+            def _run_analysis_bg():
+                try:
+                    run_auto_analysis(dm, payload, _progress_fns())
+                finally:
+                    with _active_analysis_lock:
+                        _active_analysis_pids.discard(pid)
+
+            threading.Thread(target=_run_analysis_bg, daemon=True).start()
+    else:
+        def _run_analysis_bg():
+            try:
+                run_auto_analysis(dm, payload, _progress_fns())
+            finally:
+                with _active_analysis_lock:
+                    _active_analysis_pids.discard(pid)
+
+        threading.Thread(target=_run_analysis_bg, daemon=True).start()
     return jsonify({"status": "success", "project_id": pid, "ready": False})
 
 @projects_bp.route('/api/projects/<int:pid>/progress')

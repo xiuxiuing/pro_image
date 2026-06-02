@@ -749,7 +749,48 @@
             try {
                 const resp = await fetch(`/api/projects/${pid}/progress`);
                 const d = await resp.json();
-                if (!d.available) {
+                let isFinished = false;
+                if (d.available) {
+                    const bar = document.getElementById('pm-bar');
+                    bar.style.width = d.pct + '%';
+
+                    let summary = `已用时 ${fmtDuration(d.elapsed_s)}`;
+                    if (d.estimated_remaining_s > 0) {
+                        summary += `　·　预计剩余 ${fmtDuration(d.estimated_remaining_s)}`;
+                    }
+                    summary += `　·　${d.done_count}/${d.total_steps} 步完成 (${d.pct}%)`;
+                    if (d.done_count === d.total_steps && d.total_steps > 0) {
+                        summary = '全部分析步骤已完成 · ' + summary;
+                    }
+                    document.getElementById('pm-summary').textContent = summary;
+
+                    const list = document.getElementById('pm-steps');
+                    list.innerHTML = '';
+                    d.steps.forEach(s => {
+                        const li = document.createElement('li');
+                        li.className = 'pm-step';
+                        let iconHtml = '';
+                        if (s.status === 'done') iconHtml = '<div class="pm-step-icon done">✓</div>';
+                        else if (s.status === 'running') iconHtml = '<div class="pm-step-icon running"><div class="pm-step-spinner"></div></div>';
+                        else iconHtml = '<div class="pm-step-icon pending">○</div>';
+
+                        let detailHtml = '';
+                        if (s.detail) detailHtml = `<div class="pm-step-detail">${s.detail}</div>`;
+
+                        let timeHtml = '';
+                        if (s.duration_s !== undefined) timeHtml = `<span class="pm-step-time">${fmtDuration(s.duration_s)}</span>`;
+                        else if (s.running_s !== undefined) timeHtml = `<span class="pm-step-time running">${fmtDuration(s.running_s)}</span>`;
+
+                        li.innerHTML = `${iconHtml}<div class="pm-step-body"><div class="pm-step-label">${s.label}</div>${detailHtml}</div>${timeHtml}`;
+                        list.appendChild(li);
+                    });
+
+                    isFinished = d.job_status ? !["queued", "running"].includes(d.job_status) : (d.pct === 100 && d.done_count === d.total_steps && d.total_steps > 0);
+                    if (!isFinished) {
+                        return;
+                    }
+                }
+                if (!d.available || isFinished) {
                     // 分析线程在 finally 里会清掉进度；此时应用项目列表中的 status 判是否结束，否则弹窗会永远停在最后一步
                     const r2 = await fetch('/api/projects');
                     const projects = await r2.json();
@@ -771,42 +812,11 @@
                         loadProjects();
                         return;
                     }
-                    document.getElementById('pm-summary').textContent = '暂无实时进度，任务状态仍为分析中，请稍候…';
-                    return;
+                    if (!d.available) {
+                        document.getElementById('pm-summary').textContent = '暂无实时进度，任务状态仍为分析中，请稍候…';
+                        return;
+                    }
                 }
-                const bar = document.getElementById('pm-bar');
-                bar.style.width = d.pct + '%';
-
-                let summary = `已用时 ${fmtDuration(d.elapsed_s)}`;
-                if (d.estimated_remaining_s > 0) {
-                    summary += `　·　预计剩余 ${fmtDuration(d.estimated_remaining_s)}`;
-                }
-                summary += `　·　${d.done_count}/${d.total_steps} 步完成 (${d.pct}%)`;
-                if (d.done_count === d.total_steps && d.total_steps > 0) {
-                    summary = '全部分析步骤已完成 · ' + summary;
-                }
-                document.getElementById('pm-summary').textContent = summary;
-
-                const list = document.getElementById('pm-steps');
-                list.innerHTML = '';
-                d.steps.forEach(s => {
-                    const li = document.createElement('li');
-                    li.className = 'pm-step';
-                    let iconHtml = '';
-                    if (s.status === 'done') iconHtml = '<div class="pm-step-icon done">✓</div>';
-                    else if (s.status === 'running') iconHtml = '<div class="pm-step-icon running"><div class="pm-step-spinner"></div></div>';
-                    else iconHtml = '<div class="pm-step-icon pending">○</div>';
-
-                    let detailHtml = '';
-                    if (s.detail) detailHtml = `<div class="pm-step-detail">${s.detail}</div>`;
-
-                    let timeHtml = '';
-                    if (s.duration_s !== undefined) timeHtml = `<span class="pm-step-time">${fmtDuration(s.duration_s)}</span>`;
-                    else if (s.running_s !== undefined) timeHtml = `<span class="pm-step-time running">${fmtDuration(s.running_s)}</span>`;
-
-                    li.innerHTML = `${iconHtml}<div class="pm-step-body"><div class="pm-step-label">${s.label}</div>${detailHtml}</div>${timeHtml}`;
-                    list.appendChild(li);
-                });
             } catch (e) {
                 console.error('Progress poll error:', e);
             }

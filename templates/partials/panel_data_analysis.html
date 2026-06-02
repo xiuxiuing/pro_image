@@ -1879,9 +1879,13 @@
         try {
             const resp = await fetch(`/api/projects/${pid}/progress`);
             const data = await resp.json();
+            let isFinished = false;
             if (data.available) {
                 renderWorkbenchProgress(data);
-                return;
+                isFinished = data.job_status ? !["queued", "running"].includes(data.job_status) : (data.pct === 100 && data.done_count === data.total_steps && data.total_steps > 0);
+                if (!isFinished) {
+                    return;
+                }
             }
             const projectsResp = await fetch("/api/projects");
             const projects = await projectsResp.json();

@@ -492,13 +492,16 @@
                     </div>
                     {% endif %}
 
-                    {% set show_ops = is_super_admin or '/market-analysis' in user_permissions or '/ops-tools' in user_permissions %}
+                    {% set show_ops = is_super_admin or '/market-analysis' in user_permissions or '/pi-agent' in user_permissions or '/ops-tools' in user_permissions %}
                     {% if show_ops %}
                     <div class="nav-group {% if active_menu == 'ops' %}is-open{% endif %}">
                         <button class="nav-item {% if active_menu == 'ops' %}active{% endif %}" type="button" data-toggle="nav-group" aria-expanded="{% if active_menu == 'ops' %}true{% else %}false{% endif %}"><svg class="nav-icon" viewBox="0 0 1024 1024" aria-hidden="true"><path d="M42.667 682.667v256C42.667 985.77 80.896 1024 128 1024h85.333c47.104 0 85.334-38.23 85.334-85.333v-256c0-47.104-38.23-85.334-85.334-85.334h85.334V512h-85.334V141.312c0-58.965 40.022-61.355 40.022-61.355C253.355 56.405 194.219 0 170.667 0S98.645 48.384 98.645 72.021c0 0 29.355 4.438 29.355 55.979v384H42.667v85.333H128c-47.104 0-85.333 38.23-85.333 85.334z m938.666-512c0-47.104-38.144-85.334-85.333-85.334h-85.333C810.667 38.23 772.523 0 725.333 0H554.667c-47.104 0-85.334 38.144-85.334 85.333H384V0h-85.333v256H384v-85.333h85.333c0 47.104 38.23 85.333 85.334 85.333v682.667c0 47.104 38.229 85.333 85.333 85.333 47.19 0 85.333-38.23 85.333-85.333V256H896c47.19 0 85.333-38.144 85.333-85.333z" fill="currentColor" /></svg><span class="nav-label">运营工具</span><svg class="nav-arrow" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
                         <div class="subnav" aria-label="运营工具子菜单">
                             {% if is_super_admin or '/market-analysis' in user_permissions %}
                             <a class="{% if active_ops_child == 'market' %}active{% endif %}" href="/market-analysis">商圈分析</a>
+                            {% endif %}
+                            {% if is_super_admin or '/pi-agent' in user_permissions %}
+                            <a class="{% if active_ops_child == 'pi-agent' %}active{% endif %}" href="/pi-agent">Pi Agent</a>
                             {% endif %}
                             {% if is_super_admin or '/ops-tools' in user_permissions %}
                             <a class="{% if active_ops_child == 'tools' %}active{% endif %}" href="/ops-tools">工具页面</a>

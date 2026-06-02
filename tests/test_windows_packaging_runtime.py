@@ -104,11 +104,11 @@ class WindowsPackagingRuntimeTests(unittest.TestCase):
         body = [ast.unparse(stmt) for stmt in main_blocks[0].body]
         self.assertIn("_schedule_open_browser(port)", body)
 
-    def test_ops_tools_package_build_uses_nuitka_windows_spec(self):
+    def test_ops_tools_package_build_route_is_removed(self):
         text = (ROOT / "app_ops_extra.py").read_text(encoding="utf-8")
 
-        self.assertIn('"ProImage_nuitka_Windows.spec"', text)
-        self.assertIn('target not in ("macos", "windows")', text)
+        self.assertNotIn("/api/ops/package-build", text)
+        self.assertNotIn("ProImage_nuitka_Windows.spec", text)
 
 
 if __name__ == "__main__":

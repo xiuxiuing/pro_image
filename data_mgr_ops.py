@@ -1,4 +1,3 @@
-import sqlite3
 import time
 import os
 import shutil
@@ -6,9 +5,13 @@ import pandas as pd
 from data_mgr_base import _SAFE_COL_RE, INTERNAL_EXPORT_KEYS
 
 class DataManagerOpsMixin:
+    def _resolve_project_id(self, project_id=None):
+        return int(project_id or self.active_project_id or 0)
+
     def _ensure_column(self, conn, table, col_name):
-        try: conn.execute(f"SELECT `{col_name}` FROM `{table}` LIMIT 1")
-        except sqlite3.OperationalError: conn.execute(f"ALTER TABLE `{table}` ADD COLUMN `{col_name}` TEXT")
+        cols = [row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+        if col_name not in cols:
+            conn.execute(f"ALTER TABLE `{table}` ADD COLUMN `{col_name}` TEXT")
 
     def _patch_grid_main(self, main_sku_id, updates):
         """In-place patch of grid_df for a main product row. Avoids full reconstruct."""
@@ -47,11 +50,12 @@ class DataManagerOpsMixin:
             return None
         return rows.iloc[0]
 
-    def update_cell(self, main_sku_id, update_data):
+    def update_cell(self, main_sku_id, update_data, project_id=None):
+        pid = self._resolve_project_id(project_id)
         if not main_sku_id:
             return
         safe_data = {k: v for k, v in update_data.items() if _SAFE_COL_RE.match(k)}
-        if not safe_data:
+        if not pid or not safe_data:
             return
         with self._db_lock:
             conn = self._get_conn()
@@ -60,13 +64,15 @@ class DataManagerOpsMixin:
                     for col, val in safe_data.items():
                         self._ensure_column(conn, "main_products", col)
                         conn.execute(f"UPDATE main_products SET `{col}` = ? WHERE project_id = ? AND skuId = ?", 
-                                    (val, self.active_project_id, str(main_sku_id)))
+                                    (val, pid, str(main_sku_id)))
             finally:
                 conn.close()
-        self._patch_grid_main(main_sku_id, safe_data)
-        self.invalidate_analysis_snapshot()
+        if pid == self.active_project_id:
+            self._patch_grid_main(main_sku_id, safe_data)
+        self.invalidate_analysis_snapshot(pid)
 
-    def eliminate_product(self, main_sku_id, status):
+    def eliminate_product(self, main_sku_id, status, project_id=None):
+        pid = self._resolve_project_id(project_id)
         if not main_sku_id:
             return False
         status = int(status) if status else 0
@@ -78,14 +84,16 @@ class DataManagerOpsMixin:
                     self._ensure_column(conn, "main_products", "淘汰标记")
                     self._ensure_column(conn, "main_products", "是否淘汰")
                     conn.execute("UPDATE main_products SET `淘汰标记`=?, `是否淘汰`=? WHERE project_id = ? AND skuId=?", 
-                                (str(status), is_elim, self.active_project_id, str(main_sku_id)))
+                                (str(status), is_elim, pid, str(main_sku_id)))
             finally:
                 conn.close()
-        self._patch_grid_main(main_sku_id, {'淘汰标记': str(status), '是否淘汰': is_elim})
-        self.invalidate_analysis_snapshot()
+        if pid == self.active_project_id:
+            self._patch_grid_main(main_sku_id, {'淘汰标记': str(status), '是否淘汰': is_elim})
+        self.invalidate_analysis_snapshot(pid)
         return True
 
-    def toggle_handled(self, sku_id, handled=True):
+    def toggle_handled(self, sku_id, handled=True, project_id=None):
+        pid = self._resolve_project_id(project_id)
         val = '1' if handled else '0'
         with self._db_lock:
             conn = self._get_conn()
@@ -93,17 +101,18 @@ class DataManagerOpsMixin:
                 with conn:
                     conn.execute(
                         "UPDATE main_products SET is_handled=? WHERE project_id=? AND skuId=?",
-                        (val, self.active_project_id, str(sku_id)),
+                        (val, pid, str(sku_id)),
                     )
             finally:
                 conn.close()
-        if self.grid_df is not None and 'skuId' in self.grid_df.columns:
+        if pid == self.active_project_id and self.grid_df is not None and 'skuId' in self.grid_df.columns:
             mask = self.grid_df['skuId'] == str(sku_id)
             self.grid_df.loc[mask, 'is_handled'] = val
-        self.invalidate_analysis_snapshot()
+        self.invalidate_analysis_snapshot(pid)
 
-    def set_ref(self, sku_id, field, store_id):
+    def set_ref(self, sku_id, field, store_id, project_id=None):
         """Set or clear a reference mark. field is 'name' or 'image'. store_id='' to clear."""
+        pid = self._resolve_project_id(project_id)
         col = 'ref_name_store' if field == 'name' else 'ref_image_store'
         val = str(store_id) if store_id else ''
         with self._db_lock:
@@ -112,15 +121,16 @@ class DataManagerOpsMixin:
                 with conn:
                     conn.execute(
                         f"UPDATE main_products SET {col}=? WHERE project_id=? AND skuId=?",
-                        (val, self.active_project_id, str(sku_id)),
+                        (val, pid, str(sku_id)),
                     )
             finally:
                 conn.close()
-        if self.grid_df is not None and 'skuId' in self.grid_df.columns:
+        if pid == self.active_project_id and self.grid_df is not None and 'skuId' in self.grid_df.columns:
             mask = self.grid_df['skuId'] == str(sku_id)
             self.grid_df.loc[mask, col] = val
 
-    def mark_as_new(self, store_id, comp_sku_id, is_new):
+    def mark_as_new(self, store_id, comp_sku_id, is_new, project_id=None):
+        pid = self._resolve_project_id(project_id)
         if not comp_sku_id:
             return False
         if isinstance(is_new, str):
@@ -137,7 +147,7 @@ class DataManagerOpsMixin:
                     self._ensure_column(conn, "product_links", "is_new_add")
                     cur = conn.execute(
                         "UPDATE product_links SET is_new_add=? WHERE project_id = ? AND store_id=? AND comp_sku_id=?",
-                        (is_new_str, self.active_project_id, str(store_id), str(comp_sku_id))
+                        (is_new_str, pid, str(store_id), str(comp_sku_id))
                     )
                     changed = cur.rowcount > 0
 
@@ -146,25 +156,27 @@ class DataManagerOpsMixin:
                     if ignore_str is not None:
                         comp_cur = conn.execute(
                             "UPDATE comp_products SET is_new_add=?, is_ignored=? WHERE project_id=? AND store_id=? AND skuId=?",
-                            (is_new_str, ignore_str, self.active_project_id, str(store_id), str(comp_sku_id))
+                            (is_new_str, ignore_str, pid, str(store_id), str(comp_sku_id))
                         )
                     else:
                         comp_cur = conn.execute(
                             "UPDATE comp_products SET is_new_add=? WHERE project_id=? AND store_id=? AND skuId=?",
-                            (is_new_str, self.active_project_id, str(store_id), str(comp_sku_id))
+                            (is_new_str, pid, str(store_id), str(comp_sku_id))
                         )
                     changed = changed or (comp_cur.rowcount > 0)
             finally:
                 conn.close()
-        if changed:
+        if changed and pid == self.active_project_id:
             updates = {'是否新增': is_new_str}
             if ignore_str is not None:
                 updates['是否不处理'] = ignore_str
             self._patch_grid_comp(store_id, comp_sku_id, updates)
-            self.invalidate_analysis_snapshot()
+        if changed:
+            self.invalidate_analysis_snapshot(pid)
         return changed
 
-    def mark_as_ignored(self, store_id, comp_sku_id, is_ignored):
+    def mark_as_ignored(self, store_id, comp_sku_id, is_ignored, project_id=None):
+        pid = self._resolve_project_id(project_id)
         if not comp_sku_id:
             return False
         ignore_str = "是" if is_ignored else "否"
@@ -179,30 +191,34 @@ class DataManagerOpsMixin:
                     if new_str is not None:
                         comp_cur = conn.execute(
                             "UPDATE comp_products SET is_ignored=?, is_new_add=? WHERE project_id=? AND store_id=? AND skuId=?",
-                            (ignore_str, new_str, self.active_project_id, str(store_id), str(comp_sku_id))
+                            (ignore_str, new_str, pid, str(store_id), str(comp_sku_id))
                         )
                         self._ensure_column(conn, "product_links", "is_new_add")
                         conn.execute(
                             "UPDATE product_links SET is_new_add=? WHERE project_id = ? AND store_id=? AND comp_sku_id=?",
-                            (new_str, self.active_project_id, str(store_id), str(comp_sku_id))
+                            (new_str, pid, str(store_id), str(comp_sku_id))
                         )
                     else:
                         comp_cur = conn.execute(
                             "UPDATE comp_products SET is_ignored=? WHERE project_id=? AND store_id=? AND skuId=?",
-                            (ignore_str, self.active_project_id, str(store_id), str(comp_sku_id))
+                            (ignore_str, pid, str(store_id), str(comp_sku_id))
                         )
                     changed = changed or (comp_cur.rowcount > 0)
             finally:
                 conn.close()
-        if changed:
+        if changed and pid == self.active_project_id:
             updates = {'是否不处理': ignore_str}
             if new_str is not None:
                 updates['是否新增'] = new_str
             self._patch_grid_comp(store_id, comp_sku_id, updates)
-            self.invalidate_analysis_snapshot()
+        if changed:
+            self.invalidate_analysis_snapshot(pid)
         return changed
 
-    def price_match(self, main_sku_id, store_id, match_act=True, match_orig=True):
+    def price_match(self, main_sku_id, store_id, match_act=True, match_orig=True, project_id=None):
+        pid = self._resolve_project_id(project_id)
+        if pid != self.active_project_id:
+            return None
         if not main_sku_id:
             return None
         prefix = str(store_id)
@@ -241,11 +257,11 @@ class DataManagerOpsMixin:
                     for c in updates.keys(): self._ensure_column(conn, "main_products", c)
                     set_clause = ", ".join([f"`{c}`=?" for c in updates.keys()])
                     conn.execute(f"UPDATE main_products SET {set_clause} WHERE project_id = ? AND skuId=?", 
-                                (*updates.values(), self.active_project_id, str(main_sku_id)))
+                                (*updates.values(), pid, str(main_sku_id)))
             finally:
                 conn.close()
         self._patch_grid_main(main_sku_id, updates)
-        self.invalidate_analysis_snapshot()
+        self.invalidate_analysis_snapshot(pid)
 
         def fmt(v):
             import pandas as pd
@@ -260,7 +276,8 @@ class DataManagerOpsMixin:
             ret["new_orig"] = fmt(new_orig)
         return ret
 
-    def clear_price_match(self, main_sku_id):
+    def clear_price_match(self, main_sku_id, project_id=None):
+        pid = self._resolve_project_id(project_id)
         if not main_sku_id:
             return False
         with self._db_lock:
@@ -269,15 +286,17 @@ class DataManagerOpsMixin:
                 with conn:
                     conn.execute(
                         "UPDATE main_products SET `新活动价`='', `新售价`='', `跟价店`='' WHERE project_id=? AND skuId=?",
-                        (self.active_project_id, str(main_sku_id)),
+                        (pid, str(main_sku_id)),
                     )
             finally:
                 conn.close()
-        self._patch_grid_main(main_sku_id, {'新活动价': '', '新售价': '', '跟价店': ''})
-        self.invalidate_analysis_snapshot()
+        if pid == self.active_project_id:
+            self._patch_grid_main(main_sku_id, {'新活动价': '', '新售价': '', '跟价店': ''})
+        self.invalidate_analysis_snapshot(pid)
         return True
 
-    def manual_link(self, main_sku_id, store_id, comp_sku_id):
+    def manual_link(self, main_sku_id, store_id, comp_sku_id, project_id=None):
+        pid = self._resolve_project_id(project_id)
         if not main_sku_id or not comp_sku_id:
             return False
         with self._db_lock:
@@ -291,18 +310,28 @@ class DataManagerOpsMixin:
                         WHERE project_id = ? AND main_sku_id = ? AND store_id = ?
                         LIMIT 1
                         """,
-                        (self.active_project_id, str(main_sku_id), str(store_id)),
+                        (pid, str(main_sku_id), str(store_id)),
                     ).fetchone()
                     old_comp_sku_id = old_link[0] if old_link else ""
                     old_similarity = old_link[1] if old_link else None
                     old_match_type = old_link[2] if old_link else ""
                     error_type = "错配" if str(old_comp_sku_id or "").strip() else "漏配"
-                    conn.execute("DELETE FROM product_links WHERE project_id = ? AND main_sku_id=? AND store_id=?", 
-                                (self.active_project_id, str(main_sku_id), str(store_id)))
+                    conn.execute(
+                        """
+                        DELETE FROM product_links
+                        WHERE project_id = ?
+                          AND store_id = ?
+                          AND (
+                              main_sku_id = ?
+                              OR comp_sku_id = ?
+                          )
+                        """,
+                        (pid, str(store_id), str(main_sku_id), str(comp_sku_id)),
+                    )
                     conn.execute("""
                         INSERT INTO product_links (project_id, main_sku_id, store_id, comp_sku_id, similarity, match_type, is_new_add)
                         VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, (self.active_project_id, str(main_sku_id), str(store_id), str(comp_sku_id), 1.0, '手动关联', '否'))
+                    """, (pid, str(main_sku_id), str(store_id), str(comp_sku_id), 1.0, '手动关联', '否'))
                     conn.execute(
                         """
                         INSERT INTO manual_link_corrections (
@@ -313,7 +342,7 @@ class DataManagerOpsMixin:
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
-                            self.active_project_id,
+                            pid,
                             str(main_sku_id),
                             str(store_id),
                             str(old_comp_sku_id or ""),
@@ -328,12 +357,14 @@ class DataManagerOpsMixin:
                     )
             finally:
                 conn.close()
-        self._reconstruct_from_sqlite()
-        self.refresh_workbench_summary_snapshot()
-        self.invalidate_analysis_snapshot()
+        if pid == self.active_project_id:
+            self._reconstruct_from_sqlite()
+            self.refresh_workbench_summary_snapshot()
+        self.invalidate_analysis_snapshot(pid)
         return True
 
-    def unlink_product(self, main_sku_id, store_id):
+    def unlink_product(self, main_sku_id, store_id, project_id=None):
+        pid = self._resolve_project_id(project_id)
         if not main_sku_id:
             return False
         with self._db_lock:
@@ -347,10 +378,10 @@ class DataManagerOpsMixin:
                         WHERE project_id = ? AND main_sku_id = ? AND store_id = ?
                         LIMIT 1
                         """,
-                        (self.active_project_id, str(main_sku_id), str(store_id)),
+                        (pid, str(main_sku_id), str(store_id)),
                     ).fetchone()
                     conn.execute("DELETE FROM product_links WHERE project_id = ? AND main_sku_id=? AND store_id=?", 
-                                (self.active_project_id, str(main_sku_id), str(store_id)))
+                                (pid, str(main_sku_id), str(store_id)))
                     if old_link:
                         conn.execute(
                             """
@@ -362,7 +393,7 @@ class DataManagerOpsMixin:
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                             (
-                                self.active_project_id,
+                                pid,
                                 str(main_sku_id),
                                 str(store_id),
                                 str(old_link[0] or ""),
@@ -379,9 +410,10 @@ class DataManagerOpsMixin:
                 print("DB Unlink err:", e)
             finally:
                 conn.close()
-        self._reconstruct_from_sqlite()
-        self.refresh_workbench_summary_snapshot()
-        self.invalidate_analysis_snapshot()
+        if pid == self.active_project_id:
+            self._reconstruct_from_sqlite()
+            self.refresh_workbench_summary_snapshot()
+        self.invalidate_analysis_snapshot(pid)
         return True
 
     def _calculate_margins(self):
@@ -466,9 +498,8 @@ class DataManagerOpsMixin:
 
     def update_project_status(self, project_id, status):
         """Thread-safe status update using an independent connection (safe for background threads)."""
-        conn = sqlite3.connect(self.db_path, timeout=10)
+        conn = self._get_conn()
         try:
-            conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("UPDATE projects SET status = ?, analysis_started_at = NULL WHERE id = ?",
                          (status, project_id))
             conn.commit()

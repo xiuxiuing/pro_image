@@ -13,6 +13,21 @@ def init_grid(context):
     data_root = context["data_root"]
 
 
+def _request_project_id(default_active=True):
+    data = request.get_json(silent=True) if request.method in ("POST", "PUT", "PATCH", "DELETE") else None
+    raw = None
+    if isinstance(data, dict):
+        raw = data.get("project_id")
+    if raw in (None, ""):
+        raw = request.args.get("project_id")
+    if raw in (None, "") and default_active:
+        raw = dm.active_project_id
+    try:
+        return int(raw) if raw not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
 @grid_bp.route('/api/history')
 def get_history():
     return jsonify(dm.get_history())
@@ -97,24 +112,51 @@ def api_rule_categories_bucket_tags():
 
 @grid_bp.route("/api/config", methods=['GET'])
 def get_config():
+    project_id = _request_project_id()
     has_links = False
-    if dm.active_project_id:
+    if project_id:
         with dm._db_lock:
             with dm._get_conn() as conn:
                 row = conn.execute(
                     "SELECT 1 FROM product_links WHERE project_id = ? LIMIT 1",
-                    (dm.active_project_id,),
+                    (project_id,),
                 ).fetchone()
                 has_links = bool(row)
+    main_store_name = dm.main_store_name
+    target_file = dm.target_file
+    output_file = dm.output_file
+    source_files = dm.source_files
+    store_names = dm.store_names
+    if project_id and project_id != dm.active_project_id:
+        dirs = dm._get_project_dirs(project_id)
+        output_file = os.path.join(dirs["outputs"], f"output_{project_id}.xlsx")
+        source_files = []
+        store_names = []
+        main_store_name = ""
+        target_file = ""
+        with dm._db_lock:
+            with dm._get_conn() as conn:
+                rows = conn.execute(
+                    "SELECT type, local_path, store_name FROM project_files WHERE project_id = ? ORDER BY id ASC",
+                    (project_id,),
+                ).fetchall()
+        for f_type, path, store_name in rows:
+            if f_type == "main":
+                target_file = path
+                main_store_name = store_name
+            elif f_type == "comp":
+                source_files.append(path)
+                store_names.append(store_name)
     return jsonify({
-        "project_id": dm.active_project_id,
+        "project_id": project_id,
         "has_links": has_links,
-        "main_store": dm.main_store_name, "target_file": dm.target_file, "output_file": dm.output_file,
-        "source_files": dm.source_files, "stores": [{"id": str(i), "name": n, "path": dm.source_files[i]} for i, n in enumerate(dm.store_names)]
+        "main_store": main_store_name, "target_file": target_file, "output_file": output_file,
+        "source_files": source_files, "stores": [{"id": str(i), "name": n, "path": source_files[i]} for i, n in enumerate(store_names)]
     })
 
 @grid_bp.route('/api/grid_data')
 def get_grid_data():
+    project_id = _request_project_id()
     page = request.args.get('page', 1, type=int)
     limit = request.args.get('limit', 50, type=int)
     search = request.args.get('search', "")
@@ -123,14 +165,16 @@ def get_grid_data():
     sort_field = request.args.get('sort_field', "")
     sort_order = request.args.get('sort_order', "desc")
     negative_sales = request.args.get('negative_sales', "0") == "1"
-    return jsonify(dm.get_paginated_grid(
-        page=page, limit=limit, search=search, mode=mode,
-        filters_json=filters_json, sort_field=sort_field, sort_order=sort_order,
-        negative_sales_only=negative_sales,
-    ))
+    with dm.project_context(project_id):
+        return jsonify(dm.get_paginated_grid(
+            page=page, limit=limit, search=search, mode=mode,
+            filters_json=filters_json, sort_field=sort_field, sort_order=sort_order,
+            negative_sales_only=negative_sales,
+        ))
 
 @grid_bp.route('/api/statistics')
 def get_statistics():
+    project_id = _request_project_id()
     paged = request.args.get("paged", "0") == "1"
     refresh = request.args.get("refresh", "0") == "1"
     if paged:
@@ -142,28 +186,34 @@ def get_statistics():
             search=request.args.get("search", ""),
             sort_key=request.args.get("sort_key", ""),
             sort_order=request.args.get("sort_order", "desc"),
+            project_id=project_id,
         ))
-    return jsonify(dm.get_statistics(refresh=refresh))
+    return jsonify(dm.get_statistics(refresh=refresh, project_id=project_id))
 
 @grid_bp.route('/api/statistics/snapshot-status')
 def get_statistics_snapshot_status():
-    return jsonify({"status": "ok", **dm.get_analysis_snapshot_status()})
+    project_id = _request_project_id()
+    return jsonify({"status": "ok", **dm.get_analysis_snapshot_status(project_id=project_id)})
 
 @grid_bp.route('/api/market-analysis')
 def get_market_analysis():
-    return jsonify(dm.get_market_analysis(refresh=request.args.get("refresh", "0") == "1"))
+    project_id = _request_project_id()
+    return jsonify(dm.get_market_analysis(refresh=request.args.get("refresh", "0") == "1", project_id=project_id))
 
 @grid_bp.route('/api/statistics/products')
 def get_statistics_products():
-    return jsonify(dm.get_statistics_products(
-        request.args.get("category", ""),
-        request.args.get("source_type", "main"),
-        request.args.get("store_id", ""),
-    ))
+    project_id = _request_project_id()
+    with dm.project_context(project_id):
+        return jsonify(dm.get_statistics_products(
+            request.args.get("category", ""),
+            request.args.get("source_type", "main"),
+            request.args.get("store_id", ""),
+        ))
 
 @grid_bp.route('/api/statistics/export')
 def export_statistics():
-    data = dm.get_statistics(sync_missing=True)
+    project_id = _request_project_id()
+    data = dm.get_statistics(sync_missing=True, project_id=project_id)
 
     def whole(value):
         try:
@@ -217,16 +267,18 @@ def export_statistics():
         ws.column_dimensions[col[0].column_letter].width = min(max(width + 2, 10), 28)
 
     out_dir = tempfile.gettempdir()
-    out_path = os.path.join(out_dir, f"statistics_{dm.active_project_id or 'project'}.xlsx")
+    out_path = os.path.join(out_dir, f"statistics_{project_id or dm.active_project_id or 'project'}.xlsx")
     wb.save(out_path)
     return send_file(out_path, as_attachment=True, download_name="数据分析导出.xlsx")
 
 @grid_bp.route('/api/store_products/<store_id>')
 def get_store_products(store_id):
-    return jsonify(dm.get_store_products(store_id))
+    project_id = _request_project_id()
+    return jsonify(dm.get_store_products(store_id, project_id=project_id))
 
 @grid_bp.route('/api/unlinked_items')
 def get_unlinked_items():
+    project_id = _request_project_id()
     page = request.args.get('page', 1, type=int)
     limit = request.args.get('limit', 30, type=int)
     search = request.args.get('search', "")
@@ -235,64 +287,72 @@ def get_unlinked_items():
     sort_order = request.args.get('sort_order', "desc")
     filters_json = request.args.get('filters', "{}")
     negative_sales = request.args.get('negative_sales', "0") == "1"
-    return jsonify(dm.get_unlinked_pool_page(
-        page=page, limit=limit, search=search, category3=category3,
-        sort_store_id=sort_store_id, sort_order=sort_order,
-        filters_json=filters_json, negative_sales_only=negative_sales,
-    ))
+    with dm.project_context(project_id):
+        return jsonify(dm.get_unlinked_pool_page(
+            page=page, limit=limit, search=search, category3=category3,
+            sort_store_id=sort_store_id, sort_order=sort_order,
+            filters_json=filters_json, negative_sales_only=negative_sales,
+        ))
 
 @grid_bp.route('/api/main_products')
 def get_main_products():
+    project_id = _request_project_id()
     page = request.args.get('page', 1, type=int)
     limit = request.args.get('limit', 50, type=int)
     search = request.args.get('search', "")
-    return jsonify(dm.get_main_products_page(page=page, limit=limit, search=search))
+    return jsonify(dm.get_main_products_page(page=page, limit=limit, search=search, project_id=project_id))
 
 @grid_bp.route('/api/main_products/<path:main_sku_id>/links')
 def get_main_product_links(main_sku_id):
-    return jsonify(dm.get_main_product_links(main_sku_id))
+    project_id = _request_project_id()
+    return jsonify(dm.get_main_product_links(main_sku_id, project_id=project_id))
 
 @grid_bp.route('/api/main_products/<path:main_sku_id>/match-explain/<store_id>')
 def get_main_product_match_explain(main_sku_id, store_id):
-    return jsonify(dm.get_match_explanation(main_sku_id, store_id))
+    project_id = _request_project_id()
+    return jsonify(dm.get_match_explanation(main_sku_id, store_id, project_id=project_id))
 
 @grid_bp.route('/api/eliminate', methods=['POST'])
 def eliminate():
     d = request.json
+    project_id = _request_project_id()
     main_sku_id = d.get('main_sku_id')
     if not main_sku_id:
         return jsonify({"status": "error", "message": "Missing main_sku_id"}), 400
-    dm.eliminate_product(main_sku_id, d.get('status', 1))
+    dm.eliminate_product(main_sku_id, d.get('status', 1), project_id=project_id)
     return jsonify({"status": "success"})
 
 @grid_bp.route('/api/toggle_handled', methods=['POST'])
 def toggle_handled():
     d = request.json
+    project_id = _request_project_id()
     sku_id = d.get('main_sku_id')
     if not sku_id:
         return jsonify({"status": "error", "message": "Missing main_sku_id"}), 400
-    dm.toggle_handled(sku_id, d.get('handled', True))
+    dm.toggle_handled(sku_id, d.get('handled', True), project_id=project_id)
     return jsonify({"status": "success"})
 
 @grid_bp.route('/api/toggle_ref', methods=['POST'])
 def toggle_ref():
     d = request.json
+    project_id = _request_project_id()
     sku_id = d.get('main_sku_id')
     field = d.get('field')
     store_id = d.get('store_id', '')
     if not sku_id or field not in ('name', 'image'):
         return jsonify({"status": "error", "message": "Missing params"}), 400
-    dm.set_ref(sku_id, field, store_id)
+    dm.set_ref(sku_id, field, store_id, project_id=project_id)
     return jsonify({"status": "success"})
 
 @grid_bp.route('/api/toggle_add', methods=['POST'])
 def toggle_add():
     d = request.json
+    project_id = _request_project_id()
     store_id = d.get('store_id')
     comp_sku_id = d.get('sku_id')
     if store_id is None or not comp_sku_id:
         return jsonify({"status": "error", "message": "Missing store_id or sku_id"}), 400
-    ok = dm.mark_as_new(store_id, comp_sku_id, d.get('is_new', True))
+    ok = dm.mark_as_new(store_id, comp_sku_id, d.get('is_new', True), project_id=project_id)
     if not ok:
         return jsonify({"status": "error", "message": "未找到可标记的商品"}), 400
     return jsonify({"status": "success"})
@@ -300,11 +360,12 @@ def toggle_add():
 @grid_bp.route('/api/toggle_ignore', methods=['POST'])
 def toggle_ignore():
     d = request.json
+    project_id = _request_project_id()
     store_id = d.get('store_id')
     comp_sku_id = d.get('sku_id')
     if store_id is None or not comp_sku_id:
         return jsonify({"status": "error", "message": "Missing store_id or sku_id"}), 400
-    ok = dm.mark_as_ignored(store_id, comp_sku_id, d.get('is_ignored', True))
+    ok = dm.mark_as_ignored(store_id, comp_sku_id, d.get('is_ignored', True), project_id=project_id)
     if not ok:
         return jsonify({"status": "error", "message": "未找到可标记的商品"}), 400
     return jsonify({"status": "success"})
@@ -312,13 +373,14 @@ def toggle_ignore():
 @grid_bp.route('/api/price_match', methods=['POST'])
 def price_match():
     d = request.json
+    project_id = _request_project_id()
     main_sku_id = d.get('main_sku_id')
     store_id = d.get('store_id')
     if not main_sku_id or store_id is None:
         return jsonify({"status": "error", "message": "Missing params"}), 400
     match_act = d.get('match_act', True)
     match_orig = d.get('match_orig', True)
-    result = dm.price_match(main_sku_id, store_id, match_act=match_act, match_orig=match_orig)
+    result = dm.price_match(main_sku_id, store_id, match_act=match_act, match_orig=match_orig, project_id=project_id)
     if not result:
         return jsonify({"status": "error", "message": "未找到可跟价的商品"}), 400
     return jsonify({"status": "success", **result})
@@ -326,40 +388,44 @@ def price_match():
 @grid_bp.route('/api/clear_price_match', methods=['POST'])
 def clear_price_match():
     d = request.json
+    project_id = _request_project_id()
     main_sku_id = d.get('main_sku_id')
     if not main_sku_id:
         return jsonify({"status": "error", "message": "Missing main_sku_id"}), 400
-    dm.clear_price_match(main_sku_id)
+    dm.clear_price_match(main_sku_id, project_id=project_id)
     return jsonify({"status": "success"})
 
 @grid_bp.route('/api/manual_link', methods=['POST'])
 def manual_link():
     d = request.json
+    project_id = _request_project_id()
     main_sku_id = d.get('main_sku_id')
     store_id = d.get('store_id')
     comp_sku_id = d.get('comp_sku_id')
     if not main_sku_id or store_id is None or not comp_sku_id:
         return jsonify({"status": "error", "message": "Missing params"}), 400
-    dm.manual_link(main_sku_id, store_id, comp_sku_id)
+    dm.manual_link(main_sku_id, store_id, comp_sku_id, project_id=project_id)
     return jsonify({"status": "success"})
 
 @grid_bp.route('/api/unlink', methods=['POST'])
 def unlink():
     d = request.json
+    project_id = _request_project_id()
     main_sku_id = d.get('main_sku_id')
     store_id = d.get('store_id')
     if not main_sku_id or store_id is None:
         return jsonify({"status": "error", "message": "Missing params"}), 400
-    dm.unlink_product(main_sku_id, store_id)
+    dm.unlink_product(main_sku_id, store_id, project_id=project_id)
     return jsonify({"status": "success"})
 
 @grid_bp.route('/api/update_cell', methods=['POST'])
 def update_cell():
     d = request.json
+    project_id = _request_project_id()
     main_sku_id = d.get('main_sku_id')
     if not main_sku_id:
         return jsonify({"status": "error", "message": "Missing main_sku_id"}), 400
-    dm.update_cell(main_sku_id, {d.get('column'): d.get('value')})
+    dm.update_cell(main_sku_id, {d.get('column'): d.get('value')}, project_id=project_id)
     return jsonify({"status": "success"})
 
 @grid_bp.route('/img/<path:filename>')
@@ -368,21 +434,27 @@ def serve_img(filename):
 
 @grid_bp.route('/api/export')
 def export_data():
-    p = dm.save_separate_exports()
+    project_id = _request_project_id()
+    with dm.project_context(project_id):
+        p = dm.save_separate_exports()
     resp = send_file(p, as_attachment=True)
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"; resp.headers["Pragma"] = "no-cache"; resp.headers["Expires"] = "0"
     return resp
 
 @grid_bp.route('/api/export_new')
 def export_new_data():
-    p = dm.export_new_items()
+    project_id = _request_project_id()
+    with dm.project_context(project_id):
+        p = dm.export_new_items()
     resp = send_file(p, as_attachment=True)
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"; resp.headers["Pragma"] = "no-cache"; resp.headers["Expires"] = "0"
     return resp
 
 @grid_bp.route('/api/export_corrections')
 def export_corrections():
-    p = dm.export_manual_corrections()
+    project_id = _request_project_id()
+    with dm.project_context(project_id):
+        p = dm.export_manual_corrections()
     resp = send_file(p, as_attachment=True)
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"; resp.headers["Pragma"] = "no-cache"; resp.headers["Expires"] = "0"
     return resp

@@ -1,16 +1,17 @@
 import json
-import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
 
 import pandas as pd
+from sqlalchemy import text
 
 from data_mgr import DataManager
+from db_access import Database
 
 
-def _insert_products(db_path: Path):
-    with sqlite3.connect(db_path) as conn:
+def _insert_products(dm):
+    with dm._get_conn() as conn:
         conn.execute(
             """
             INSERT INTO main_products
@@ -61,6 +62,15 @@ def _trigger_rule_diag():
 
 
 class MatchAgentRealFlowTests(unittest.TestCase):
+    def setUp(self):
+        db = Database()
+        try:
+            with db.engine.begin() as conn:
+                conn.execute(text("DROP SCHEMA public CASCADE"))
+                conn.execute(text("CREATE SCHEMA public"))
+        finally:
+            db.close()
+
     def _dm(self, tmpdir, triggered=True):
         dm = DataManager(tmpdir)
         dm._match_agent_text_vector_diff = lambda main, wrong, correct, project_id: {
@@ -92,9 +102,8 @@ class MatchAgentRealFlowTests(unittest.TestCase):
 
     def test_not_triggered_creates_diagnostic_only_without_model_key(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "pro_image.db"
             dm = self._dm(tmpdir, triggered=False)
-            _insert_products(db_path)
+            _insert_products(dm)
             dm._match_agent_call_model = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("model should not be called"))
 
             result = dm.run_match_agent(provider="gemini", project_id=1, api_key="")
@@ -104,7 +113,7 @@ class MatchAgentRealFlowTests(unittest.TestCase):
             self.assertFalse(result["run"]["triggered"])
             self.assertEqual(result["run"]["diagnostics"][0]["diagnosis_type"], "三级类目规则过滤")
             self.assertIn("被后验规则拦截", result["run"]["diagnostics"][0]["core_reason"])
-            with sqlite3.connect(db_path) as conn:
+            with dm._get_conn() as conn:
                 count = conn.execute("SELECT COUNT(*) FROM match_agent_runs").fetchone()[0]
             self.assertEqual(count, 1)
 
@@ -142,9 +151,8 @@ class MatchAgentRealFlowTests(unittest.TestCase):
 
     def test_triggered_run_reruns_and_apply_binds_template_and_replaces_links(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "pro_image.db"
             dm = self._dm(tmpdir, triggered=True)
-            _insert_products(db_path)
+            _insert_products(dm)
 
             rerun_output = Path(tmpdir) / "rerun.xlsx"
             rerun_output.write_text("placeholder", encoding="utf-8")
@@ -199,7 +207,7 @@ class MatchAgentRealFlowTests(unittest.TestCase):
             ok, msg, tid = dm.apply_match_agent_run(run["id"])
 
             self.assertTrue(ok, msg)
-            with sqlite3.connect(db_path) as conn:
+            with dm._get_conn() as conn:
                 project_tid = conn.execute("SELECT rule_template_id FROM projects WHERE id = 1").fetchone()[0]
                 linked = conn.execute("SELECT comp_sku_id FROM product_links WHERE project_id = 1 AND main_sku_id = 'M1'").fetchone()[0]
                 status = conn.execute("SELECT status FROM match_agent_runs WHERE id = ?", (run["id"],)).fetchone()[0]
@@ -213,9 +221,8 @@ class MatchAgentRealFlowTests(unittest.TestCase):
 
     def test_apply_run_to_v2_updates_builtin_template_once(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "pro_image.db"
             dm = self._dm(tmpdir, triggered=True)
-            _insert_products(db_path)
+            _insert_products(dm)
 
             rerun_output = Path(tmpdir) / "rerun.xlsx"
             rerun_output.write_text("placeholder", encoding="utf-8")
@@ -248,7 +255,7 @@ class MatchAgentRealFlowTests(unittest.TestCase):
 
             self.assertTrue(ok, msg)
             self.assertIn("可乐", info["categories"])
-            with sqlite3.connect(db_path) as conn:
+            with dm._get_conn() as conn:
                 row = conn.execute("SELECT config_json FROM rule_templates WHERE name = '生产规则V2'").fetchone()
                 status, payload = conn.execute("SELECT status, suggestions_json FROM match_agent_runs WHERE id = ?", (run_id,)).fetchone()
             cfg = json.loads(row[0])
@@ -264,9 +271,8 @@ class MatchAgentRealFlowTests(unittest.TestCase):
 
     def test_quick_run_resolves_store_from_main_correct_and_wrong_skus(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "pro_image.db"
             dm = self._dm(tmpdir, triggered=False)
-            _insert_products(db_path)
+            _insert_products(dm)
             dm._match_agent_call_model = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("model should not be called"))
 
             result = dm.quick_run_match_agent(
@@ -283,7 +289,7 @@ class MatchAgentRealFlowTests(unittest.TestCase):
             self.assertEqual(result["status"], "ok")
             self.assertEqual(result["store_id"], "0")
             self.assertEqual(result["project_id"], 1)
-            with sqlite3.connect(db_path) as conn:
+            with dm._get_conn() as conn:
                 row = conn.execute(
                     "SELECT store_id, current_comp_sku_id FROM match_feedback_cases WHERE project_id = 1 AND main_sku_id = 'M1' AND correct_comp_sku_id = 'C1'"
                 ).fetchone()
