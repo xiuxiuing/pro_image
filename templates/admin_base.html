@@ -80,20 +80,21 @@
         .sidebar-toggle {
             position: absolute;
             top: calc(50vh - 32px);
-            right: -8.5px;
-            width: 17px;
+            right: 0;
+            width: 14px;
             height: 64px;
             padding: 0;
             border: 1px solid rgba(195, 198, 215, 0.8);
-            border-radius: 8px;
+            border-radius: 6px;
             display: grid;
             place-items: center;
             color: var(--nav);
             background: rgba(255, 255, 255, 0.92);
-            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+            box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
             cursor: pointer;
+            z-index: 25;
         }
-        .sidebar-toggle svg { transition: transform 0.2s ease; }
+        .sidebar-toggle svg { width: 12px; height: 12px; transition: transform 0.2s ease; }
         .nav { flex: 1; padding: 0 8px; display: flex; flex-direction: column; gap: 4px; }
         .nav-item {
             position: relative;
