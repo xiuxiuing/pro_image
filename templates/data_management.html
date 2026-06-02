@@ -7,24 +7,156 @@
         .main {
             padding: 0;
             min-height: calc(100vh - var(--topbar-h));
-            display: grid;
-            place-items: center;
-            background: #f8f9fa;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: radial-gradient(circle at 50% 50%, rgba(118, 111, 242, 0.04) 0%, rgba(248, 249, 250, 0) 100%), #f8f9fa;
+            position: relative;
+            overflow: hidden;
         }
-        .developing {
+        
+        .main::before {
+            content: '';
+            position: absolute;
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, rgba(118, 111, 242, 0.05) 0%, transparent 70%);
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .dev-container {
+            position: relative;
+            z-index: 2;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            padding: 48px;
+            max-width: 460px;
+            width: 90%;
+        }
+
+        .icon-wrapper {
+            position: relative;
+            width: 140px;
+            height: 140px;
+            margin-bottom: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.6);
+            border: 1px solid rgba(195, 198, 215, 0.3);
+            border-radius: 50%;
+            box-shadow: 0 12px 30px rgba(15, 23, 42, 0.04), 
+                        inset 0 2px 4px rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            animation: float 4s ease-in-out infinite;
+        }
+
+        .icon-wrapper::after {
+            content: '';
+            position: absolute;
+            top: -2px;
+            left: -2px;
+            right: -2px;
+            bottom: -2px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--blue) 0%, transparent 100%);
+            z-index: -1;
+            opacity: 0.2;
+            animation: pulse-ring 2s cubic-bezier(0.215, 0.610, 0.355, 1) infinite;
+        }
+
+        .icon-wrapper svg {
+            width: 80px;
+            height: 80px;
+            color: var(--blue);
+        }
+
+        .icon-wrapper svg path {
+            fill: currentColor;
+        }
+
+        .dev-title {
             margin: 0;
-            transform: translateY(-20px);
-            color: #000;
-            font-size: 18px;
-            line-height: 24px;
-            font-weight: 800;
-            letter-spacing: 0;
+            color: #0f172a;
+            font-size: 24px;
+            line-height: 32px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
         }
-        @media (max-width: 980px) {
+
+        .dev-subtitle {
+            margin: 12px 0 0;
+            color: #64748b;
+            font-size: 14px;
+            line-height: 22px;
+            font-weight: 450;
+        }
+
+        .dev-progress-bar {
+            width: 180px;
+            height: 4px;
+            background: rgba(195, 198, 215, 0.4);
+            border-radius: 99px;
+            margin-top: 32px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .dev-progress-line {
+            position: absolute;
+            height: 100%;
+            width: 40%;
+            background: linear-gradient(90deg, transparent, var(--blue), transparent);
+            left: -40%;
+            animation: loading-scan 2s infinite linear;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-8px); }
+        }
+
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); opacity: 0.5; }
+            100% { transform: scale(1.15); opacity: 0; }
+        }
+
+        @keyframes loading-scan {
+            0% { left: -40%; }
+            100% { left: 100%; }
+        }
+
+        @media (max-width: 480px) {
             .main { min-height: 420px; }
-            .developing { transform: none; }
+            .dev-container { padding: 32px 24px; }
+            .icon-wrapper { width: 120px; height: 120px; }
+            .icon-wrapper svg { width: 68px; height: 68px; }
+            .dev-title { font-size: 21px; }
         }
 {% endblock %}
 {% block content %}
-            <p class="developing">努力研发中...</p>
+            <div class="dev-container">
+                <div class="icon-wrapper">
+                    <svg class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="11648">
+                        <path d="M983.62624 312.4672c-26.91968-62.41664-63.5904-116.64128-110.01216-162.6688-46.41792-46.03136-100.64-82.50496-162.66752-109.42336C648.92416 13.46048 582.41024 0 511.4176 0c-70.21696 0-136.53376 13.46048-198.9504 40.37504-62.41664 26.9184-116.64128 63.392-162.6688 109.42336-46.03008 46.02624-82.50496 100.25216-109.42336 162.6688C13.46048 374.88256 0 441.20064 0 511.4176c0 70.99264 13.46048 137.50272 40.37504 199.52896 26.9184 62.02752 63.39328 116.2496 109.42336 162.66752 46.02624 46.42304 100.25216 83.09248 162.6688 110.01216C374.88256 1010.53952 441.20064 1024 511.4176 1024c70.99264 0 137.50656-13.46048 199.52896-40.37376 62.02752-26.91968 116.2496-63.5904 162.66752-110.01216 46.42304-46.41792 83.09248-100.64 110.01216-162.66752C1010.53952 648.92032 1024 582.41024 1024 511.4176 1024 441.20064 1010.53952 374.88256 983.62624 312.4672zM512 955.73376C266.93376 955.73376 68.26624 757.06624 68.26624 512 68.26624 266.93376 266.93376 68.26624 512 68.26624c245.06624 0 443.73376 198.66624 443.73376 443.73376C955.73376 757.06624 757.06624 955.73376 512 955.73376z" p-id="11649"></path>
+                        <path d="M707.34976 471.81696l39.5968 0 0 146.28864-39.5968 0 0-146.28864Z" p-id="11650"></path>
+                        <path d="M250.63296 325.53344l220.01664 0 0 73.72928-220.01664 0 0-73.72928Z" p-id="11651"></path>
+                        <path d="M615.67616 471.81696l39.59424 0 0 146.28864-39.59424 0 0-146.28864Z" p-id="11652"></path>
+                        <path d="M548.66688 325.53344l220.01792 0 0 73.72928-220.01792 0 0-73.72928Z" p-id="11653"></path>
+                        <path d="M810.52032 325.53344l39.59424 0 0 292.57344-39.59424 0 0-292.57344Z" p-id="11654"></path>
+                    </svg>
+                </div>
+                <h3 class="dev-title">拼命研发中...</h3>
+                <p class="dev-subtitle">我们正在为您构建更强大、更直观的数据分析面板，敬请期待！</p>
+                <div class="dev-progress-bar">
+                    <div class="dev-progress-line"></div>
+                </div>
+            </div>
 {% endblock %}
