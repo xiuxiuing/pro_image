@@ -381,7 +381,7 @@ def login():
         user_row = None
         try:
             user_row = conn.execute(
-                "SELECT userid, username, phone, password, status, role_id, role_name FROM user WHERE (username = ? OR phone = ?) AND status = 1",
+                "SELECT userid, username, phone, password, status, role_id, role_name, avatar FROM user WHERE (username = ? OR phone = ?) AND status = 1",
                 (account, account)
             ).fetchone()
         finally:
@@ -402,7 +402,7 @@ def login():
                 "fail_count": current_fails
             }), 400
             
-        db_userid, db_username, db_phone, db_password, db_status, db_role_id, db_role_name = user_row
+        db_userid, db_username, db_phone, db_password, db_status, db_role_id, db_role_name, db_avatar = user_row
         
         if db_password != password:
             session['login_fail_count'] = fail_count + 1
@@ -424,6 +424,7 @@ def login():
         session['username'] = db_username
         session['role_id'] = db_role_id
         session['role_name'] = db_role_name
+        session['avatar'] = db_avatar or ''
         
         return jsonify({"status": "success", "message": "登录成功"})
         
