@@ -9,9 +9,9 @@ class DataManagerOpsMixin:
         return int(project_id or self.active_project_id or 0)
 
     def _ensure_column(self, conn, table, col_name):
-        cols = [row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()]
-        if col_name not in cols:
-            conn.execute(f"ALTER TABLE `{table}` ADD COLUMN `{col_name}` TEXT")
+        cols = [c.lower() for c in conn.get_table_columns(table)]
+        if col_name.lower() not in cols:
+            conn.execute(f'ALTER TABLE "{table}" ADD COLUMN "{col_name}" TEXT')
 
     def _patch_grid_main(self, main_sku_id, updates):
         """In-place patch of grid_df for a main product row. Avoids full reconstruct."""
@@ -63,7 +63,7 @@ class DataManagerOpsMixin:
                 with conn:
                     for col, val in safe_data.items():
                         self._ensure_column(conn, "main_products", col)
-                        conn.execute(f"UPDATE main_products SET `{col}` = ? WHERE project_id = ? AND skuId = ?", 
+                        conn.execute(f'UPDATE main_products SET "{col}" = ? WHERE project_id = ? AND "skuId" = ?', 
                                     (val, pid, str(main_sku_id)))
             finally:
                 conn.close()
@@ -83,7 +83,7 @@ class DataManagerOpsMixin:
                 with conn:
                     self._ensure_column(conn, "main_products", "淘汰标记")
                     self._ensure_column(conn, "main_products", "是否淘汰")
-                    conn.execute("UPDATE main_products SET `淘汰标记`=?, `是否淘汰`=? WHERE project_id = ? AND skuId=?", 
+                    conn.execute('UPDATE main_products SET "淘汰标记"=?, "是否淘汰"=? WHERE project_id = ? AND "skuId"=?', 
                                 (str(status), is_elim, pid, str(main_sku_id)))
             finally:
                 conn.close()
@@ -255,8 +255,8 @@ class DataManagerOpsMixin:
             try:
                 with conn:
                     for c in updates.keys(): self._ensure_column(conn, "main_products", c)
-                    set_clause = ", ".join([f"`{c}`=?" for c in updates.keys()])
-                    conn.execute(f"UPDATE main_products SET {set_clause} WHERE project_id = ? AND skuId=?", 
+                    set_clause = ", ".join([f'"{c}"=?' for c in updates.keys()])
+                    conn.execute(f'UPDATE main_products SET {set_clause} WHERE project_id = ? AND "skuId"=?', 
                                 (*updates.values(), pid, str(main_sku_id)))
             finally:
                 conn.close()
@@ -285,7 +285,7 @@ class DataManagerOpsMixin:
             try:
                 with conn:
                     conn.execute(
-                        "UPDATE main_products SET `新活动价`='', `新售价`='', `跟价店`='' WHERE project_id=? AND skuId=?",
+                        'UPDATE main_products SET "新活动价"=\'\', "新售价"=\'\', "跟价店"=\'\' WHERE project_id=? AND "skuId"=?',
                         (pid, str(main_sku_id)),
                     )
             finally:

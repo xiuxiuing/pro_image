@@ -312,11 +312,13 @@ def get_license_details():
     return LicenseManager.verify_license_detailed(content, CURRENT_HWID)
 
 # --- Blueprints ---
-import app_ops, app_data
+import app_ops, app_data, api_v1
 app_ops.init_ops(app, dm, resource_root, data_root, check_license, CURRENT_HWID, extract_info_ai2, main_030822, _validate_upload, _safe_upload_filename)
 app.register_blueprint(app_ops.ops_bp)
 app_data.init_data(dm, _init_progress, _init_import_progress, _update_step, _schedule_clear_progress, get_analysis_progress_data, _validate_upload, _safe_upload_filename, _template, _static, data_root, DEFAULT_RULE_CATEGORIES_XLSX, CATEGORY_L1_BUCKET_TAGS_JSON)
 app.register_blueprint(app_data.data_bp)
+api_v1.init_api_v1({"dm": dm, "job_store": job_store})
+app.register_blueprint(api_v1.api_v1_bp)
 
 @app.errorhandler(413)
 def request_entity_too_large(e):
@@ -345,7 +347,46 @@ def require_login():
         
     if 'userid' not in session:
         if request.path.startswith('/api/'):
+            if request.path.startswith('/api/v1/'):
+                return jsonify({
+                    "status": "error",
+                    "data": None,
+                    "error": {
+                        "code": "unauthorized",
+                        "message": "未登录，请先登录",
+                    },
+                    "meta": {},
+                }), 401
             return jsonify({"status": "error", "message": "未登录，请先登录", "unauthorized": True}), 401
+        return redirect('/login')
+        
+    # Verify user still exists in the database to handle database resets cleanly
+    userid = session['userid']
+    conn = dm._get_conn()
+    user_exists = False
+    try:
+        row = conn.execute("SELECT 1 FROM \"user\" WHERE userid = ?", (userid,)).fetchone()
+        if row:
+            user_exists = True
+    except Exception:
+        pass
+    finally:
+        conn.close()
+        
+    if not user_exists:
+        session.clear()
+        if request.path.startswith('/api/'):
+            if request.path.startswith('/api/v1/'):
+                return jsonify({
+                    "status": "error",
+                    "data": None,
+                    "error": {
+                        "code": "unauthorized",
+                        "message": "登录已失效，请重新登录",
+                    },
+                    "meta": {},
+                }), 401
+            return jsonify({"status": "error", "message": "登录已失效，请重新登录", "unauthorized": True}), 401
         return redirect('/login')
         
     # Backend Role Permissions Check
@@ -444,7 +485,7 @@ def login():
         user_row = None
         try:
             user_row = conn.execute(
-                "SELECT userid, username, phone, password, status, role_id, role_name, avatar FROM user WHERE (username = ? OR phone = ?) AND status = 1",
+                "SELECT userid, username, phone, password, status, role_id, role_name, avatar FROM \"user\" WHERE (username = ? OR phone = ?) AND status = 1",
                 (account, account)
             ).fetchone()
         finally:
@@ -510,7 +551,7 @@ def get_profile():
     row = None
     try:
         row = conn.execute(
-            "SELECT username, phone, email, role_name, avatar FROM user WHERE userid = ?",
+            "SELECT username, phone, email, role_name, avatar FROM \"user\" WHERE userid = ?",
             (userid,)
         ).fetchone()
     finally:
@@ -563,7 +604,7 @@ def upload_avatar():
     conn = dm._get_conn()
     try:
         with conn:
-            conn.execute("UPDATE user SET avatar = ? WHERE userid = ?", (avatar_url, userid))
+            conn.execute("UPDATE \"user\" SET avatar = ? WHERE userid = ?", (avatar_url, userid))
     finally:
         conn.close()
         
@@ -580,7 +621,7 @@ def reset_profile_password():
     conn = dm._get_conn()
     row = None
     try:
-        row = conn.execute("SELECT phone FROM user WHERE userid = ?", (userid,)).fetchone()
+        row = conn.execute("SELECT phone FROM \"user\" WHERE userid = ?", (userid,)).fetchone()
     finally:
         conn.close()
         
@@ -596,7 +637,7 @@ def reset_profile_password():
     conn = dm._get_conn()
     try:
         with conn:
-            conn.execute("UPDATE user SET password = ? WHERE userid = ?", (new_pwd, userid))
+            conn.execute("UPDATE \"user\" SET password = ? WHERE userid = ?", (new_pwd, userid))
     finally:
         conn.close()
         
@@ -624,7 +665,7 @@ def change_profile_password():
     conn = dm._get_conn()
     row = None
     try:
-        row = conn.execute("SELECT password FROM user WHERE userid = ?", (userid,)).fetchone()
+        row = conn.execute("SELECT password FROM \"user\" WHERE userid = ?", (userid,)).fetchone()
     finally:
         conn.close()
         
@@ -641,7 +682,7 @@ def change_profile_password():
     conn = dm._get_conn()
     try:
         with conn:
-            conn.execute("UPDATE user SET password = ? WHERE userid = ?", (new_password, userid))
+            conn.execute("UPDATE \"user\" SET password = ? WHERE userid = ?", (new_password, userid))
     finally:
         conn.close()
         
@@ -794,7 +835,7 @@ def api_user_roles():
         conn = dm._get_conn()
         try:
             rows = conn.execute(
-                "SELECT characterid, name FROM characters WHERE status = 1 ORDER BY datetime(created_at) DESC, characterid ASC"
+                "SELECT characterid, name FROM characters WHERE status = 1 ORDER BY created_at DESC, characterid ASC"
             ).fetchall()
         finally:
             conn.close()
@@ -824,13 +865,13 @@ def api_users_list():
     with dm._db_lock:
         conn = dm._get_conn()
         try:
-            total = conn.execute(f"SELECT COUNT(*) FROM user {where_sql}", params).fetchone()[0]
+            total = conn.execute(f"SELECT COUNT(*) FROM \"user\" {where_sql}", params).fetchone()[0]
             rows = conn.execute(
                 f"""
                 SELECT userid, username, phone, email, brand, status, created_at, role_id, role_name
-                FROM user
+                FROM "user"
                 {where_sql}
-                ORDER BY datetime(created_at) DESC, userid DESC
+                ORDER BY created_at DESC, userid DESC
                 LIMIT ? OFFSET ?
                 """,
                 params + [page_size, offset],
@@ -874,7 +915,7 @@ def api_users_create():
             role = _get_role(conn, data["role_id"])
             if not role:
                 return _json_error("所属角色不存在")
-            exists = conn.execute("SELECT userid FROM user WHERE phone = ?", (data["phone"],)).fetchone()
+            exists = conn.execute("SELECT userid FROM \"user\" WHERE phone = ?", (data["phone"],)).fetchone()
             if exists:
                 return _json_error("手机号已存在")
             now = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -883,7 +924,7 @@ def api_users_create():
             with conn:
                 conn.execute(
                     """
-                    INSERT INTO user
+                    INSERT INTO "user"
                     (userid, username, phone, email, password, brand, status, created_at, role_id, role_name)
                     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
                     """,
@@ -916,11 +957,11 @@ def api_users_update(userid):
             role = _get_role(conn, data["role_id"])
             if not role:
                 return _json_error("所属角色不存在")
-            current = conn.execute("SELECT userid FROM user WHERE userid = ?", (userid,)).fetchone()
+            current = conn.execute("SELECT userid FROM \"user\" WHERE userid = ?", (userid,)).fetchone()
             if not current:
                 return _json_error("用户不存在", 404)
             exists = conn.execute(
-                "SELECT userid FROM user WHERE phone = ? AND userid <> ?",
+                "SELECT userid FROM \"user\" WHERE phone = ? AND userid <> ?",
                 (data["phone"], userid),
             ).fetchone()
             if exists:
@@ -928,7 +969,7 @@ def api_users_update(userid):
             with conn:
                 conn.execute(
                     """
-                    UPDATE user
+                    UPDATE "user"
                     SET username = ?, phone = ?, email = ?, password = ?, brand = ?, role_id = ?, role_name = ?
                     WHERE userid = ?
                     """,
@@ -953,11 +994,11 @@ def api_users_freeze(userid):
     with dm._db_lock:
         conn = dm._get_conn()
         try:
-            current = conn.execute("SELECT userid FROM user WHERE userid = ?", (userid,)).fetchone()
+            current = conn.execute("SELECT userid FROM \"user\" WHERE userid = ?", (userid,)).fetchone()
             if not current:
                 return _json_error("用户不存在", 404)
             with conn:
-                conn.execute("UPDATE user SET status = 2 WHERE userid = ?", (userid,))
+                conn.execute("UPDATE \"user\" SET status = 2 WHERE userid = ?", (userid,))
         finally:
             conn.close()
     return jsonify({"status": "success", "message": "用户已冻结"})
@@ -967,11 +1008,11 @@ def api_users_unfreeze(userid):
     with dm._db_lock:
         conn = dm._get_conn()
         try:
-            current = conn.execute("SELECT userid FROM user WHERE userid = ?", (userid,)).fetchone()
+            current = conn.execute("SELECT userid FROM \"user\" WHERE userid = ?", (userid,)).fetchone()
             if not current:
                 return _json_error("用户不存在", 404)
             with conn:
-                conn.execute("UPDATE user SET status = 1 WHERE userid = ?", (userid,))
+                conn.execute("UPDATE \"user\" SET status = 1 WHERE userid = ?", (userid,))
         finally:
             conn.close()
     return jsonify({"status": "success", "message": "用户已解冻"})
@@ -1009,7 +1050,7 @@ def api_characters_list():
                 SELECT characterid, name, description, permissions, status, created_at
                 FROM characters
                 {where_sql}
-                ORDER BY datetime(created_at) DESC, characterid DESC
+                ORDER BY created_at DESC, characterid DESC
                 LIMIT ? OFFSET ?
                 """,
                 params + [page_size, offset]
@@ -1024,7 +1065,7 @@ def api_characters_list():
                     perms = []
                 
                 # Fetch dynamically from user table to ensure accuracy
-                user_rows = conn.execute("SELECT userid, username FROM user WHERE role_id = ?", (char_id,)).fetchall()
+                user_rows = conn.execute("SELECT userid, username FROM \"user\" WHERE role_id = ?", (char_id,)).fetchall()
                 userids = [ur[0] for ur in user_rows]
                 usernames = [ur[1] for ur in user_rows]
                 
@@ -1122,7 +1163,7 @@ def api_characters_update(characterid):
                     (name, description, perms_json, characterid)
                 )
                 if current[1] != name:
-                    conn.execute("UPDATE user SET role_name = ? WHERE role_id = ?", (name, characterid))
+                    conn.execute("UPDATE \"user\" SET role_name = ? WHERE role_id = ?", (name, characterid))
         finally:
             conn.close()
             

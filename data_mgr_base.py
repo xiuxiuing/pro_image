@@ -310,20 +310,20 @@ class DataManagerBase:
 
     def _ensure_main_products_identity_schema(self, conn):
         main_cols = ", ".join(
-            [f"`{c}` TEXT" for c in CORE_MAIN_COLUMNS if c not in ["project_id", "skuId", "_row_orig_idx"]]
+            [f'"{c}" TEXT' for c in CORE_MAIN_COLUMNS if c not in ["project_id", "skuId", "_row_orig_idx"]]
         )
         conn.execute(
             "CREATE TABLE IF NOT EXISTS main_products "
-            f"(project_id INTEGER, skuId TEXT, _row_orig_idx INT, {main_cols})"
+            f'(project_id INTEGER, "skuId" TEXT, "_row_orig_idx" INT, {main_cols})'
         )
         conn.execute(
             """
             CREATE UNIQUE INDEX IF NOT EXISTS idx_main_products_identity
             ON main_products (
                 project_id,
-                skuId,
-                COALESCE(`商品名称`, ''),
-                COALESCE(`规格名称`, '')
+                "skuId",
+                COALESCE("商品名称", ''),
+                COALESCE("规格名称", '')
             )
             """
         )
@@ -352,8 +352,7 @@ class DataManagerBase:
                         )
                         """
                     )
-                    cursor = conn.execute("PRAGMA table_info(project_analysis_snapshots)")
-                    snapshot_cols = [c[1] for c in cursor.fetchall()]
+                    snapshot_cols = conn.get_table_columns("project_analysis_snapshots")
                     if "workbench_summary_json" not in snapshot_cols:
                         conn.execute("ALTER TABLE project_analysis_snapshots ADD COLUMN workbench_summary_json TEXT NOT NULL DEFAULT '{}'")
                     
@@ -379,52 +378,50 @@ class DataManagerBase:
                         )
                         """
                     )
-                    cursor = conn.execute("PRAGMA table_info(manual_link_corrections)")
-                    manual_correction_cols = [c[1] for c in cursor.fetchall()]
+                    manual_correction_cols = conn.get_table_columns("manual_link_corrections")
                     if "error_type" not in manual_correction_cols:
                         conn.execute("ALTER TABLE manual_link_corrections ADD COLUMN error_type TEXT DEFAULT ''")
                     
-                    comp_cols = ", ".join([f"{c} TEXT" for c in CORE_COMP_COLUMNS if c not in ['project_id', 'store_id', 'skuId']])
-                    conn.execute(f"CREATE TABLE IF NOT EXISTS comp_products (project_id INTEGER, store_id TEXT, skuId TEXT, {comp_cols})")
+                    comp_cols = ", ".join([f'"{c}" TEXT' for c in CORE_COMP_COLUMNS if c not in ['project_id', 'store_id', 'skuId']])
+                    conn.execute(f'CREATE TABLE IF NOT EXISTS comp_products (project_id INTEGER, store_id TEXT, "skuId" TEXT, {comp_cols})')
                     
                     # --- Robust Migration: Add missing columns to all core tables ---
                     # 1. Check main_products
-                    cursor = conn.execute("PRAGMA table_info(main_products)")
-                    existing_main = [c[1] for c in cursor.fetchall()]
+                    existing_main = conn.get_table_columns("main_products")
+                    existing_main_lower = {c.lower() for c in existing_main}
                     for col in CORE_MAIN_COLUMNS:
-                        if col not in existing_main:
-                            conn.execute(f"ALTER TABLE main_products ADD COLUMN {col} TEXT")
+                        if col.lower() not in existing_main_lower:
+                            conn.execute(f'ALTER TABLE main_products ADD COLUMN "{col}" TEXT')
                             print(f"Migration: Added missing column [{col}] to main_products")
 
-                    if "is_handled" not in existing_main:
+                    if "is_handled" not in existing_main_lower:
                         conn.execute("ALTER TABLE main_products ADD COLUMN is_handled TEXT DEFAULT '0'")
                         print("Migration: Added is_handled column to main_products")
 
                     for ref_col in ("ref_name_store", "ref_image_store"):
-                        if ref_col not in existing_main:
+                        if ref_col not in existing_main_lower:
                             conn.execute(f"ALTER TABLE main_products ADD COLUMN {ref_col} TEXT DEFAULT ''")
                             print(f"Migration: Added {ref_col} column to main_products")
 
                     # 2. Check comp_products
-                    cursor = conn.execute("PRAGMA table_info(comp_products)")
-                    existing_comp = [c[1] for c in cursor.fetchall()]
+                    existing_comp = conn.get_table_columns("comp_products")
+                    existing_comp_lower = {c.lower() for c in existing_comp}
                     for col in CORE_COMP_COLUMNS:
-                        if col not in existing_comp:
-                            conn.execute(f"ALTER TABLE comp_products ADD COLUMN {col} TEXT")
+                        if col.lower() not in existing_comp_lower:
+                            conn.execute(f'ALTER TABLE comp_products ADD COLUMN "{col}" TEXT')
                             print(f"Migration: Added missing column [{col}] to comp_products")
 
                     # 3. Check extra columns (status, project_id etc)
                     tables_to_check = ["main_products", "product_links", "comp_products"]
                     for table in tables_to_check:
-                        cursor = conn.execute(f"PRAGMA table_info({table})")
-                        cols = [c[1] for c in cursor.fetchall()]
-                        if "project_id" not in cols:
+                        cols = conn.get_table_columns(table)
+                        cols_lower = {c.lower() for c in cols}
+                        if "project_id" not in cols_lower:
                             conn.execute(f"ALTER TABLE {table} ADD COLUMN project_id INTEGER DEFAULT 1")
                             print(f"Migration: Added project_id to {table}")
 
                     # 4. Check projects table extra columns
-                    cursor = conn.execute("PRAGMA table_info(projects)")
-                    proj_cols = [c[1] for c in cursor.fetchall()]
+                    proj_cols = conn.get_table_columns("projects")
                     if "status" not in proj_cols:
                         conn.execute("ALTER TABLE projects ADD COLUMN status TEXT DEFAULT 'ready'")
                     if "analysis_started_at" not in proj_cols:
@@ -485,10 +482,9 @@ class DataManagerBase:
                     )
                     _rtc = conn.execute("SELECT COUNT(*) FROM rule_templates").fetchone()[0]
                     if _rtc == 0:
-                        import json as _json
                         try:
                             import post_match_engine as _pme
-                            _cfg = _json.dumps(
+                            _cfg = json.dumps(
                                 _pme.get_builtin_default_template(), ensure_ascii=False, separators=(",", ":")
                             )
                         except Exception:
@@ -527,7 +523,7 @@ class DataManagerBase:
                         )
                     conn.execute(
                         """
-                        CREATE TABLE IF NOT EXISTS user (
+                        CREATE TABLE IF NOT EXISTS "user" (
                             userid TEXT PRIMARY KEY,
                             username TEXT NOT NULL,
                             phone TEXT NOT NULL UNIQUE,
@@ -541,22 +537,21 @@ class DataManagerBase:
                         )
                         """
                     )
-                    cursor = conn.execute("PRAGMA table_info(user)")
-                    user_cols = [c[1] for c in cursor.fetchall()]
+                    user_cols = conn.get_table_columns("user")
                     for col, ddl in (
-                        ("email", "ALTER TABLE user ADD COLUMN email TEXT DEFAULT ''"),
-                        ("password", "ALTER TABLE user ADD COLUMN password TEXT DEFAULT ''"),
-                        ("brand", "ALTER TABLE user ADD COLUMN brand TEXT DEFAULT ''"),
-                        ("status", "ALTER TABLE user ADD COLUMN status INTEGER NOT NULL DEFAULT 1"),
-                        ("created_at", "ALTER TABLE user ADD COLUMN created_at TEXT"),
-                        ("role_id", "ALTER TABLE user ADD COLUMN role_id TEXT"),
-                        ("role_name", "ALTER TABLE user ADD COLUMN role_name TEXT DEFAULT ''"),
-                        ("avatar", "ALTER TABLE user ADD COLUMN avatar TEXT DEFAULT ''"),
+                        ("email", "ALTER TABLE \"user\" ADD COLUMN email TEXT DEFAULT ''"),
+                        ("password", "ALTER TABLE \"user\" ADD COLUMN password TEXT DEFAULT ''"),
+                        ("brand", "ALTER TABLE \"user\" ADD COLUMN brand TEXT DEFAULT ''"),
+                        ("status", "ALTER TABLE \"user\" ADD COLUMN status INTEGER NOT NULL DEFAULT 1"),
+                        ("created_at", "ALTER TABLE \"user\" ADD COLUMN created_at TEXT"),
+                        ("role_id", "ALTER TABLE \"user\" ADD COLUMN role_id TEXT"),
+                        ("role_name", "ALTER TABLE \"user\" ADD COLUMN role_name TEXT DEFAULT ''"),
+                        ("avatar", "ALTER TABLE \"user\" ADD COLUMN avatar TEXT DEFAULT ''"),
                     ):
                         if col not in user_cols:
                             conn.execute(ddl)
-                    conn.execute("CREATE INDEX IF NOT EXISTS idx_user_status ON user(status)")
-                    conn.execute("CREATE INDEX IF NOT EXISTS idx_user_created_at ON user(created_at)")
+                    conn.execute("CREATE INDEX IF NOT EXISTS idx_user_status ON \"user\"(status)")
+                    conn.execute("CREATE INDEX IF NOT EXISTS idx_user_created_at ON \"user\"(created_at)")
 
                     # --- characters (运营后台角色管理) ---
                     conn.execute(
@@ -590,31 +585,103 @@ class DataManagerBase:
                                 (4, "采购", "系统默认角色", 1, _char_now),
                             ]
                         
+                        default_perms_map = {
+                            "超级管理员": [
+                                "/", 
+                                "/config-management/permissions", 
+                                "/config-management/rules", 
+                                "/user-management/users", 
+                                "/user-management/roles", 
+                                "/data-management/operations", 
+                                "/data-management/stores", 
+                                "/market-analysis", 
+                                "/pi-agent", 
+                                "/ops-tools"
+                            ],
+                            "管理员": [
+                                "/", 
+                                "/config-management/rules", 
+                                "/user-management/users", 
+                                "/user-management/roles", 
+                                "/data-management/operations", 
+                                "/data-management/stores", 
+                                "/market-analysis", 
+                                "/pi-agent", 
+                                "/ops-tools"
+                            ],
+                            "运营": [
+                                "/", 
+                                "/data-management/operations", 
+                                "/data-management/stores", 
+                                "/market-analysis", 
+                                "/pi-agent", 
+                                "/ops-tools"
+                            ],
+                            "采购": [
+                                "/", 
+                                "/data-management/operations", 
+                                "/data-management/stores", 
+                                "/ops-tools"
+                            ]
+                        }
                         for r_id, r_name, r_desc, r_status, r_created in existing_roles:
                             new_char_id = uuid.uuid4().hex
-                            # Insert into characters
+                            perms = default_perms_map.get(r_name, [])
                             conn.execute(
                                 """
                                 INSERT INTO characters (characterid, name, description, permissions, status, created_at)
-                                VALUES (?, ?, ?, '[]', ?, ?)
+                                VALUES (?, ?, ?, ?, ?, ?)
                                 """,
-                                (new_char_id, r_name, r_desc, r_status or 1, r_created or _char_now)
+                                (new_char_id, r_name, r_desc, json.dumps(perms, ensure_ascii=False), r_status or 1, r_created or _char_now)
                             )
                             
                             # Migrate existing users from this old role ID to the new 32-character characterid
                             conn.execute(
-                                "UPDATE user SET role_id = ?, role_name = ? WHERE role_id = ?",
+                                "UPDATE \"user\" SET role_id = ?, role_name = ? WHERE role_id = ?",
                                 (new_char_id, r_name, str(r_id))
                             )
 
                     # Performance indexes for unlinked-pool / grid queries
                     conn.execute("CREATE INDEX IF NOT EXISTS idx_product_links_lookup ON product_links(project_id, store_id, comp_sku_id)")
                     conn.execute("CREATE INDEX IF NOT EXISTS idx_comp_products_store ON comp_products(project_id, store_id)")
-                    conn.execute("CREATE INDEX IF NOT EXISTS idx_comp_products_lookup ON comp_products(project_id, store_id, skuId)")
+                    conn.execute("CREATE INDEX IF NOT EXISTS idx_comp_products_lookup ON comp_products(project_id, store_id, \"skuId\")")
                     conn.execute("CREATE INDEX IF NOT EXISTS idx_product_links_main ON product_links(project_id, main_sku_id)")
                     conn.execute("CREATE INDEX IF NOT EXISTS idx_manual_link_corrections_project ON manual_link_corrections(project_id, created_at)")
                     conn.execute("CREATE INDEX IF NOT EXISTS idx_match_feedback_project ON match_feedback_cases(project_id, store_id, main_sku_id)")
                     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_match_feedback_unique ON match_feedback_cases(project_id, main_sku_id, store_id, correct_comp_sku_id)")
+
+                    conn.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS project_members (
+                            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                            project_id INTEGER NOT NULL,
+                            user_id TEXT NOT NULL,
+                            role TEXT NOT NULL DEFAULT 'viewer',
+                            created_at TEXT NOT NULL,
+                            UNIQUE(project_id, user_id)
+                        )
+                        """
+                    )
+                    conn.execute("CREATE INDEX IF NOT EXISTS idx_project_members_project ON project_members(project_id)")
+                    conn.execute("CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(user_id)")
+
+                    conn.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS audit_logs (
+                            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                            project_id INTEGER,
+                            user_id TEXT DEFAULT '',
+                            username TEXT DEFAULT '',
+                            action TEXT NOT NULL,
+                            target_type TEXT DEFAULT '',
+                            target_id TEXT DEFAULT '',
+                            detail_json TEXT NOT NULL DEFAULT '{}',
+                            created_at TEXT NOT NULL
+                        )
+                        """
+                    )
+                    conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_project_created ON audit_logs(project_id, created_at)")
+                    conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_action_created ON audit_logs(action, created_at)")
 
                     # Initialize default project if none exist
                     cursor = conn.execute("SELECT COUNT(*) FROM projects")
@@ -662,7 +729,7 @@ class DataManagerBase:
                         )
                     
                     # Bootstrap default 'admin' user if not exists
-                    admin_exists = conn.execute("SELECT COUNT(*) FROM user WHERE username = ?", ("admin",)).fetchone()[0]
+                    admin_exists = conn.execute("SELECT COUNT(*) FROM \"user\" WHERE username = ?", ("admin",)).fetchone()[0]
                     if admin_exists == 0:
                         import uuid
                         super_admin_row = conn.execute("SELECT characterid FROM characters WHERE name = ?", ("超级管理员",)).fetchone()
@@ -683,7 +750,7 @@ class DataManagerBase:
                         new_user_id = uuid.uuid4().hex
                         conn.execute(
                             """
-                            INSERT INTO user (userid, username, phone, email, password, brand, status, created_at, role_id, role_name)
+                            INSERT INTO "user" (userid, username, phone, email, password, brand, status, created_at, role_id, role_name)
                             VALUES (?, ?, ?, '', ?, '', 1, ?, ?, ?)
                             """,
                             (new_user_id, "admin", "10000000000", "admin", _user_now, super_admin_char_id, "超级管理员")
@@ -693,9 +760,8 @@ class DataManagerBase:
                     # Run initial userids sync to characters table
                     chars = conn.execute("SELECT characterid FROM characters").fetchall()
                     for (char_id,) in chars:
-                        users = conn.execute("SELECT userid FROM user WHERE role_id = ?", (char_id,)).fetchall()
+                        users = conn.execute("SELECT userid FROM \"user\" WHERE role_id = ?", (char_id,)).fetchall()
                         user_list = [u[0] for u in users]
-                        import json
                         conn.execute(
                             "UPDATE characters SET userids = ? WHERE characterid = ?",
                             (json.dumps(user_list, ensure_ascii=False), char_id),
@@ -704,14 +770,13 @@ class DataManagerBase:
                 conn.close()
 
     def sync_character_userids(self, conn=None):
-        import json
         with_conn = conn is not None
         if not with_conn:
             conn = self._get_conn()
         try:
             chars = conn.execute("SELECT characterid FROM characters").fetchall()
             for (char_id,) in chars:
-                users = conn.execute("SELECT userid FROM user WHERE role_id = ?", (char_id,)).fetchall()
+                users = conn.execute("SELECT userid FROM \"user\" WHERE role_id = ?", (char_id,)).fetchall()
                 user_list = [u[0] for u in users]
                 conn.execute(
                     "UPDATE characters SET userids = ? WHERE characterid = ?",

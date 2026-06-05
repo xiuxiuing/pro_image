@@ -191,7 +191,7 @@ class DataManagerExportMixin:
                             pl.similarity AS 匹配相似度,
                             pl.match_type AS 关联方式,
                             pl.is_new_add AS 链接是否新增,
-                            mp.`商品名称` AS 关联主店商品名称
+                            mp."商品名称" AS 关联主店商品名称
                         FROM product_links pl
                         LEFT JOIN main_products mp
                           ON mp.project_id = pl.project_id
@@ -250,9 +250,7 @@ class DataManagerExportMixin:
         # 1. Fetch ALL products marked as "New" from comp_products (includes linked + unlinked)
         all_new_data = []
         with self._db_lock, self._get_conn() as conn:
-            comp_cols = {
-                row[1] for row in conn.execute("PRAGMA table_info(comp_products)").fetchall()
-            }
+            comp_cols = set(conn.get_table_columns("comp_products"))
             if "is_new_add" in comp_cols:
                 ignored_clause = "AND COALESCE(is_ignored, '') != '是'" if "is_ignored" in comp_cols else ""
                 query = f"SELECT * FROM comp_products WHERE project_id = ? AND is_new_add IN ('是', '新增为SPU', '新增该规格') {ignored_clause}"
@@ -369,29 +367,29 @@ class DataManagerExportMixin:
                     COALESCE(NULLIF(mlc.error_type, ''), CASE WHEN COALESCE(mlc.old_comp_sku_id, '') != '' THEN '错配' ELSE '漏配' END) AS 错误类型,
                     mlc.store_id AS __store_id,
                     mp.skuId AS "主店skuId",
-                    mp.`商品名称` AS 主店商品名称,
-                    mp.`规格名称` AS 主店规格名称,
-                    mp.`主图链接` AS 主店主图链接,
-                    mp.`销售` AS 主店销售,
-                    mp.`原价` AS 主店原价,
-                    mp.`活动价` AS 主店活动价,
-                    mp.`采购价` AS 主店采购价,
+                    mp."商品名称" AS 主店商品名称,
+                    mp."规格名称" AS 主店规格名称,
+                    mp."主图链接" AS 主店主图链接,
+                    mp."销售" AS 主店销售,
+                    mp."原价" AS 主店原价,
+                    mp."活动价" AS 主店活动价,
+                    mp."采购价" AS 主店采购价,
                     mlc.old_comp_sku_id AS "原竞店skuId",
-                    old_cp.`商品名称` AS 原竞店商品名称,
-                    old_cp.`规格名称` AS 原竞店规格名称,
-                    old_cp.`主图链接` AS 原竞店主图链接,
-                    old_cp.`销售` AS 原竞店销售,
-                    old_cp.`原价` AS 原竞店原价,
-                    old_cp.`活动价` AS 原竞店活动价,
+                    old_cp."商品名称" AS 原竞店商品名称,
+                    old_cp."规格名称" AS 原竞店规格名称,
+                    old_cp."主图链接" AS 原竞店主图链接,
+                    old_cp."销售" AS 原竞店销售,
+                    old_cp."原价" AS 原竞店原价,
+                    old_cp."活动价" AS 原竞店活动价,
                     mlc.old_match_type AS 原关联方式,
                     mlc.old_similarity AS 原匹配相似度,
                     mlc.new_comp_sku_id AS "现竞店skuId",
-                    new_cp.`商品名称` AS 现竞店商品名称,
-                    new_cp.`规格名称` AS 现竞店规格名称,
-                    new_cp.`主图链接` AS 现竞店主图链接,
-                    new_cp.`销售` AS 现竞店销售,
-                    new_cp.`原价` AS 现竞店原价,
-                    new_cp.`活动价` AS 现竞店活动价,
+                    new_cp."商品名称" AS 现竞店商品名称,
+                    new_cp."规格名称" AS 现竞店规格名称,
+                    new_cp."主图链接" AS 现竞店主图链接,
+                    new_cp."销售" AS 现竞店销售,
+                    new_cp."原价" AS 现竞店原价,
+                    new_cp."活动价" AS 现竞店活动价,
                     mlc.new_match_type AS 现关联方式,
                     mlc.new_similarity AS 现匹配相似度
                 FROM manual_link_corrections mlc

@@ -1569,10 +1569,7 @@ class DataManagerQueryMixin(DataManagerUnlinkedQueryMixin):
                 total = conn.execute(f"SELECT COUNT(*) FROM main_products WHERE {where_sql}", tuple(params)).fetchone()[0]
                 limit_clause = "" if has_search else "LIMIT ? OFFSET ?"
                 query_params = tuple(params) if has_search else tuple(params + [limit, offset])
-                existing_cols = {
-                    str(row[1])
-                    for row in conn.execute("PRAGMA table_info(main_products)").fetchall()
-                }
+                existing_cols = set(conn.get_table_columns("main_products"))
                 optional_cols = [c for c in ("采购价", "库存") if c in existing_cols]
                 select_cols = [
                     "skuId", "商品名称", "规格名称", "主图链接", "活动价", "原价",
